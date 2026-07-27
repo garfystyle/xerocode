@@ -1,0 +1,14 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="icon-title">
+  <title id="icon-title">XeroCode</title>
+  <g id="ring">
+    <path fill="#6366F1" fill-rule="evenodd" d="M256 48 A208 208 0 1 0 256 464 A208 208 0 1 0 256 48 Z M256 82 A174 174 0 1 1 256 430 A174 174 0 1 1 256 82 Z"/>
+  </g>
+  <g id="wordmark" fill="none" stroke="#6366F1" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M121 231 L155 281"/>
+    <path d="M155 231 L121 281"/>
+    <path d="M192 256 L242 256 A25 25 0 1 0 234.68 273.68"/>
+    <path d="M279 231 L279 281"/>
+    <path d="M279 256 A25 25 0 0 1 304 231"/>
+    <circle cx="366" cy="256" r="25"/>
+  </g>
+</svg>

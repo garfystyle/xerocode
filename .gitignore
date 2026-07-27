@@ -1,0 +1,10 @@
+.gradle/
+build/
+logs/
+__pycache__/
+*.pyc
+
+run/
+remappedSrc/
+
+DOCS.md

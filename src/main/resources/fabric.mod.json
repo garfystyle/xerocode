@@ -1,0 +1,24 @@
+{
+	"schemaVersion": 1,
+	"id": "xerocode",
+	"version": "${version}",
+	"name": "xerocode",
+	"description": "Визуальный редактор кода JustMC Creative+: блоки на полотне вместо блоков в мире. Открывается по Ctrl+G или сам при входе в /dev, читает уже написанный в мире код и отправляет полотно обратно на сервер. Каталог целиком — 1300 действий, 213 игровых значений, 1816 звуков, 111 частиц.",
+	"authors": ["GarfyYT"],
+	"icon": "assets/xerocode/icon.png",
+	"environment": "client",
+	"accessWidener": "xerocode.accesswidener",
+	"entrypoints": {
+		"client": ["com.xerocode.XeroCode"]
+	},
+	"depends": {
+		"fabricloader": ">=0.16.0",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-lifecycle-events-v1": "*",
+		"fabric-rendering-v1": "*",
+		"fabric-screen-api-v1": "*",
+		"fabric-message-api-v1": "*",
+		"fabric-events-interaction-v0": "*"
+	}
+}

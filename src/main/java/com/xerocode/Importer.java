@@ -3,6 +3,7 @@ package com.xerocode;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.xerocode.ui.Layout;
 import net.minecraft.client.font.TextRenderer;
 
@@ -10,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -160,6 +162,18 @@ public final class Importer {
                         result.values++;
                     }
                 }
+                case "display_name" -> {
+                    Value text = localized(value, node, "display_name");
+                    if (text != null) { node.valuesOf(Catalog.FN_DISPLAY).add(text); result.values++; }
+                }
+                case "display_description" -> {
+                    Value text = localized(value, node, "display_description");
+                    if (text == null) break;
+                    for (Value line : descLines(text)) {
+                        node.valuesOf(Catalog.FN_DESC).add(line);
+                        result.values++;
+                    }
+                }
                 case "description" -> {
                     for (JsonObject cell : cells(value)) {
                         Value line = read(cell, result);
@@ -246,7 +260,7 @@ public final class Importer {
 
     private static String staticOption(Catalog.Action action, int index, String serverId) {
         if (index >= action.settings.size() || serverId.isEmpty()) return null;
-        String want = SERVER_OPTIONS.get(serverId.toUpperCase(java.util.Locale.ROOT));
+        String want = SERVER_OPTIONS.get(serverId.toUpperCase(Locale.ROOT));
         List<String> options = action.settings.get(index).options;
         return want != null && options.contains(want) ? want : null;
     }
@@ -262,7 +276,7 @@ public final class Importer {
 
     private static String paramName(String key) {
         try {
-            JsonObject o = com.google.gson.JsonParser.parseString(key).getAsJsonObject();
+            JsonObject o = JsonParser.parseString(key).getAsJsonObject();
             return str(o, "text");
         } catch (RuntimeException e) {
             return "";
@@ -307,8 +321,25 @@ public final class Importer {
             }
             Script.Node node = new Script.Node(action);
             keepFields(op, node);
+            if (!id.equals(Mapping.actionId(action))) raw(node).addProperty(KEPT_ID, id);
             readBlockFields(op, node, result);
-            readValues(op, node, act, action, result, where);
+            Script.Node holder = node;
+            Mapping.Act valueAct = act;
+            Catalog.Action valueAction = action;
+            if (op.has("conditional") && op.get("conditional").isJsonObject()) {
+                JsonObject c = op.getAsJsonObject("conditional");
+                Cond cond = condition(c);
+                if (cond == null) {
+                    unknown(result, "условие " + str(c, "action"));
+                } else {
+                    node.cond = cond.node();
+                    if (node.raw != null) node.raw.remove("conditional");
+                    holder = cond.node();
+                    valueAct = cond.act();
+                    valueAction = cond.action();
+                }
+            }
+            readValues(op, holder, valueAct, valueAction, result, where);
             readOperations(op, node.body, result, where);
             into.add(node);
             result.blocks++;
@@ -331,6 +362,74 @@ public final class Importer {
         return out;
     }
 
+    private record Cond(Script.Node node, Mapping.Act act, Catalog.Action action) {}
+
+    private static Cond condition(JsonObject c) {
+        Mapping.Act act = Mapping.action(str(c, "action"));
+        Catalog.Action action = act == null ? null : Catalog.byKey(act.key);
+        if (action == null) return null;
+        Script.Node node = new Script.Node(action);
+        if (c.has("is_inverted") && c.get("is_inverted").getAsBoolean())
+            node.setSetting(Catalog.INVERT, Catalog.INVERT_ON);
+        return new Cond(node, act, action);
+    }
+
+    public static boolean adoptConditional(Script.Node node) {
+        if (node.cond != null || node.raw == null) return false;
+        if (!node.raw.has("conditional") || !node.raw.get("conditional").isJsonObject()) return false;
+        Cond cond = condition(node.raw.getAsJsonObject("conditional"));
+        if (cond == null) return false;
+        JsonObject op = new JsonObject();
+        if (node.raw.has("values")) op.add("values", node.raw.get("values"));
+        readValues(op, cond.node(), cond.act(), cond.action(), new Result(), "перенос");
+        node.cond = cond.node();
+        node.raw.remove("conditional");
+        node.raw.remove("values");
+        if (node.raw.isEmpty()) node.raw = null;
+        return true;
+    }
+
+    private static Value localized(JsonObject value, Script.Node node, String field) {
+        String data = str(value, "data");
+        if (data.isBlank()) return null;
+        JsonObject translations = Localized.translations(data);
+        if (!translations.isEmpty()) raw(node).add(TRANSLATIONS + field, translations);
+        Value text = Value.of(Value.TEXT);
+        text.text = Localized.text(data);
+        text.parsing = Localized.parsing(data);
+        return text;
+    }
+
+    public static final String TRANSLATIONS = "__tr_";
+    public static final String KEPT_ID = "__id";
+
+    private static List<Value> descLines(Value text) {
+        List<Value> out = new ArrayList<>();
+        String[] parts = text.text.split("\n", -1);
+        for (int i = 0; i < parts.length; i++) {
+            Value line = Value.of(Value.TEXT);
+            line.parsing = text.parsing;
+            boolean last = out.size() == Catalog.MAX_DESC - 1;
+            StringBuilder sb = new StringBuilder(parts[i]);
+            if (last) for (int j = i + 1; j < parts.length; j++) sb.append('\n').append(parts[j]);
+            line.text = sb.toString();
+            out.add(line);
+            if (last) break;
+        }
+        while (!out.isEmpty() && out.get(out.size() - 1).text.isEmpty()) out.remove(out.size() - 1);
+        return out;
+    }
+
+    private static void bindMarker(Script.Node node, int index, JsonObject value) {
+        String name = str(value, "variable");
+        if (name == null || name.isBlank()) return;
+        Value bound = Value.of(Value.VARIABLE);
+        bound.name = name;
+        String scope = str(value, "scope");
+        if (scope != null && !scope.isBlank()) bound.scope = scope;
+        node.bindMarker(index, bound);
+    }
+
     private static void readValues(JsonObject op, Script.Node node, Mapping.Act act,
                                    Catalog.Action action, Result result, String where) {
         String id = str(op, "action");
@@ -348,6 +447,7 @@ public final class Importer {
                     keepValue(entry, node);
                 } else {
                     node.markers.put(setting.index, option);
+                    bindMarker(node, setting.index, value);
                     result.markers++;
                 }
                 continue;

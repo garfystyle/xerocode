@@ -73,8 +73,9 @@ public final class Exporter {
         JsonArray values = new JsonArray();
         JsonArray params = cells(head.values.get(Catalog.FN_PARAMS), report);
         if (!params.isEmpty()) values.add(entry("parameters", array(params)));
-        JsonArray desc = cells(head.values.get(Catalog.FN_DESC), report);
-        if (!desc.isEmpty()) values.add(entry("description", array(desc)));
+
+        localized(head, Catalog.FN_DISPLAY, "display_name", values, report);
+        localized(head, Catalog.FN_DESC, "display_description", values, report);
 
         Value icon = head.value(Catalog.FN_ICON);
         String encoded = icon == null ? null : Stacks.toServer(icon);
@@ -91,6 +92,19 @@ public final class Exporter {
         report.markers++;
         keptValues(head, values);
         return values;
+    }
+
+    private static void localized(Script.Node head, int arg, String field, JsonArray values,
+                                  Report report) {
+        Localized.Joined text = Localized.join(head.values.get(arg));
+        String key = Importer.TRANSLATIONS + field;
+        JsonObject translations = head.raw != null && head.raw.has(key)
+                && head.raw.get(key).isJsonObject()
+                ? Localized.normalize(head.raw.getAsJsonObject(key)) : null;
+        String data = Localized.data(text.text(), text.parsing(), translations);
+        if (Localized.blank(data)) return;
+        values.add(entry(field, Localized.value(data)));
+        report.values++;
     }
 
     private static JsonArray operations(List<Script.Node> chain, Report report) {
@@ -121,13 +135,40 @@ public final class Exporter {
         } else {
             String id = Mapping.actionId(node.action);
             Mapping.Act act = id == null ? null : Mapping.action(id);
+            if (act != null && node.raw != null && node.raw.has(Importer.KEPT_ID)) {
+                String kept = node.raw.get(Importer.KEPT_ID).getAsString();
+                Mapping.Act keptAct = Mapping.action(kept);
+                if (keptAct != null && act.key.equals(keptAct.key)) { id = kept; act = keptAct; }
+            }
             if (act == null) {
                 report.unmapped++;
                 report.problem("«" + node.action.name + "» (" + node.action.category.name + ")");
                 return null;
             }
+            if (Mapping.hasConditional(node.action) && node.cond == null) {
+                report.unmapped++;
+                report.problem("«" + node.action.name + "» без условия");
+                return null;
+            }
             op.addProperty("action", id);
-            op.add("values", values(node, act, report));
+            if (node.cond != null) {
+                String condId = Mapping.actionId(node.cond.action);
+                Mapping.Act condAct = condId == null ? null : Mapping.action(condId);
+                if (condAct == null) {
+                    report.unmapped++;
+                    report.problem("условие «" + node.cond.action.name + "» у «"
+                            + node.action.name + "»");
+                    return null;
+                }
+                op.add("values", values(node.cond, condAct, report));
+                JsonObject cond = new JsonObject();
+                cond.addProperty("action", condId);
+                cond.addProperty("is_inverted",
+                        Catalog.INVERT_ON.equals(node.cond.settingOf(Catalog.INVERT)));
+                op.add("conditional", cond);
+            } else {
+                op.add("values", values(node, act, report));
+            }
         }
         report.blocks++;
         blockFields(node, op, report);
@@ -167,7 +208,8 @@ public final class Exporter {
                 report.problem("аргумент " + (e.getKey() + 1) + " у «" + node.action.name + "»");
                 continue;
             }
-            JsonElement value = slot(list, act.isPlural(name), report);
+            JsonElement value = slot(list, act.isPlural(name),
+                    Catalog.slots(node.action, e.getKey()) != null, report);
             if (value != null) out.add(entry(name, value));
         }
         for (Map.Entry<Integer, String> e : node.markers.entrySet()) {
@@ -176,31 +218,42 @@ public final class Exporter {
             Map<String, String> ids = act.optionIds.get(e.getKey());
             String id = ids == null ? null : ids.get(e.getValue());
             if (name == null || id == null) continue;
-            out.add(entry(name, enumValue(id)));
+            out.add(entry(name, enumValue(id, node.markerVar(e.getKey()))));
             report.markers++;
         }
         keptValues(node, out);
         return out;
     }
 
-    private static JsonElement slot(List<Value> list, boolean plural, Report report) {
+    private static final String EMPTY_STACK = "AAAAAAAAAAA=";
+
+    private static JsonElement slot(List<Value> list, boolean plural, boolean slotted,
+                                    Report report) {
         if (!plural) return value(list.get(0), report);
         if (list.size() == 1 && Value.ARRAY.equals(list.get(0).type))
             return value(list.get(0), report);
-        return array(cells(list, report));
+        return array(cells(list, slotted, report));
     }
 
     private static JsonArray cells(List<Value> list, Report report) {
+        return cells(list, false, report);
+    }
+
+    private static JsonArray cells(List<Value> list, boolean slotted, Report report) {
         JsonArray cells = new JsonArray();
         if (list == null) return cells;
-        for (Value v : list) cells.add(cell(v, report));
+        for (Value v : list) cells.add(cell(v, slotted, report));
         return cells;
     }
 
-    private static JsonObject cell(Value v, Report report) {
-        if (v == null || v.isBlank()) return new JsonObject();
-        JsonObject cell = value(v, report);
-        return cell == null ? new JsonObject() : cell;
+    private static JsonObject cell(Value v, boolean slotted, Report report) {
+        JsonObject cell = v == null || v.isBlank() ? null : value(v, report);
+        if (cell != null) return cell;
+        if (!slotted) return new JsonObject();
+        JsonObject empty = new JsonObject();
+        empty.addProperty("type", Value.ITEM);
+        empty.addProperty("item", EMPTY_STACK);
+        return empty;
     }
 
     private static JsonArray invokeValues(Script.Node node, Report report) {
@@ -247,7 +300,7 @@ public final class Exporter {
         if (index >= node.settings().size()) return;
         String id = SERVER_OPTIONS.get(node.marker(index));
         if (id == null) return;
-        out.add(entry(name, enumValue(id)));
+        out.add(entry(name, enumValue(id, node.markerVar(index))));
         report.markers++;
     }
 
@@ -291,7 +344,7 @@ public final class Exporter {
                 int last = -1;
                 for (int i = 0; i < v.items.size(); i++) if (!v.items.get(i).isBlank()) last = i;
                 JsonArray cells = new JsonArray();
-                for (int i = 0; i <= last; i++) cells.add(cell(v.items.get(i), report));
+                for (int i = 0; i <= last; i++) cells.add(cell(v.items.get(i), false, report));
                 o.add("values", cells);
                 report.values++;
                 return o;
@@ -326,10 +379,16 @@ public final class Exporter {
         return o;
     }
 
-    private static JsonObject enumValue(String id) {
+    private static JsonObject enumValue(String id) { return enumValue(id, null); }
+
+    private static JsonObject enumValue(String id, Value bound) {
         JsonObject o = new JsonObject();
         o.addProperty("type", "enum");
         o.addProperty("enum", id.toUpperCase(Locale.ROOT));
+        if (bound != null && !bound.name.isBlank()) {
+            o.addProperty("variable", bound.name);
+            o.addProperty("scope", bound.scope);
+        }
         return o;
     }
 
@@ -343,7 +402,7 @@ public final class Exporter {
     private static void keptFields(Script.Node node, JsonObject op) {
         if (node.raw == null) return;
         for (String field : node.raw.keySet()) {
-            if ("values".equals(field)) continue;
+            if ("values".equals(field) || field.startsWith("__")) continue;
             op.add(field, node.raw.get(field));
         }
     }

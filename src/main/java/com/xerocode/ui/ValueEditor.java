@@ -1,7 +1,10 @@
 package com.xerocode.ui;
 
+import com.google.gson.JsonObject;
 import com.xerocode.Audio;
 import com.xerocode.Catalog;
+import com.xerocode.Importer;
+import com.xerocode.Localized;
 import com.xerocode.Pickers;
 import com.xerocode.Script;
 import com.xerocode.Stacks;
@@ -20,9 +23,11 @@ import net.minecraft.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public final class ValueEditor {
     private static final int PAD = 10;
@@ -49,9 +54,13 @@ public final class ValueEditor {
 
     private static List<Values.Kind> kinds() { return Values.KINDS; }
 
+    private String onlyKind;
+
     private boolean usable(String id) {
+        if (onlyKind != null) return onlyKind.equals(id);
         if (declaresParameters()) return Value.PARAMETER.equals(id);
-        if (declaresHead(Catalog.FN_NAME, Catalog.FN_DESC)) return Value.TEXT.equals(id);
+        if (declaresHead(Catalog.FN_NAME, Catalog.FN_DESC, Catalog.FN_DISPLAY))
+            return Value.TEXT.equals(id);
         if (declaresHead(Catalog.FN_ICON)) return Value.ITEM.equals(id);
         return Values.EDITABLE.contains(id);
     }
@@ -68,7 +77,7 @@ public final class ValueEditor {
     private final int argIndex;
     private final Catalog.Arg arg;
     private final TextRenderer tr;
-    private final int screenW, screenH;
+    private int screenW, screenH;
     private final int anchorX, anchorY;
     private final List<String> knownVars, knownParams;
 
@@ -78,6 +87,12 @@ public final class ValueEditor {
     private final List<TextFieldWidget> fields = new ArrayList<>();
     private Ui.Chips paramChips, targetChips, scopeChips, modeChips, sourceChips;
     private Ui.Chips kindChips, elemChips;
+    private final Ui.Bar bodyBar = new Ui.Bar(), listBar = new Ui.Bar(), cellBar = new Ui.Bar();
+    private int lastMx, lastMy;
+    private int dragSlot = -1;
+    private boolean slotMoved;
+    private String lang = "";
+    private final Map<String, List<Value>> byLang = new LinkedHashMap<>();
     private List<String> suggestions = List.of();
     private SoundPlayer player;
     private ParticleStage stage;
@@ -96,6 +111,8 @@ public final class ValueEditor {
     private int x, y, w, h;
     private int focus;
     private boolean closed, committed, changed, compact, placed;
+    private final Ui.Pane pane = new Ui.Pane();
+    private int naturalH;
     private boolean pickInWorld;
     private boolean cancelled;
     private boolean dragging;
@@ -123,7 +140,7 @@ public final class ValueEditor {
         this.anchorY = anchorY;
         this.knownVars = knownVars == null ? List.of() : knownVars;
         this.knownParams = knownParams == null ? List.of() : knownParams;
-        this.w = Math.min(WIDTH, Math.max(200, screenW - 12));
+        this.w = Ui.fitW(screenW, WIDTH);
     }
 
     public ValueEditor(Script.Node node, int argIndex, TextRenderer tr,
@@ -133,8 +150,98 @@ public final class ValueEditor {
                 screenW, screenH, knownVars, knownParams);
         List<Value> existing = node.values.get(argIndex);
         if (existing != null) for (Value v : existing) values.add(v.copy());
-        this.before = json(values);
+        if (localizedField() != null) {
+            byLang.put("", copies(values));
+            for (Localized.Lang l : Localized.LANGS)
+                if (!l.id().isEmpty()) byLang.put(l.id(), readTranslation(l.id()));
+            this.before = allJson();
+        } else {
+            this.before = json(values);
+        }
         if (values.isEmpty()) values.add(Value.of(Values.defaultKind(arg.type)));
+        buildForm();
+    }
+
+    private String localizedField() {
+        return node == null || !node.declares() ? null : Catalog.localizedField(argIndex);
+    }
+
+    private static List<Value> copies(List<Value> list) {
+        List<Value> out = new ArrayList<>();
+        for (Value v : list) out.add(v.copy());
+        return out;
+    }
+
+    private static String kept(List<Value> list) {
+        List<Value> out = new ArrayList<>();
+        for (Value v : list) if (!v.isBlank()) out.add(v);
+        return json(out);
+    }
+
+    private String allJson() {
+        StringBuilder sb = new StringBuilder();
+        for (Localized.Lang l : Localized.LANGS) {
+            List<Value> list = byLang.get(l.id());
+            sb.append(l.id()).append('=').append(list == null ? "" : kept(list)).append(';');
+        }
+        return sb.toString();
+    }
+
+    private JsonObject translations(boolean create) {
+        String field = localizedField();
+        if (field == null) return null;
+        String key = Importer.TRANSLATIONS + field;
+        if (node.raw != null && node.raw.has(key) && node.raw.get(key).isJsonObject()) {
+            JsonObject was = node.raw.getAsJsonObject(key);
+            JsonObject now = Localized.normalize(was);
+            if (now.equals(was)) return was;
+            node.raw.add(key, now);
+            return now;
+        }
+        if (!create) return null;
+        if (node.raw == null) node.raw = new JsonObject();
+        JsonObject made = new JsonObject();
+        node.raw.add(key, made);
+        return made;
+    }
+
+    private List<Value> readTranslation(String id) {
+        List<Value> out = new ArrayList<>();
+        JsonObject all = translations(false);
+        if (all == null || !all.has(id)) return out;
+        String text = Localized.entryText(all.get(id));
+        String parsing = Localized.entryParsing(all.get(id));
+        for (String part : arg != null && arg.list ? text.split("\n", -1) : new String[]{text}) {
+            Value v = Value.of(Value.TEXT);
+            v.text = part;
+            v.parsing = parsing;
+            out.add(v);
+        }
+        while (!out.isEmpty() && out.get(out.size() - 1).text.isEmpty()) out.remove(out.size() - 1);
+        return out;
+    }
+
+    private void writeTranslation(String id, List<Value> list) {
+        Localized.Joined text = Localized.join(list);
+        boolean any = !text.text().isEmpty();
+        JsonObject all = translations(any);
+        if (all == null) return;
+        if (any) all.add(id, Localized.entry(text.text(), text.parsing()));
+        else all.remove(id);
+        if (all.isEmpty()) node.raw.remove(Importer.TRANSLATIONS + localizedField());
+        if (node.raw.isEmpty()) node.raw = null;
+    }
+
+    private void switchLang(String id) {
+        if (id.equals(lang)) return;
+        readForm();
+        byLang.put(lang, copies(values));
+        lang = id;
+        values.clear();
+        values.addAll(copies(byLang.getOrDefault(id, List.of())));
+        if (values.isEmpty()) values.add(Value.of(Values.defaultKind(arg.type)));
+        sel = 0;
+        listScroll = 0;
         buildForm();
     }
 
@@ -145,6 +252,33 @@ public final class ValueEditor {
                 screenW, screenH, knownVars, knownParams);
         values.add(value.copy());
         this.before = json(values);
+        buildForm();
+    }
+
+    public static ValueEditor forCell(Value value, String purpose, String onlyKind,
+                                      TextRenderer tr, int anchorX, int anchorY,
+                                      int screenW, int screenH, List<String> knownVars,
+                                      List<String> knownParams, Cell done) {
+        ValueEditor editor = new ValueEditor(value, purpose, tr, anchorX, anchorY,
+                screenW, screenH, knownVars, knownParams, done);
+        editor.onlyKind = onlyKind;
+        return editor;
+    }
+
+    public void resize(int sw, int sh) {
+        if (sw == screenW && sh == screenH) return;
+        screenW = sw;
+        screenH = sh;
+        w = Ui.fitW(screenW, WIDTH);
+        compact = false;
+        placed = false;
+        if (nested != null) nested.resize(sw, sh);
+        if (picker != null) picker.resize(sw, sh);
+        if (itemPicker != null) itemPicker.resize(sw, sh);
+        if (itemStudio != null) itemStudio.resize(sw, sh);
+        if (studio != null) studio.resize(sw, sh);
+        menu = null;
+        colors = null;
         buildForm();
     }
 
@@ -255,6 +389,8 @@ public final class ValueEditor {
     }
 
     private void buildForm() {
+        Catalog.Slots grid = slots();
+        if (grid != null) padSlots(grid);
         fields.clear();
         parts.clear();
         fieldRows.clear();
@@ -443,7 +579,7 @@ public final class ValueEditor {
 
         clampListScroll();
         layout();
-        if (h > screenH - 8 && !compact) {
+        if (h < naturalH && !compact) {
             compact = true;
             buildForm();
             return;
@@ -475,7 +611,9 @@ public final class ValueEditor {
         suggestions = out;
     }
 
-    private int kindGridH() { return grid().height(kinds().size()); }
+    private int railH() {
+        return localizedField() != null ? langsH() : grid().height(kinds().size());
+    }
 
     private Ui.Grid grid() {
         int n = kinds().size();
@@ -483,10 +621,51 @@ public final class ValueEditor {
         int cell = Math.max(16, ((inner - (n - 1)) / n) & ~1);
         int gap = n > 1 ? Math.max(1, (inner - n * cell) / (n - 1)) : 0;
         int row = n * cell + (n - 1) * gap;
-        return new Ui.Grid(x + PAD + (inner - row) / 2, kindY(), n, cell, KIND_H, gap);
+        return new Ui.Grid(x + PAD + (inner - row) / 2, railY(), n, cell, KIND_H, gap);
     }
 
     private int listMax() { return compact ? LIST_MAX_COMPACT : LIST_MAX; }
+
+    private static final int SLOT = 18, SLOT_GAP = 4;
+
+    private Catalog.Slots slots() {
+        return node == null ? null : Catalog.slots(node.action, argIndex);
+    }
+
+    private void padSlots(Catalog.Slots s) {
+        if (values.size() == 1 && Value.ARRAY.equals(values.get(0).type)) {
+            List<Value> was = new ArrayList<>(values.get(0).items);
+            values.clear();
+            values.addAll(was);
+        }
+        while (values.size() < s.size()) values.add(Value.of(Value.ITEM));
+        while (values.size() > s.size()) values.remove(values.size() - 1);
+    }
+
+    private int slotRows(Catalog.Slots s) {
+        return (s.size() + s.cols() - 1) / s.cols();
+    }
+
+    private int slotsH(Catalog.Slots s) {
+        return slotRows(s) * (SLOT + 2) + (s.hotbar() > 0 ? SLOT_GAP : 0);
+    }
+
+    private int slotLeft(Catalog.Slots s) {
+        return x + PAD + Math.max(0, (inner() - s.cols() * (SLOT + 2)) / 2);
+    }
+
+    private boolean inHotbar(Catalog.Slots s, int i) {
+        return s.hotbar() > 0 && i < s.hotbar();
+    }
+
+    private int slotX(Catalog.Slots s, int i) {
+        return slotLeft(s) + (i % s.cols()) * (SLOT + 2);
+    }
+
+    private int slotY(Catalog.Slots s, int i, int top) {
+        return top + (i / s.cols()) * (SLOT + 2)
+                + (s.hotbar() > 0 && !inHotbar(s, i) ? SLOT_GAP : 0);
+    }
 
     private static int cellCount(Value v) {
         return Value.MAP.equals(v.type) ? v.keys.size() : v.items.size();
@@ -520,6 +699,49 @@ public final class ValueEditor {
                 knownVars, knownParams, edited -> where.set(index, edited));
     }
 
+    private boolean carryingSlot() {
+        if (dragSlot < 0) return false;
+        slotMoved = true;
+        return true;
+    }
+
+    private void slotDropped() {
+        if (dragSlot < 0) return;
+        int from = dragSlot;
+        dragSlot = -1;
+        Catalog.Slots grid = slots();
+        if (!slotMoved || grid == null) return;
+        int to = slotAt(grid, lastMx, lastMy);
+        if (to < 0 || to == from) return;
+        readForm();
+        Value moved = values.get(from);
+        values.set(from, values.get(to));
+        values.set(to, moved);
+        sel = to;
+        changed = true;
+        buildForm();
+    }
+
+    private void drawDraggedSlot(DrawContext ctx) {
+        Catalog.Slots grid = slots();
+        if (dragSlot < 0 || !slotMoved || grid == null || dragSlot >= values.size()) return;
+        Value it = values.get(dragSlot);
+        if (it.isBlank()) return;
+        ctx.createNewRootLayer();
+        ctx.drawItem(Stacks.preview(it), lastMx - 8, lastMy - 8);
+    }
+
+    private boolean clearSlot(double mx, double my) {
+        Catalog.Slots grid = slots();
+        if (grid == null) return false;
+        int slot = slotAt(grid, mx, my);
+        if (slot < 0) return false;
+        readForm();
+        values.set(slot, Value.of(Value.ITEM));
+        buildForm();
+        return true;
+    }
+
     private void closeNested() {
         if (!nested.cancelled()) nested.commit();
         if (nested.changed()) changed = true;
@@ -533,6 +755,8 @@ public final class ValueEditor {
 
     private int listH() {
         if (!list()) return 0;
+        Catalog.Slots s = slots();
+        if (s != null) return CAP + slotsH(s) + GAP;
         return CAP + listRows() * (ROW_H + 2) + (canAdd() ? ADD_H + 2 : 0) + GAP;
     }
 
@@ -545,22 +769,25 @@ public final class ValueEditor {
     }
 
     private void layout() {
-        h = HEAD_H + 4 + listH() + CAP + kindGridH() + GAP + 4 + formH + 7 + FOOT_H;
+        int contentH = HEAD_H + 4 + listH() + CAP + railH() + GAP + 4 + formH + 7;
+        naturalH = contentH + FOOT_H;
+        h = Ui.fitH(screenH, naturalH);
         if (!placed) {
             placed = true;
             int reserve = Math.min(screenH - 8, Math.max(h, 300));
-            x = Math.max(4, Math.min(anchorX, screenW - w - 4));
+            x = Ui.anchorX(screenW, anchorX, w);
             y = anchorY + reserve > screenH - 4 ? Math.max(4, screenH - reserve - 4)
                                                 : Math.max(4, anchorY);
         } else if (y + h > screenH - 4) {
             y = Math.max(4, screenH - h - 4);
         }
+        pane.fit(HEAD_H, h - FOOT_H, contentH);
         placeFields();
     }
 
-    private int listY() { return y + HEAD_H + 4; }
-    private int kindY() { return listY() + listH() + CAP; }
-    private int formY() { return kindY() + kindGridH() + GAP + 4; }
+    private int listY() { return y + pane.at(HEAD_H + 4); }
+    private int railY() { return listY() + listH() + CAP; }
+    private int formY() { return railY() + railH() + GAP + 4; }
     private int footY() { return y + h - FOOT_H; }
 
     private void placeFields() {
@@ -631,6 +858,8 @@ public final class ValueEditor {
     }
 
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+        lastMx = mouseX;
+        lastMy = mouseY;
         if (nested != null) { nested.render(ctx, mouseX, mouseY, delta); return; }
         if (picker != null) { picker.render(ctx, mouseX, mouseY, delta); return; }
         if (studio != null) { studio.render(ctx, mouseX, mouseY, delta); return; }
@@ -643,11 +872,14 @@ public final class ValueEditor {
 
         Ui.panel(ctx, x, y, w, h);
         drawHeader(ctx, mouseX, mouseY);
+        ctx.enableScissor(x + 1, y + pane.top(), x + w - 1, footY() - 1);
         if (list()) drawList(ctx, mouseX, mouseY);
-        drawKinds(ctx, mouseX, mouseY);
+        drawRail(ctx, mouseX, mouseY);
         Ui.hairline(ctx, x + 1, formY() - 4, w - 2);
         drawCaptions(ctx);
         drawForm(ctx, mouseX, mouseY, delta);
+        ctx.disableScissor();
+        pane.drawBar(ctx, bodyBar, x + w - 4, y, mouseX, mouseY);
         Ui.hairline(ctx, x + 1, footY() - 1, w - 2);
         drawFooter(ctx, mouseX, mouseY, accent);
 
@@ -659,6 +891,7 @@ public final class ValueEditor {
             ctx.createNewRootLayer();
             menu.render(ctx, tr, mouseX, mouseY);
         }
+        drawDraggedSlot(ctx);
     }
 
     private void drawHeader(DrawContext ctx, int mouseX, int mouseY) {
@@ -673,7 +906,9 @@ public final class ValueEditor {
         String type = arg.type + (list() ? " ×" + arg.capacity : "");
         int badgeW = Draw.badgeWidth(tr, type);
         int closeX = closeX0;
-        Draw.textFit(ctx, tr, arg.purpose.isEmpty() ? "Значение" : arg.purpose,
+        String title = arg.purpose.isEmpty() ? "Значение" : arg.purpose;
+        if (!lang.isEmpty()) title += " · " + lang;
+        Draw.textFit(ctx, tr, title,
                 x + PAD + 9, y + 9, closeX - badgeW - 12 - (x + PAD + 9), Theme.TEXT, false);
         Draw.badge(ctx, tr, type, closeX - badgeW - 8, y + 8,
                 Draw.opaque(Draw.shade(tc, -0.68f)), Draw.shade(tc, 0.2f));
@@ -681,7 +916,64 @@ public final class ValueEditor {
         Ui.hairline(ctx, x + 1, y + HEAD_H, w - 2);
     }
 
+    private static final int LANG_ROW_H = 15, LANG_HINT_H = 11;
+
+    private int langsH() {
+        return Localized.LANGS.size() * (LANG_ROW_H + 2) + LANG_HINT_H;
+    }
+
+    private String langPreview(String id) {
+        List<Value> list = byLang.get(id);
+        if (list == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (Value v : list) {
+            if (!Value.TEXT.equals(v.type) || v.text.isEmpty()) continue;
+            if (!sb.isEmpty()) sb.append(" / ");
+            sb.append(McText.plain(v.text, v.parsing));
+            if (sb.length() > 80) break;
+        }
+        return sb.toString().trim();
+    }
+
+    private static String langLabel(Localized.Lang l) {
+        return l.id().isEmpty() ? "по умолчанию" : l.id();
+    }
+
+    private void drawLangs(DrawContext ctx, int mouseX, int mouseY) {
+        Ui.caption(ctx, tr, "ЯЗЫКИ", x + PAD, railY() - CAP, inner());
+        int rw = inner();
+        int labelW = 0;
+        for (Localized.Lang l : Localized.LANGS)
+            labelW = Math.max(labelW, tr.getWidth(langLabel(l)));
+        labelW += 10;
+        for (int i = 0; i < Localized.LANGS.size(); i++) {
+            Localized.Lang l = Localized.LANGS.get(i);
+            int ry = railY() + i * (LANG_ROW_H + 2);
+            boolean active = l.id().equals(lang);
+            boolean hov = Ui.hit(mouseX, mouseY, x + PAD, ry, rw, LANG_ROW_H);
+            Draw.round(ctx, x + PAD, ry, rw, LANG_ROW_H, Ui.R_SM,
+                    Draw.opaque(active ? 0x22405F : (hov ? 0x1C222D : Ui.WELL)));
+            if (active) Draw.rect(ctx, x + PAD, ry + 2, 2, LANG_ROW_H - 4,
+                    Draw.opaque(Theme.ACCENT));
+            Draw.textFit(ctx, tr, langLabel(l), x + PAD + 7, ry + 4, labelW,
+                    active ? Theme.TEXT : Theme.TEXT_DIM, false);
+            String preview = active ? "" : langPreview(l.id());
+            boolean dim = preview.isEmpty();
+            if (active) preview = "правится ниже";
+            else if (dim) preview = l.id().isEmpty() ? "не задано" : "нет перевода";
+            Draw.textFit(ctx, tr, preview, x + PAD + 7 + labelW, ry + 4,
+                    rw - 14 - labelW, dim ? Theme.TEXT_FAINT : Theme.TEXT, false);
+        }
+        Draw.textFit(ctx, tr, lang.isEmpty()
+                        ? "запасной: увидят все, у кого нет перевода"
+                        : "увидят те, у кого клиент на " + lang,
+                x + PAD + 2, railY() + Localized.LANGS.size() * (LANG_ROW_H + 2) + 1,
+                rw - 4, Theme.TEXT_FAINT, false);
+    }
+
     private void drawList(DrawContext ctx, int mouseX, int mouseY) {
+        Catalog.Slots grid = slots();
+        if (grid != null) { drawSlots(ctx, grid, mouseX, mouseY); return; }
         Ui.caption(ctx, tr, "ЗНАЧЕНИЯ", x + PAD, listY(), inner(),
                 values.size() + "/" + arg.capacity);
         for (int r = 0; r < listRows(); r++) {
@@ -708,9 +1000,9 @@ public final class ValueEditor {
                     Draw.CROSS, Ui.DANGER, true);
         }
         if (maxListScroll() > 0)
-            Ui.scrollbar(ctx, x + PAD + rowW() + 1, listY() + CAP, listRows() * (ROW_H + 2),
+            listBar.draw(ctx, x + PAD + rowW() + 1, listY() + CAP, listRows() * (ROW_H + 2),
                     values.size() * (ROW_H + 2), listRows() * (ROW_H + 2),
-                    listScroll * (ROW_H + 2));
+                    listScroll * (ROW_H + 2), mouseX, mouseY);
         if (canAdd()) {
             int ay = listY() + CAP + listRows() * (ROW_H + 2);
             Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, ay, inner(), ADD_H,
@@ -718,8 +1010,9 @@ public final class ValueEditor {
         }
     }
 
-    private void drawKinds(DrawContext ctx, int mouseX, int mouseY) {
-        Ui.caption(ctx, tr, "ТИП ЗНАЧЕНИЯ", x + PAD, kindY() - CAP, inner());
+    private void drawRail(DrawContext ctx, int mouseX, int mouseY) {
+        if (localizedField() != null) { drawLangs(ctx, mouseX, mouseY); return; }
+        Ui.caption(ctx, tr, "ТИП ЗНАЧЕНИЯ", x + PAD, railY() - CAP, inner());
         Ui.Grid g = grid();
         int cw = g.cellW(), chh = g.cellH();
         String cur = current().type;
@@ -897,7 +1190,7 @@ public final class ValueEditor {
             }
             case Value.POTION -> {
                 Pickers.Entry e = Pickers.potion(v.potion);
-                drawEntryCard(ctx, e == null ? null : e.item,
+                drawEntryCard(ctx, e == null ? null : Pickers.potionStack(e.id),
                         e == null ? "эффект не выбран" : e.name,
                         e == null ? "" : e.category, e == null ? "" : e.description, "");
                 drawChoose(ctx, mouseX, mouseY, e != null, "Выбрать эффект", "Другой эффект");
@@ -978,8 +1271,9 @@ public final class ValueEditor {
                     Draw.CROSS, Ui.DANGER, true);
         }
         if (maxCellScroll(v) > 0)
-            Ui.scrollbar(ctx, x + PAD + rw + 1, top, rows * (ROW_H + 2),
-                    count * (ROW_H + 2), rows * (ROW_H + 2), cellScroll * (ROW_H + 2));
+            cellBar.draw(ctx, x + PAD + rw + 1, top, rows * (ROW_H + 2),
+                    count * (ROW_H + 2), rows * (ROW_H + 2), cellScroll * (ROW_H + 2),
+                    mouseX, mouseY);
         if (canAddCell(v))
             Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, top + rows * (ROW_H + 2), full, ADD_H,
                     Draw.PLUS, map ? "добавить пару" : "добавить значение", Ui.GHOST, true);
@@ -997,6 +1291,33 @@ public final class ValueEditor {
 
     private static Value value(Value map, int i) {
         return i < map.items.size() ? map.items.get(i) : Value.blank();
+    }
+
+    private void drawSlots(DrawContext ctx, Catalog.Slots s, int mouseX, int mouseY) {
+        int top = listY() + CAP;
+        int filled = 0;
+        for (Value it : values) if (!it.isBlank()) filled++;
+        String note = (sel >= 0 && sel < s.size() ? "слот " + (sel + 1) + "  ·  " : "")
+                + filled + "/" + s.size();
+        Ui.caption(ctx, tr, s.title(), x + PAD, listY(), inner(), note);
+        for (int i = 0; i < s.size(); i++) {
+            int cx = slotX(s, i), cy = slotY(s, i, top);
+            boolean hov = Ui.hit(mouseX, mouseY, cx, cy, SLOT, SLOT);
+            Value it = values.get(i);
+            Draw.round(ctx, cx, cy, SLOT, SLOT, Ui.R_SM,
+                    Draw.opaque(i == sel ? 0x22405F : hov ? 0x2C3441 : Ui.WELL));
+            boolean carried = i == dragSlot && slotMoved;
+            if (!it.isBlank() && !carried) ctx.drawItem(Stacks.preview(it), cx + 1, cy + 1);
+            if (i == sel || hov) Draw.roundOutline(ctx, cx, cy, SLOT, SLOT, Ui.R_SM,
+                    Draw.opaque(i == sel ? Theme.ACCENT : Draw.shade(Theme.ACCENT, -0.35f)));
+        }
+    }
+
+    private int slotAt(Catalog.Slots s, double mx, double my) {
+        int top = listY() + CAP;
+        for (int i = 0; i < s.size(); i++)
+            if (Ui.hit(mx, my, slotX(s, i), slotY(s, i, top), SLOT, SLOT)) return i;
+        return -1;
     }
 
     private int cellAt(Value v, double mx, double my) {
@@ -1039,9 +1360,15 @@ public final class ValueEditor {
 
     private void drawEntryCard(DrawContext ctx, String icon, String name, String category,
                                String description, String badge) {
+        drawEntryCard(ctx, icon == null ? null : Catalog.stackOf(icon), name, category,
+                description, badge);
+    }
+
+    private void drawEntryCard(DrawContext ctx, ItemStack picture, String name,
+                               String category, String description, String badge) {
         int cy = py("card"), full = inner(), ch = ph("card");
         Ui.well(ctx, x + PAD, cy, full, ch);
-        if (icon == null) {
+        if (picture == null) {
             Draw.glyph(ctx, Draw.WARN, x + PAD + 8, cy + (ch - 6) / 2, 0xFFE066);
             Draw.textFit(ctx, tr, name, x + PAD + 20, cy + (ch - Ui.TEXT_H) / 2, full - 26,
                     Theme.TEXT_DIM, false);
@@ -1049,7 +1376,7 @@ public final class ValueEditor {
         }
         List<String> title = nameLines(name);
         int top = cy + CARD_PAD;
-        ctx.drawItem(Catalog.stackOf(icon), x + PAD + 6,
+        ctx.drawItem(picture, x + PAD + 6,
                 description.isEmpty() ? cy + Math.max(4, (ch - 16) / 2) : top - 1);
         int tx = x + PAD + 27;
         int badgeW = badge.isEmpty() ? 0 : Draw.badgeWidth(tr, badge) + 8;
@@ -1242,7 +1569,7 @@ public final class ValueEditor {
                         });
             }
             case Value.POTION -> picker = new CatalogPicker(tr, screenW, screenH, "Зелье",
-                    Values.color(Value.POTION), items(Pickers.POTIONS), Pickers.POTION_CATEGORIES,
+                    Values.color(Value.POTION), potionItems(), Pickers.POTION_CATEGORIES,
                     v.potion, null, id -> v.potion = id);
             default -> { }
         }
@@ -1278,6 +1605,14 @@ public final class ValueEditor {
     private void closeItemStudio() {
         itemStudio = null;
         rebuildIfNeeded();
+    }
+
+    private static List<CatalogPicker.Item> potionItems() {
+        List<CatalogPicker.Item> out = new ArrayList<>();
+        for (Pickers.Entry e : Pickers.POTIONS)
+            out.add(new CatalogPicker.Item(e.id, e.name, e.category, e.item, e.description,
+                    "", "", Pickers.potionStack(e.id)));
+        return out;
     }
 
     private static List<CatalogPicker.Item> items(List<Pickers.Entry> pool) {
@@ -1351,10 +1686,37 @@ public final class ValueEditor {
             return true;
         }
 
+        if (!pane.inBody(my, y)) {
+            int fy = footY() + (FOOT_H - 16) / 2;
+            if (Ui.hit(mx, my, x + w - PAD - 56, fy, 56, 16)) { commit(); closed = true; return true; }
+            if (Ui.hit(mx, my, x + w - PAD - 114, fy, 52, 16)) {
+                cancelled = true;
+                closed = true;
+            }
+            return true;
+        }
+
+        if (bodyBar.press(mx, my)) { pane.scroll = bodyBar.follow(my, 1, pane.max()); return true; }
+        if (listBar.press(mx, my)) {
+            listScroll = listBar.follow(my, ROW_H + 2, maxListScroll());
+            return true;
+        }
+        if (cellBar.press(mx, my)) {
+            cellScroll = cellBar.follow(my, ROW_H + 2, maxCellScroll(current()));
+            return true;
+        }
+
         if (list() && listClicked(mx, my)) return true;
 
-        Ui.Grid g = grid();
-        int ki = g.indexAt(mx, my, kinds().size());
+        if (localizedField() != null) {
+            for (int i = 0; i < Localized.LANGS.size(); i++)
+                if (Ui.hit(mx, my, x + PAD, railY() + i * (LANG_ROW_H + 2), inner(), LANG_ROW_H)) {
+                    switchLang(Localized.LANGS.get(i).id());
+                    return true;
+                }
+        }
+
+        int ki = localizedField() != null ? -1 : grid().indexAt(mx, my, kinds().size());
         if (ki >= 0) {
             String id = kinds().get(ki).id();
             if (usable(id) && !id.equals(current().type)) {
@@ -1365,6 +1727,7 @@ public final class ValueEditor {
             return true;
         }
 
+        if (click.button() == 1 && clearSlot(mx, my)) return true;
         if (formClicked(click, doubled, mx, my)) return true;
 
         int fy = footY() + (FOOT_H - 16) / 2;
@@ -1378,6 +1741,17 @@ public final class ValueEditor {
     }
 
     private boolean listClicked(int mx, int my) {
+        Catalog.Slots grid = slots();
+        if (grid != null) {
+            int slot = slotAt(grid, mx, my);
+            if (slot < 0) return false;
+            readForm();
+            sel = slot;
+            dragSlot = values.get(slot).isBlank() ? -1 : slot;
+            slotMoved = false;
+            buildForm();
+            return true;
+        }
         int rw = rowW();
         for (int r = 0; r < listRows(); r++) {
             int i = listScroll + r;
@@ -1697,6 +2071,17 @@ public final class ValueEditor {
         if (studio != null) return studio.mouseDragged(click, dx, dy);
         if (itemPicker != null) return itemPicker.mouseDragged(click, dx, dy);
         if (itemStudio != null) return itemStudio.mouseDragged(click, dx, dy);
+        if (menu != null && menu.mouseDragged(click.y())) return true;
+        if (carryingSlot()) return true;
+        if (bodyBar.dragging()) { pane.scroll = bodyBar.follow(click.y(), 1, pane.max()); return true; }
+        if (listBar.dragging()) {
+            listScroll = listBar.follow(click.y(), ROW_H + 2, maxListScroll());
+            return true;
+        }
+        if (cellBar.dragging()) {
+            cellScroll = cellBar.follow(click.y(), ROW_H + 2, maxCellScroll(current()));
+            return true;
+        }
         if (dragging) { moveTo((int) click.x() - dragX, (int) click.y() - dragY); return true; }
         if (scrub(click)) return true;
         if (has("player") && player.mouseDragged((int) click.x(), x + PAD, py("player"), inner(),
@@ -1730,7 +2115,12 @@ public final class ValueEditor {
     }
 
     public void mouseReleased() {
+        slotDropped();
         dragging = false;
+        bodyBar.release();
+        listBar.release();
+        cellBar.release();
+        if (menu != null) menu.mouseReleased();
         scrubField = -1;
         scrubbing = false;
         if (colors != null) colors.mouseReleased();
@@ -1774,6 +2164,11 @@ public final class ValueEditor {
         if (Value.NUMBER.equals(current().type)
                 && Ui.hit(mx, my, x + PAD, py("input"), inner(), FIELD_H)) {
             bump(Math.signum(amount));
+            return true;
+        }
+        if (pane.max() > 0 && contains(mx, my)) {
+            pane.wheel(amount);
+            placeFields();
             return true;
         }
         return contains(mx, my);
@@ -1939,13 +2334,34 @@ public final class ValueEditor {
             changed = !json(values).equals(before);
             return;
         }
+        if (localizedField() != null) {
+            byLang.put(lang, copies(values));
+            for (Localized.Lang l : Localized.LANGS) {
+                List<Value> list = byLang.get(l.id());
+                if (list == null) continue;
+                if (l.id().isEmpty()) store(list);
+                else writeTranslation(l.id(), list);
+            }
+            changed = !allJson().equals(before);
+            return;
+        }
+        store(values);
+        changed = !json(node.values.get(argIndex)).equals(before);
+    }
+
+    private void store(List<Value> from) {
         List<Value> out = node.valuesOf(argIndex);
         out.clear();
         int cap = list() ? arg.capacity : 1;
-        for (Value v : values) {
+        if (slots() != null) {
+            int last = -1;
+            for (int i = 0; i < from.size(); i++) if (!from.get(i).isBlank()) last = i;
+            for (int i = 0; i <= last && i < cap; i++) out.add(from.get(i));
+            return;
+        }
+        for (Value v : from) {
             if (v.isBlank() || out.size() >= cap) continue;
             out.add(v);
         }
-        changed = !json(out).equals(before);
     }
 }

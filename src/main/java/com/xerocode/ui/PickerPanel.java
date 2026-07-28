@@ -18,10 +18,11 @@ abstract class PickerPanel {
     protected static final int DET_W = 176;
 
     protected final TextRenderer tr;
-    protected final int screenW, screenH;
+    protected int screenW, screenH;
     protected final int accent;
 
     protected TextFieldWidget search;
+    protected int lastMx, lastMy;
     protected int x, y, w, h, railW, detW;
     protected int hovered = -1;
     protected boolean closed;
@@ -38,19 +39,36 @@ abstract class PickerPanel {
         this.h = h;
         this.railW = railW;
         this.detW = detW;
-        this.x = (screenW - w) / 2;
-        this.y = Math.max(6, (screenH - h) / 2);
+        this.x = Ui.midX(screenW, w);
+        this.y = Ui.midY(screenH, h);
+        String typed = search == null ? "" : search.getText();
+        boolean focused = search == null || search.isFocused();
         search = Ui.field(tr, searchX() + 16, y + 9, searchW() - 22, 10, searchHint);
         search.setMaxLength(48);
+        search.setText(typed);
         search.setChangedListener(s -> refresh(true));
-        search.setFocused(true);
+        search.setFocused(focused);
     }
+
+    public void resize(int sw, int sh) {
+        if (sw == screenW && sh == screenH) return;
+        screenW = sw;
+        screenH = sh;
+        layout();
+    }
+
+    protected abstract void layout();
 
     public boolean isClosed() { return closed; }
 
     protected int searchMaxW() { return 210; }
 
-    protected int searchW() { return Math.min(searchMaxW(), w / 2); }
+    protected int searchW() { return Math.max(46, Math.min(searchMaxW(), w * 2 / 5)); }
+
+    protected static int railW(int panelW, int measured) {
+        return Math.max(Math.min(88, panelW * 30 / 100),
+                Math.min(Math.min(170, panelW * 38 / 100), measured));
+    }
     protected int searchX() { return x + w - PAD - 16 - searchW() - 6; }
     protected int bodyY()   { return y + HEAD_H + 1; }
     protected int railX()   { return x + 1; }
@@ -74,6 +92,8 @@ abstract class PickerPanel {
         Ui.closeButton(ctx, mouseX, mouseY, x + w - PAD - 16, y + 6, 16);
         Ui.hairline(ctx, x + 1, y + HEAD_H, w - 2);
 
+        lastMx = mouseX;
+        lastMy = mouseY;
         hovered = indexAt(mouseX, mouseY);
         drawRail(ctx, mouseX, mouseY);
         drawBody(ctx, mouseX, mouseY, delta);

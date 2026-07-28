@@ -28,7 +28,8 @@ public final class ItemPicker extends PickerPanel {
     private List<Stacks.Entry> shown = List.of();
     private Stacks.Entry selected;
     private int tab, scroll;
-    private final int cols, rows;
+    private final Ui.Bar bar = new Ui.Bar();
+    private int cols, rows;
 
     public ItemPicker(TextRenderer tr, int screenW, int screenH, int accent,
                       ItemStack current, Done done) {
@@ -42,17 +43,7 @@ public final class ItemPicker extends PickerPanel {
             rails.add(new Rail("Мой инвентарь", Catalog.stackOf("minecraft:chest"), mine));
         for (Stacks.Tab t : Stacks.tabs()) rails.add(new Rail(t.name(), t.icon(), t.entries()));
 
-        int panelW = Math.min(700, Math.max(380, screenW - 24));
-        int rail = tr.getWidth("Мой инвентарь") + 46;
-        for (Rail r : rails) rail = Math.max(rail, tr.getWidth(r.name()) + 46);
-        rail = Math.min(180, Math.max(110, rail));
-        int det = Math.min(DET_W, panelW - rail - GRID_MIN);
-        det = det < 130 ? 0 : det;
-        this.cols = Math.max(4, (panelW - rail - det - 10) / CELL);
-
-        this.rows = Math.max(4, Math.min(20, (screenH - 20 - HEAD_H - FOOT_H - 8) / CELL));
-        place(panelW, HEAD_H + 1 + 4 + rows * CELL + 4 + FOOT_H, rail, det, "найти предмет…");
-
+        layout();
         refresh(false);
         if (current != null && !current.isEmpty()) {
             for (Stacks.Entry e : shown)
@@ -62,6 +53,21 @@ public final class ItemPicker extends PickerPanel {
                     if (e.id().equals(Stacks.idOf(current))) { selected = e; break; }
             scrollToSelected();
         }
+    }
+
+    @Override
+    protected void layout() {
+        int panelW = Ui.fitW(screenW, 700);
+        int measured = tr.getWidth("Мой инвентарь") + 46;
+        for (Rail r : rails) measured = Math.max(measured, tr.getWidth(r.name()) + 46);
+        int rail = railW(panelW, measured);
+        int det = Math.min(DET_W, panelW - rail - Math.min(GRID_MIN, panelW * 45 / 100));
+        det = det < 130 ? 0 : det;
+        cols = Math.max(3, (panelW - rail - det - 10) / CELL);
+        rows = Math.max(3, Math.min(20,
+                (Ui.fitH(screenH, 1000) - HEAD_H - FOOT_H - 8) / CELL));
+        place(panelW, HEAD_H + 1 + 4 + rows * CELL + 4 + FOOT_H, rail, det, "найти предмет…");
+        scroll = Math.max(0, Math.min(maxScroll(), scroll));
     }
 
     private static boolean same(ItemStack a, ItemStack b) {
@@ -170,7 +176,7 @@ public final class ItemPicker extends PickerPanel {
                     Theme.TEXT_FAINT, false);
         if (maxScroll() > 0) {
             int gridRows = (shown.size() + cols - 1) / cols;
-            Ui.scrollbar(ctx, gx + gw + 1, gy, gh, gridRows * CELL, gh, scroll * CELL);
+            bar.draw(ctx, gx + gw + 1, gy, gh, gridRows * CELL, gh, scroll * CELL, lastMx, lastMy);
         }
     }
 
@@ -226,6 +232,7 @@ public final class ItemPicker extends PickerPanel {
 
     @Override
     protected boolean bodyClicked(Click click, boolean doubled, int mx, int my) {
+        if (bar.press(mx, my)) { scroll = bar.follow(my, CELL, maxScroll()); return true; }
         int i = indexAt(mx, my);
         if (i < 0) return false;
         selected = shown.get(i);
@@ -237,6 +244,15 @@ public final class ItemPicker extends PickerPanel {
         scroll = Math.max(0, Math.min(maxScroll(), scroll - (int) Math.signum(amount) * 2));
         return true;
     }
+
+    @Override
+    public boolean mouseDragged(Click click, double dx, double dy) {
+        if (bar.dragging()) { scroll = bar.follow(click.y(), CELL, maxScroll()); return true; }
+        return super.mouseDragged(click, dx, dy);
+    }
+
+    @Override
+    public void mouseReleased() { bar.release(); }
 
     @Override
     protected boolean bodyKey(KeyInput in) {

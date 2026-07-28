@@ -212,7 +212,8 @@ public final class Catalog {
 
     public static Action FUNCTION, CALL, PROCESS, START_PROCESS, ELSE;
 
-    public static final int FN_NAME = 0, FN_PARAMS = 1, FN_DESC = 2, FN_ICON = 3;
+    public static final int FN_NAME = 0, FN_PARAMS = 1, FN_DESC = 2, FN_ICON = 3,
+            FN_DISPLAY = 4;
     public static final int CALL_NAME = 0;
 
     public static final String SHOW_IN_CALL = "Отображать в меню вызова",
@@ -220,6 +221,14 @@ public final class Catalog {
 
     public static final int MAX_PARAMS = 45;
     public static final int MAX_DESC = 14;
+
+    public static String localizedField(int arg) {
+        return switch (arg) {
+            case FN_DISPLAY -> "display_name";
+            case FN_DESC -> "display_description";
+            default -> null;
+        };
+    }
 
     private static void addHandBuiltBlocks() {
         Category fn = new Category("Функция", "event", "minecraft:lapis_block",
@@ -268,6 +277,19 @@ public final class Catalog {
                 false);
         register(start, START_PROCESS);
 
+        offstage("Событие игрока", new Action(ACTIONS.size(), "Пустое событие",
+                "minecraft:structure_void",
+                "Не запускается никогда: это место, куда паркуют код. Строка живёт в мире, но "
+                        + "вызвать её нечем. Сервер подписывает её «...», а компилятор JMCC вешает "
+                        + "на неё код, не привязанный ни к одному событию.",
+                List.of(), List.of(), false));
+
+        offstage("Если игрок", new Action(ACTIONS.size(), "Пустое условие",
+                "minecraft:structure_void",
+                "Условие-заглушка: сервер подписывает его «...». Тело у него есть, а проверять "
+                        + "ему нечего.",
+                List.of(), List.of(), false));
+
         ELSE = new Action(ACTIONS.size(), "Иначе", "minecraft:end_stone",
                 "Выполняет код внутри себя, если условие предыдущего блока не выполнилось. "
                         + "Ставится только сразу за блоком условия.",
@@ -279,7 +301,8 @@ public final class Catalog {
         return List.of(new Arg("Текст", "Имя " + what, false, 1, new int[0]),
                 new Arg("Параметр", "Параметры", true, MAX_PARAMS, new int[0]),
                 new Arg("Текст", "Описание", true, MAX_DESC, new int[0]),
-                new Arg("Предмет", "Значок", false, 1, new int[0]));
+                new Arg("Предмет", "Значок", false, 1, new int[0]),
+                new Arg("Текст", "Отображаемое имя", false, 1, new int[0]));
     }
 
     private static void register(Category cat, Action action) {
@@ -288,6 +311,17 @@ public final class Catalog {
         cat.subActions.add(List.of(action));
         ACTIONS.add(action);
         CATEGORIES.add(cat);
+        BY_KEY.put(key(cat.name, action.name), action);
+    }
+
+    private static void offstage(String category, Action action) {
+        Category cat = category(category);
+        if (cat == null) {
+            XeroCode.LOG.warn("[xerocode] категории «{}» нет — блок «{}» некуда приписать",
+                    category, action.name);
+            return;
+        }
+        action.category = cat;
         BY_KEY.put(key(cat.name, action.name), action);
     }
 
@@ -394,6 +428,27 @@ public final class Catalog {
     public static String key(String category, String action) { return category + "|" + action; }
     public static Action byKey(String key) { return BY_KEY.get(key); }
     public static String keyOf(Action a) { return key(a.category.name, a.name); }
+
+    public record Slots(int size, int cols, int hotbar, String title) {}
+
+    private static final Map<String, Slots> SLOTTED = Map.of(
+            key("Действие над игроком", "Установить предметы"),
+            new Slots(36, 9, 9, "ИНВЕНТАРЬ ИГРОКА"),
+            key("Действие над игроком", "Установить содержимое Эндер-сундука"),
+            new Slots(27, 9, 0, "ЭНДЕР-СУНДУК"),
+            key("Действие над игроком", "Показать меню"),
+            new Slots(27, 9, 0, "МЕНЮ"),
+            key("Действие над игроком", "Расширить меню"),
+            new Slots(27, 9, 0, "МЕНЮ"),
+            key("Действие над миром", "Установить предметы в контейнере"),
+            new Slots(27, 9, 0, "КОНТЕЙНЕР"),
+            key("Действие над миром", "Установить предметы события"),
+            new Slots(36, 9, 0, "ПРЕДМЕТЫ СОБЫТИЯ"));
+
+    public static Slots slots(Action action, int argIndex) {
+        if (action == null || action.category == null || argIndex != 0) return null;
+        return SLOTTED.get(keyOf(action));
+    }
 
     public static List<Action> search(String query, int limit) {
         return rank(ACTIONS, query, limit);

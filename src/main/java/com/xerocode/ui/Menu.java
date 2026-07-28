@@ -18,6 +18,7 @@ public final class Menu {
         public final ItemStack stack;
         public final String note;
         public final List<String> desc;
+        public boolean enabled = true;
         final List<OrderedText> wrapped = new ArrayList<>();
 
         public Item(String label) { this(label, false, null); }
@@ -59,6 +60,8 @@ public final class Menu {
 
     private final int x, y, w, h, listH;
     private double scroll;
+    private final Ui.Bar bar = new Ui.Bar();
+    private int lastMx, lastMy;
     private boolean closed;
 
     private Menu(int screenW, int screenH, int ax, int ay, TextRenderer tr,
@@ -79,7 +82,8 @@ public final class Menu {
             if (it.note != null) textW = Math.max(textW, tr.getWidth(it.note) + inset);
             for (String d : it.desc) textW = Math.max(textW, tr.getWidth(d) + inset);
         }
-        this.w = Math.max(96, Math.min(rich ? RICH_W : 300, textW));
+        this.w = Math.max(Math.min(96, screenW - 4),
+                Math.min(Math.min(rich ? RICH_W : 300, screenW - 4), textW));
 
         int room = Math.max(40, w - RICH_INK_X - 10);
         for (Item it : items)
@@ -138,6 +142,8 @@ public final class Menu {
     public void close() { closed = true; }
 
     public void render(DrawContext ctx, TextRenderer tr, int mouseX, int mouseY) {
+        lastMx = mouseX;
+        lastMy = mouseY;
         Draw.shadow(ctx, x, y, w, h, 5);
         Draw.card(ctx, x, y, w, h, 5, Draw.opaque(Ui.PANEL), Draw.opaque(Ui.BORDER));
 
@@ -154,10 +160,11 @@ public final class Menu {
             int rh = rowH(it);
             int iy = top + offs[i] - (int) Math.round(scroll);
             if (iy + rh < top || iy > top + listH) continue;
-            if (i == hovered) Draw.round(ctx, x + 3, iy, w - 6, rh - 1, 3,
+            if (i == hovered && it.enabled) Draw.round(ctx, x + 3, iy, w - 6, rh - 1, 3,
                     Draw.opaque(it.danger ? Ui.DANGER_BG : Ui.BTN_HOVER));
             int color = it.danger ? Theme.DANGER : (i == checked ? Theme.TEXT : Theme.TEXT_DIM);
-            if (i == hovered && !it.danger) color = Theme.TEXT;
+            if (i == hovered && !it.danger && it.enabled) color = Theme.TEXT;
+            if (!it.enabled) color = Theme.TEXT_FAINT;
             if (it.rich()) {
                 int textX = x + RICH_INK_X;
                 int nameY = iy + RICH_PAD;
@@ -189,19 +196,17 @@ public final class Menu {
             if (it.icon != null)
                 Draw.glyph(ctx, it.icon, x + (anyRich ? 9 : 7),
                         iy + (ITEM_H - Draw.glyphH(it.icon)) / 2,
-                        it.danger ? Theme.DANGER : Theme.TEXT_DIM);
+                        !it.enabled ? Theme.TEXT_FAINT
+                                : it.danger ? Theme.DANGER : Theme.TEXT_DIM);
             int textX = x + (anyRich ? RICH_INK_X
                     : (checked >= 0 || it.icon != null ? 20 : 10));
             Draw.textFit(ctx, tr, it.label, textX, iy + 4, x + w - 8 - textX, color, false);
         }
         ctx.disableScissor();
 
-        if (maxScroll() > 0) {
-            int trackH = listH;
-            int thumbH = Math.max(16, (int) (trackH * (listH / (double) total)));
-            int thumbY = top + (int) ((trackH - thumbH) * (scroll / maxScroll()));
-            Draw.round(ctx, x + w - 5, thumbY, 3, thumbH, 1, Draw.argb(0xAA, 0x5A6478));
-        }
+        if (maxScroll() > 0)
+            bar.draw(ctx, x + w - 5, top, listH, total, listH, (int) Math.round(scroll),
+                    lastMx, lastMy);
     }
 
     public boolean contains(double mx, double my) {
@@ -220,13 +225,23 @@ public final class Menu {
 
     public boolean mouseClicked(double mx, double my) {
         if (!contains(mx, my)) { closed = true; return false; }
+        if (bar.press(mx, my)) { scroll = bar.follow(my, 1, (int) maxScroll()); return true; }
         int i = indexAt(mx, my);
+        if (i >= 0 && !items.get(i).enabled) return true;
         if (i >= 0) {
             closed = true;
             onPick.accept(i);
         }
         return true;
     }
+
+    public boolean mouseDragged(double my) {
+        if (!bar.dragging()) return false;
+        scroll = bar.follow(my, 1, (int) maxScroll());
+        return true;
+    }
+
+    public void mouseReleased() { bar.release(); }
 
     public boolean mouseScrolled(double mx, double my, double amount) {
         if (!contains(mx, my)) return false;

@@ -22,14 +22,17 @@ public final class Script {
         public final Catalog.Action action;
         public final Map<Integer, List<Value>> values = new LinkedHashMap<>();
         public final Map<Integer, String> markers = new LinkedHashMap<>();
+        public final Map<Integer, Value> markerVars = new LinkedHashMap<>();
         public final List<Node> body = new ArrayList<>();
 
         public List<Catalog.Arg> dynArgs;
         public List<Catalog.Setting> dynSettings;
         public List<String> dynKeys = new ArrayList<>(), dynMarkerKeys = new ArrayList<>();
         public transient Value dynIcon;
+        public transient Value dynDisplay;
 
         public JsonObject raw;
+        public Node cond;
 
         public Node(Catalog.Action action) {
             this.action = action;
@@ -96,6 +99,13 @@ public final class Script {
             Catalog.Setting s = settings().get(settingIndex);
             return markers.getOrDefault(settingIndex, s.def);
         }
+        public Value markerVar(int settingIndex) { return markerVars.get(settingIndex); }
+
+        public void bindMarker(int settingIndex, Value variable) {
+            if (variable == null || variable.name.isBlank()) markerVars.remove(settingIndex);
+            else markerVars.put(settingIndex, variable.copy());
+        }
+
         public void cycleMarker(int settingIndex, boolean forward) {
             Catalog.Setting s = settings().get(settingIndex);
             if (s.options.isEmpty()) return;
@@ -113,11 +123,13 @@ public final class Script {
             });
             n.markers.clear();
             n.markers.putAll(markers);
+            markerVars.forEach((k, v) -> n.markerVars.put(k, v.copy()));
             if (dynArgs != null) n.dynArgs = new ArrayList<>(dynArgs);
             if (dynSettings != null) n.dynSettings = new ArrayList<>(dynSettings);
             n.dynKeys = new ArrayList<>(dynKeys);
             n.dynMarkerKeys = new ArrayList<>(dynMarkerKeys);
             if (raw != null) n.raw = raw.deepCopy();
+            if (cond != null) n.cond = cond.copy();
             for (Node c : body) n.body.add(c.copy());
             return n;
         }
@@ -135,8 +147,35 @@ public final class Script {
 
     public transient boolean fitOnOpen;
 
-    public static Path file() {
-        return MinecraftClient.getInstance().runDirectory.toPath().resolve("xerocode/script.json");
+    public transient String plot = "";
+
+    private static Path dir() {
+        return MinecraftClient.getInstance().runDirectory.toPath().resolve("xerocode");
+    }
+
+    public static Path file() { return dir().resolve("script.json"); }
+
+    public static Path file(String plot) {
+        return plot == null || plot.isEmpty() ? file()
+                : dir().resolve("worlds").resolve(plot + ".json");
+    }
+
+    private static Path adopted() { return dir().resolve("worlds/adopted.txt"); }
+
+    private static void adopt(String plot) {
+        try {
+            if (plot.isEmpty() || Files.exists(adopted()) || !Files.exists(file())) return;
+            Path into = file(plot);
+            if (Files.exists(into)) return;
+            Script was = read(file());
+            if (was.roots.isEmpty()) return;
+            Files.createDirectories(into.getParent());
+            Files.copy(file(), into);
+            Files.writeString(adopted(), plot, StandardCharsets.UTF_8);
+            XeroCode.LOG.info("[xerocode] прежний общий скрипт привязан к миру {}", plot);
+        } catch (Exception e) {
+            XeroCode.LOG.warn("[xerocode] не вышло привязать прежний скрипт к миру", e);
+        }
     }
 
     public JsonObject toJson() {
@@ -206,6 +245,9 @@ public final class Script {
             }
             for (Map.Entry<Integer, String> e : n.markers.entrySet())
                 h = (h * 31 + e.getKey()) * 31 + e.getValue().hashCode();
+            for (Map.Entry<Integer, Value> e : n.markerVars.entrySet())
+                h = (h * 31 + e.getKey()) * 31 + e.getValue().hash();
+            if (n.cond != null) h = chainHash(h, List.of(n.cond));
             h = chainHash(h, n.body);
         }
         return h;
@@ -214,7 +256,7 @@ public final class Script {
     public void save() {
         JsonObject root = toJson();
         try {
-            Path p = file();
+            Path p = file(plot);
             Files.createDirectories(p.getParent());
             try (Writer w = Files.newBufferedWriter(p, StandardCharsets.UTF_8)) {
                 w.write(root.toString());
@@ -224,8 +266,16 @@ public final class Script {
         }
     }
 
-    public static Script load() {
-        Path p = file();
+    public static Script load() { return load(""); }
+
+    public static Script load(String plot) {
+        adopt(plot);
+        Script script = read(file(plot));
+        script.plot = plot == null ? "" : plot;
+        return script;
+    }
+
+    private static Script read(Path p) {
         if (!Files.exists(p)) return new Script();
         try (Reader r = Files.newBufferedReader(p, StandardCharsets.UTF_8)) {
             return fromJson(JsonParser.parseReader(r).getAsJsonObject());
@@ -255,6 +305,12 @@ public final class Script {
                 n.markers.forEach((idx, opt) -> mk.addProperty(String.valueOf(idx), opt));
                 o.add("m", mk);
             }
+            if (!n.markerVars.isEmpty()) {
+                JsonObject mv = new JsonObject();
+                n.markerVars.forEach((idx, v) -> mv.add(String.valueOf(idx), v.toJson()));
+                o.add("mv", mv);
+            }
+            if (n.cond != null) o.add("c", writeChain(List.of(n.cond)).get(0));
             if (!n.body.isEmpty()) o.add("b", writeChain(n.body));
             if (n.raw != null && !n.raw.isEmpty()) o.add("r", n.raw);
             if (!n.dynKeys.isEmpty()) {
@@ -300,8 +356,22 @@ public final class Script {
                 JsonObject mk = o.getAsJsonObject("m");
                 for (String k : mk.keySet()) n.markers.put(Integer.parseInt(k), mk.get(k).getAsString());
             }
+            if (o.has("mv")) {
+                JsonObject mv = o.getAsJsonObject("mv");
+                for (String k : mv.keySet())
+                    n.markerVars.put(Integer.parseInt(k),
+                            Value.fromJson(mv.getAsJsonObject(k)));
+            }
+            if (o.has("c") && o.get("c").isJsonObject()) {
+                JsonArray one = new JsonArray();
+                one.add(o.getAsJsonObject("c"));
+                List<Node> read = readChain(one);
+                if (!read.isEmpty()) n.cond = read.get(0);
+            }
             if (o.has("b")) n.body.addAll(readChain(o.getAsJsonArray("b")));
             if (o.has("r") && o.get("r").isJsonObject()) n.raw = o.getAsJsonObject("r");
+            if (n.cond == null && Mapping.loaded() && Mapping.hasConditional(n.action))
+                Importer.adoptConditional(n);
             out.add(n);
         }
         return out;

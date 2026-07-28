@@ -102,7 +102,7 @@ public final class Mapping {
                 Set<String> plural = new HashSet<>();
                 if (o.has("p")) for (var pe : o.getAsJsonArray("p")) plural.add(pe.getAsString());
                 Act act = new Act(o.get("k").getAsString(), args, settings, plural);
-                if (o.has("t")) act.selections = o.get("t").getAsString();
+                act.selections = o.has("t") ? o.get("t").getAsString() : family(act.key);
                 act.container = o.has("c");
                 ACTIONS.put(id, act);
             }
@@ -153,6 +153,15 @@ public final class Mapping {
         return id == null ? null : ACTIONS.get(id);
     }
 
+    private static String family(String key) {
+        int cut = key.indexOf('|');
+        return switch (cut < 0 ? key : key.substring(0, cut)) {
+            case "Действие над игроком", "Если игрок" -> "p";
+            case "Действие над сущностью", "Если сущность" -> "e";
+            default -> null;
+        };
+    }
+
     public static List<Sel> targets(Catalog.Action action) {
         Act act = forExport(action);
         if (act == null || act.selections == null) return List.of();
@@ -167,6 +176,32 @@ public final class Mapping {
     public static String targetId(Catalog.Action action, String name) {
         for (Sel s : targets(action)) if (s.name().equals(name)) return s.id();
         return null;
+    }
+
+    private static final List<String> COND_PLAYER =
+            List.of("Если игрок", "Если переменная", "Если в мире");
+    private static final List<String> COND_ENTITY =
+            List.of("Если сущность", "Если переменная", "Если в мире");
+    private static final List<String> COND_ALL =
+            List.of("Если игрок", "Если сущность", "Если переменная", "Если в мире");
+
+    private static final Map<String, List<String>> CONDITIONAL = Map.of(
+            "select_player_by_conditional", COND_PLAYER,
+            "select_entity_by_conditional", COND_ENTITY,
+            "select_add_player_by_conditional", COND_PLAYER,
+            "select_add_entity_by_conditional", COND_ENTITY,
+            "select_filter_by_conditional", COND_ALL,
+            "repeat_while", COND_ALL);
+
+    public static boolean hasConditional(Catalog.Action action) {
+        String id = actionId(action);
+        return id != null && CONDITIONAL.containsKey(id);
+    }
+
+    public static List<String> conditionCategories(Catalog.Action action) {
+        String id = actionId(action);
+        List<String> out = id == null ? null : CONDITIONAL.get(id);
+        return out == null ? List.of() : out;
     }
 
     public static boolean invertible(Catalog.Action action) {

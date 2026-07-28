@@ -26,8 +26,9 @@ import java.util.List;
 import java.util.Locale;
 
 public final class Publish {
-    private static final String UPLOAD = "https://garf.serv00.net/jcode/upload.php?key=jcode-garf";
-    private static final String BASE = "https://garf.serv00.net/jcode/code/";
+    private static final String HOST = "http://31.59.39.212:8791/jcode/";
+    private static final String UPLOAD = HOST + "upload.php?key=jcode-garf";
+    private static final String BASE = HOST + "code/";
 
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
 

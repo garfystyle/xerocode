@@ -39,7 +39,7 @@ public final class TextStudio {
             McText.PLAIN, McText.LEGACY, McText.MINI, McText.JSON);
 
     private final TextRenderer tr;
-    private final int screenW, screenH;
+    private int screenW, screenH;
     private final Done done;
 
     private String parsing;
@@ -55,6 +55,10 @@ public final class TextStudio {
 
     private int x, y, w, h;
     private int lw, rw;
+    private final Ui.Pane pane = new Ui.Pane();
+    private final Ui.Bar bar = new Ui.Bar();
+    private int lastMx, lastMy;
+    private boolean one;
     private int inputY, metaY, bodyY, modeY, swY, pickY, decoY, gradY, prevY, expY, footY;
     private int hexBx, hexBy, hexBw, samBx, samBy, apBx, apBy, apBw;
     private boolean compact, closed, syncing;
@@ -93,12 +97,22 @@ public final class TextStudio {
 
     public boolean isClosed() { return closed; }
 
+    public void resize(int sw, int sh) {
+        if (sw == screenW && sh == screenH) return;
+        screenW = sw;
+        screenH = sh;
+        compact = false;
+        menu = null;
+        layout();
+    }
+
     private int inner() { return w - PAD * 2; }
 
     private void layout() {
-        w = Math.min(600, Math.max(360, screenW - 24));
-        lw = (inner() - GUTTER) * 52 / 100;
-        rw = inner() - GUTTER - lw;
+        w = Ui.fitW(screenW, 600);
+        one = inner() < 320;
+        lw = one ? inner() : (inner() - GUTTER) * 52 / 100;
+        rw = one ? inner() : inner() - GUTTER - lw;
         int at = HEAD_H + 1 + 8;
         inputY = at;                       at += INPUT_H;
         metaY = at;                        at += 12 + 6;
@@ -129,31 +143,36 @@ public final class TextStudio {
         decoY = left + CAP;                left = decoY + ROW + 6;
         gradY = left + CAP;                left = gradY + ROW;
 
-        int right = bodyY + 3;
+        int right = one ? left + 8 : bodyY + 3;
         prevY = right + CAP;               right = prevY + previews() * PREV_ROW + 8;
         expY = right + CAP;                right = expY + 3 * OUT_ROW;
 
-        int bodyH = Math.max(left, right) - bodyY;
-        h = bodyY + bodyH + 8 + 1 + FOOT_H;
-        x = (screenW - w) / 2;
-        y = Math.max(4, (screenH - h) / 2);
+        int contentH = (one ? right : Math.max(left, right)) + 8;
+        int natural = contentH + 1 + FOOT_H;
+        h = Ui.fitH(screenH, natural);
+        x = Ui.midX(screenW, w);
+        y = Ui.midY(screenH, h);
         footY = h - FOOT_H;
 
-        if (h > screenH - 8 && !compact) { compact = true; layout(); return; }
+        if (h < natural && !compact) { compact = true; layout(); return; }
+        pane.fit(HEAD_H + 1, footY, contentH);
+        placeFields();
+    }
 
+    private void placeFields() {
         input.setX(x + PAD + 7);
-        input.setY(y + inputY + (INPUT_H - 12) / 2 + 2);
+        input.setY(absY(inputY) + (INPUT_H - 12) / 2 + 2);
         input.setWidth(inner() - 14);
         hex.setX(leftX() + hexBx + 6);
-        hex.setY(y + hexBy + (ROW - 12) / 2 + 2);
+        hex.setY(absY(hexBy) + (ROW - 12) / 2 + 2);
         hex.setWidth(hexBw - 12);
     }
 
     private int previews() { return compact ? 2 : 3; }
 
-    private int absY(int rel) { return y + rel; }
+    private int absY(int rel) { return y + pane.at(rel); }
     private int leftX() { return x + PAD; }
-    private int rightX() { return x + PAD + lw + GUTTER; }
+    private int rightX() { return one ? x + PAD : x + PAD + lw + GUTTER; }
 
     private OrderedText highlight(String s) {
         List<OrderedText> out = new ArrayList<>();
@@ -228,6 +247,8 @@ public final class TextStudio {
     }
 
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+        lastMx = mouseX;
+        lastMy = mouseY;
         Ui.dim(ctx, screenW, screenH);
         Ui.panel(ctx, x, y, w, h);
         Ui.headerStrip(ctx, x, y, w, HEAD_H, Values.color(Value.TEXT));
@@ -240,6 +261,7 @@ public final class TextStudio {
         Ui.closeButton(ctx, mouseX, mouseY, x + w - PAD - 14, y + 6, 14);
         Ui.hairline(ctx, x + 1, y + HEAD_H, w - 2);
 
+        ctx.enableScissor(x + 1, y + pane.top(), x + w - 1, y + footY);
         Ui.input(ctx, x + PAD, absY(inputY), inner(), INPUT_H, input.isFocused());
         input.render(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, input);
@@ -253,7 +275,10 @@ public final class TextStudio {
 
         drawLeft(ctx, mouseX, mouseY, delta);
         drawRight(ctx, mouseX, mouseY);
-        Ui.vline(ctx, x + PAD + lw + GUTTER / 2, absY(bodyY) + 2, h - bodyY - FOOT_H - 12);
+        if (!one) Ui.vline(ctx, x + PAD + lw + GUTTER / 2, absY(bodyY) + 2,
+                Math.min(h - bodyY - FOOT_H - 12, pane.contentH - bodyY - 12));
+        ctx.disableScissor();
+        pane.drawBar(ctx, bar, x + w - 4, y, lastMx, lastMy);
 
         Ui.hairline(ctx, x + 1, y + footY - 1, w - 2);
         drawFooter(ctx, mouseX, mouseY);
@@ -478,6 +503,8 @@ public final class TextStudio {
             return true;
         }
         if (Ui.hit(mx, my, x + w - PAD - 14, y + 6, 14, 14)) { closed = true; return true; }
+        if (bar.press(mx, my)) { pane.scroll = bar.follow(my, 1, pane.max()); return true; }
+        if (!pane.inBody(my, y)) return footClicked(mx, my);
 
         if (Ui.hit(mx, my, x + PAD, absY(inputY), inner(), INPUT_H)) {
             input.setFocused(true);
@@ -552,6 +579,10 @@ public final class TextStudio {
                 return true;
             }
 
+        return footClicked(mx, my);
+    }
+
+    private boolean footClicked(int mx, int my) {
         int fy = y + footY + (FOOT_H - ROW) / 2;
         if (Ui.hit(mx, my, x + w - PAD - 56, fy, 56, ROW)) { finish(); return true; }
         if (Ui.hit(mx, my, x + w - PAD - 114, fy, 52, ROW)) { closed = true; return true; }
@@ -586,15 +617,26 @@ public final class TextStudio {
     }
 
     public boolean mouseDragged(Click click, double dx, double dy) {
+        if (menu != null && menu.mouseDragged(click.y())) return true;
+        if (bar.dragging()) { pane.scroll = bar.follow(click.y(), 1, pane.max()); return true; }
         if (dragging != 0) { dragPicker(click.x(), click.y()); return true; }
         if (hex.isFocused()) return hex.mouseDragged(click, dx, dy);
         return input.mouseDragged(click, dx, dy);
     }
 
-    public boolean mouseReleased() { dragging = 0; return true; }
+    public boolean mouseReleased() {
+        dragging = 0;
+        bar.release();
+        if (menu != null) menu.mouseReleased();
+        return true;
+    }
 
     public boolean mouseScrolled(double mx, double my, double amount) {
         if (menu != null) return menu.mouseScrolled(mx, my, amount);
+        if (pane.max() > 0) {
+            pane.wheel(amount);
+            placeFields();
+        }
         return true;
     }
 

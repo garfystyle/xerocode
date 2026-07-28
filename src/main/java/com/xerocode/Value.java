@@ -19,9 +19,14 @@ public final class Value {
     public static final class Elem {
         public String name;
         public String icon = "";
+        public String display = "";
         public Elem(String name) { this.name = name; }
         public Elem(String name, String icon) { this.name = name; this.icon = icon; }
-        public Elem copy() { return new Elem(name, icon); }
+        public Elem copy() {
+            Elem e = new Elem(name, icon);
+            e.display = display;
+            return e;
+        }
     }
 
     public String type;
@@ -42,6 +47,7 @@ public final class Value {
     public final List<Elem> elements = new ArrayList<>();
     public String defaultElement = "";
     public String slotsRaw = "", descriptionSlotsRaw = "";
+    public String paramDesc = "", paramDefault = "";
 
     public String gameValue = "";
     public String selection = "default";
@@ -113,6 +119,7 @@ public final class Value {
         v.selectionRaw = selectionRaw;
         v.ignoreEmpty = ignoreEmpty; v.defaultElement = defaultElement;
         v.slotsRaw = slotsRaw; v.descriptionSlotsRaw = descriptionSlotsRaw;
+        v.paramDesc = paramDesc; v.paramDefault = paramDefault;
         for (Elem e : elements) v.elements.add(e.copy());
         v.sound = sound; v.source = source; v.volume = volume; v.pitch2 = pitch2;
         v.variation = variation;
@@ -151,7 +158,9 @@ public final class Value {
         h = h * 31 + typeKey.hashCode();
         h = h * 31 + (required ? 1 : 0) + (ignoreEmpty ? 2 : 0);
         h = h * 31 + defaultElement.hashCode();
-        for (Elem e : elements) h = h * 31 + e.name.hashCode();
+        h = h * 31 + paramDesc.hashCode();
+        h = h * 31 + paramDefault.hashCode();
+        for (Elem e : elements) h = h * 31 + e.name.hashCode() * 31 + e.display.hashCode();
         h = h * 31 + gameValue.hashCode();
         h = h * 31 + selection.hashCode();
         h = h * 31 + selectionRaw.hashCode();
@@ -286,8 +295,11 @@ public final class Value {
             for (JsonElement e : JsonParser.parseString(raw).getAsJsonArray()) {
                 JsonObject o = e.isJsonObject() ? e.getAsJsonObject()
                         : JsonParser.parseString(e.getAsString()).getAsJsonObject();
-                elements.add(new Elem(o.has("name") ? o.get("name").getAsString() : "",
-                        o.has("icon") ? o.get("icon").getAsString() : ""));
+                Elem elem = new Elem(o.has("name") ? o.get("name").getAsString() : "",
+                        o.has("icon") ? o.get("icon").getAsString() : "");
+                if (o.has("display_name") && o.get("display_name").isJsonObject())
+                    elem.display = o.get("display_name").toString();
+                elements.add(elem);
             }
         } catch (RuntimeException ignored) {
             elements.clear();
@@ -299,7 +311,8 @@ public final class Value {
         for (Elem e : elements) {
             JsonObject o = new JsonObject();
             o.addProperty("name", e.name);
-            o.add("display_name", JsonParser.parseString("{\"translations\":{}}").getAsJsonObject());
+            o.add("display_name", Localized.box(
+                    e.display.isBlank() ? Localized.EMPTY : e.display));
             if (!e.icon.isEmpty()) o.addProperty("icon", e.icon);
             arr.add(o.toString());
         }
@@ -326,14 +339,16 @@ public final class Value {
             }
             case PARAMETER -> {
                 o.addProperty("type_key", typeKey);
-                o.addProperty("description", "{\"translations\":{}}");
+                o.addProperty("description",
+                        paramDesc.isBlank() ? Localized.EMPTY : paramDesc);
                 o.addProperty("name", name);
                 switch (typeKey) {
                     case PLURAL -> {
                         o.addProperty("value_type", valueType);
                         o.addProperty("is_required", String.valueOf(required));
                         o.addProperty("ignore_empty_values", String.valueOf(ignoreEmpty));
-                        o.addProperty("default_value", "{\"type\":\"array\",\"values\":[]}");
+                        o.addProperty("default_value", paramDefault.isBlank()
+                                ? "{\"type\":\"array\",\"values\":[]}" : paramDefault);
                         o.addProperty("slots", list(slotsRaw, "[0]"));
                         o.addProperty("description_slots", list(descriptionSlotsRaw, "[]"));
                     }
@@ -345,7 +360,8 @@ public final class Value {
                     default -> {
                         o.addProperty("value_type", valueType);
                         o.addProperty("is_required", String.valueOf(required));
-                        o.addProperty("default_value", "{}");
+                        o.addProperty("default_value",
+                                paramDefault.isBlank() ? "{}" : paramDefault);
                         o.addProperty("slot", one(slotsRaw, 0));
                         o.addProperty("description_slot", one(descriptionSlotsRaw, -1));
                     }
@@ -469,6 +485,10 @@ public final class Value {
         if (o.has("ignore_empty_values"))
             v.ignoreEmpty = Boolean.parseBoolean(o.get("ignore_empty_values").getAsString());
         if (o.has("default_element")) v.defaultElement = o.get("default_element").getAsString();
+        if (PARAMETER.equals(v.type)) {
+            if (o.has("description")) v.paramDesc = o.get("description").getAsString();
+            if (o.has("default_value")) v.paramDefault = o.get("default_value").getAsString();
+        }
         if (o.has("slots")) v.slotsRaw = o.get("slots").getAsString();
         else if (o.has("slot")) v.slotsRaw = o.get("slot").getAsString();
         if (o.has("description_slots")) v.descriptionSlotsRaw = o.get("description_slots").getAsString();

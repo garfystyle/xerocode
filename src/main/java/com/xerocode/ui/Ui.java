@@ -36,6 +36,37 @@ public final class Ui {
         return mx >= x && mx < x + w && my >= y && my < y + h;
     }
 
+    public static int margin(int screen) { return screen < 420 ? 5 : 12; }
+
+    public static int fitW(int screenW, int want) {
+        return Math.max(60, Math.min(want, screenW - margin(screenW) * 2));
+    }
+
+    public static int fitH(int screenH, int want) {
+        return Math.max(60, Math.min(want, screenH - margin(screenH) * 2));
+    }
+
+    public static int midX(int screenW, int w) {
+        return Math.max(margin(screenW), (screenW - w) / 2);
+    }
+
+    public static int midY(int screenH, int h) {
+        return Math.max(margin(screenH), (screenH - h) / 2);
+    }
+
+    public static int anchorX(int screenW, int wanted, int w) {
+        return Math.max(4, Math.min(wanted, screenW - w - 4));
+    }
+
+    public static int anchorY(int screenH, int wanted, int h) {
+        return Math.max(4, Math.min(wanted, screenH - h - 4));
+    }
+
+    public static int scrolled(int scroll, int contentH, int viewH, double amount) {
+        return Math.max(0, Math.min(Math.max(0, contentH - viewH),
+                scroll - (int) Math.round(amount * 18)));
+    }
+
     public static void dim(DrawContext ctx, int screenW, int screenH) {
         Draw.rect(ctx, 0, 0, screenW, screenH, Theme.SCRIM);
     }
@@ -243,13 +274,88 @@ public final class Ui {
         return hov;
     }
 
-    public static void scrollbar(DrawContext ctx, int x, int y, int trackH,
-                                 int contentH, int viewH, int scroll) {
-        if (contentH <= viewH) return;
-        int thumbH = Math.max(14, trackH * viewH / contentH);
-        int thumbY = y + (trackH - thumbH) * scroll / Math.max(1, contentH - viewH);
-        Draw.rect(ctx, x, y, 3, trackH, Draw.argb(0x30, 0x000000));
-        Draw.round(ctx, x, thumbY, 3, thumbH, 1, Draw.argb(0xB4, 0x5A6478));
+    public static final class Pane {
+        public int scroll, contentH;
+        private int top, bottom;
+
+        public void fit(int top, int bottom, int contentH) {
+            this.top = top;
+            this.bottom = bottom;
+            this.contentH = contentH;
+            clamp();
+        }
+
+        public int top()    { return top; }
+        public int bottom() { return bottom; }
+        public int viewH()  { return bottom - top; }
+        public int max()    { return Math.max(0, contentH - bottom); }
+
+        public void clamp() { scroll = Math.max(0, Math.min(max(), scroll)); }
+
+        public int at(int rel) { return rel - scroll; }
+
+        public boolean inBody(double my, int panelY) {
+            return my >= panelY + top && my < panelY + bottom;
+        }
+
+        public void wheel(double amount) {
+            scroll = scrolled(scroll, contentH, bottom, amount);
+        }
+
+        public void drawBar(DrawContext ctx, Bar bar, int barX, int panelY, double mx, double my) {
+            bar.draw(ctx, barX, panelY + top + 2, viewH() - 4, contentH - top,
+                    viewH() - 4, scroll, mx, my);
+        }
+    }
+
+    private static final int BAR_GRAB = 4, BAR_W = 3, THUMB_MIN = 14;
+
+    public static final class Bar {
+        private int x, y, trackH, thumbH, thumbY, span;
+        private boolean dragging;
+        private int grab;
+
+        public void draw(DrawContext ctx, int x, int y, int trackH,
+                         int contentH, int viewH, int scroll, double mx, double my) {
+            this.x = x;
+            this.y = y;
+            this.trackH = trackH;
+            this.span = Math.max(0, contentH - viewH);
+            if (contentH <= viewH || trackH <= 0) { thumbH = 0; return; }
+            thumbH = Math.min(trackH, Math.max(THUMB_MIN, trackH * viewH / contentH));
+            thumbY = y + (trackH - thumbH) * Math.max(0, Math.min(span, scroll)) / Math.max(1, span);
+            boolean hot = dragging || over(mx, my);
+            Draw.rect(ctx, x, y, BAR_W, trackH, Draw.argb(0x30, 0x000000));
+            Draw.round(ctx, x, thumbY, BAR_W, thumbH, 1,
+                    Draw.argb(hot ? 0xFF : 0xB4, hot ? 0x8D9AB4 : 0x5A6478));
+        }
+
+        private boolean over(double mx, double my) {
+            return thumbH > 0 && mx >= x - BAR_GRAB && mx < x + BAR_W + BAR_GRAB
+                    && my >= y && my < y + trackH;
+        }
+
+        public boolean press(double mx, double my) {
+            if (!over(mx, my)) return false;
+            dragging = true;
+            grab = my >= thumbY && my < thumbY + thumbH ? (int) (my - thumbY) : thumbH / 2;
+            return true;
+        }
+
+        private int at(double my) {
+            int free = trackH - thumbH;
+            if (free <= 0) return 0;
+            int want = Math.max(0, Math.min(free, (int) Math.round(my - grab) - y));
+            return (int) Math.round(want * (double) span / free);
+        }
+
+        public int follow(double my, int step, int max) {
+            return Math.max(0, Math.min(max, at(my) / Math.max(1, step)));
+        }
+
+        public boolean dragging() { return dragging; }
+
+        public void release() { dragging = false; }
     }
 
     public static void svSquare(DrawContext ctx, int x, int y, int w, int h,

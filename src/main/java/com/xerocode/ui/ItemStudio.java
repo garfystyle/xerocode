@@ -44,12 +44,12 @@ public final class ItemStudio {
             "minecraft:enchantments", "minecraft:unbreakable", "minecraft:attribute_modifiers");
 
     private final TextRenderer tr;
-    private final int screenW, screenH;
+    private int screenW, screenH;
     private final Done done;
     private final Value v;
 
     private final TextFieldWidget nameField, countField, damageField, modelField;
-    private final EditBoxWidget nbtBox;
+    private EditBoxWidget nbtBox;
     private Ui.Chips modeChips, glintChips, hideChips;
 
     private ItemPicker picker;
@@ -58,6 +58,9 @@ public final class ItemStudio {
     private int studioLine = -1;
 
     private int x, y, w, h, lw, rw;
+    private final Ui.Pane pane = new Ui.Pane();
+    private final Ui.Bar bar = new Ui.Bar(), loreBar = new Ui.Bar();
+    private int lastMx, lastMy;
     private int cardY, pickY, numsY, nameY, modeY, nameBtnY, loreY, enchY, propY, glintY, hideY;
     private int prevY, prevH, nbtY, nbtH, nbtMsgY, nbtBtnY, footY;
     private int loreRows, enchRows, loreScroll, enchScroll;
@@ -84,7 +87,16 @@ public final class ItemStudio {
         damageField = field(v.itemDamage > 0 ? String.valueOf(v.itemDamage) : "", "0", 6);
         modelField = field(v.modelData >= 0 ? String.valueOf(v.modelData) : "", "нет", 9);
 
-        nbtBox = EditBoxWidget.builder()
+        nbtBox = buildNbtBox(screenW, v.components);
+
+        nameField.setFocused(true);
+        layout();
+        writeNbt();
+        lastSig = fieldSig();
+    }
+
+    private EditBoxWidget buildNbtBox(int screenW, String text) {
+        EditBoxWidget box = EditBoxWidget.builder()
                 .placeholder(Text.literal("{\"minecraft:custom_data\":{}}")
                         .withColor(Theme.TEXT_FAINT))
                 .textColor(Draw.opaque(Theme.TEXT))
@@ -93,14 +105,10 @@ public final class ItemStudio {
                 .hasBackground(false)
                 .hasOverlay(false)
                 .build(tr, rightColW(screenW) - 8, 60, Text.literal("компоненты"));
-        nbtBox.setMaxLength(16384);
-        nbtBox.setText(v.components);
-        nbtBox.setChangeListener(s -> v.components = s);
-
-        nameField.setFocused(true);
-        layout();
-        writeNbt();
-        lastSig = fieldSig();
+        box.setMaxLength(16384);
+        box.setText(text);
+        box.setChangeListener(s -> v.components = s);
+        return box;
     }
 
     private int fieldSig() {
@@ -137,24 +145,43 @@ public final class ItemStudio {
 
     public boolean isClosed() { return closed; }
 
+    public void resize(int sw, int sh) {
+        if (sw == screenW && sh == screenH) return;
+        screenW = sw;
+        screenH = sh;
+        squeeze = 0;
+        boolean nbtFocused = nbtBox.isFocused();
+        nbtBox = buildNbtBox(sw, v.components);
+        nbtBox.setFocused(nbtFocused);
+        if (picker != null) picker.resize(sw, sh);
+        if (studio != null) studio.resize(sw, sh);
+        if (enchPicker != null) enchPicker.resize(sw, sh);
+        layout();
+    }
+
     private int inner() { return w - PAD * 2; }
     private int leftX()  { return x + PAD; }
-    private int rightX() { return x + PAD + lw + GUTTER; }
+    private int rightX() { return oneCol(screenW) ? x + PAD : x + PAD + lw + GUTTER; }
 
-    private static int panelW(int screenW) { return Math.min(660, Math.max(400, screenW - 24)); }
+    private static int panelW(int screenW) { return Ui.fitW(screenW, 660); }
+
+    private static boolean oneCol(int screenW) { return panelW(screenW) - PAD * 2 < 320; }
 
     private static int leftColW(int screenW) {
-        return (panelW(screenW) - PAD * 2 - GUTTER) * 55 / 100;
+        int inner = panelW(screenW) - PAD * 2;
+        return oneCol(screenW) ? inner : (inner - GUTTER) * 55 / 100;
     }
 
     private static int rightColW(int screenW) {
-        return panelW(screenW) - PAD * 2 - GUTTER - leftColW(screenW);
+        int inner = panelW(screenW) - PAD * 2;
+        return oneCol(screenW) ? inner : inner - GUTTER - leftColW(screenW);
     }
 
     private void layout() {
         w = panelW(screenW);
         lw = leftColW(screenW);
         rw = rightColW(screenW);
+        boolean one = oneCol(screenW);
         loreRows = LORE_ROWS[squeeze];
         enchRows = ENCH_ROWS[squeeze];
 
@@ -177,35 +204,43 @@ public final class ItemStudio {
         glintY = at;                         at += glintChips.height() + 4;
         hideY = at;                          at += hideChips.height();
 
-        int right = HEAD_H + 1 + 8;
+        int right = one ? at + 10 : HEAD_H + 1 + 8;
         prevY = right + CAP;
-        int avail = at - prevY;
-        prevH = Math.max(squeeze == 0 ? 76 : 56, avail * 42 / 100);
+        int avail = one ? 0 : at - prevY;
+        int prevMin = squeeze == 0 ? 76 : 56;
+        prevH = one ? prevMin : Math.max(prevMin, avail * 42 / 100);
         int tail = 8 + CAP + 3 + 11 + 3 + BTN_H;
-        nbtH = Math.max(NBT_HEIGHT[squeeze] - 20, avail - prevH - tail);
+        nbtH = one ? NBT_HEIGHT[squeeze]
+                   : Math.max(NBT_HEIGHT[squeeze] - 20, avail - prevH - tail);
         right = prevY + prevH + 8;
         nbtY = right + CAP;                  right = nbtY + nbtH + 3;
         nbtMsgY = right;                     right += 11 + 3;
         nbtBtnY = right;                     right += BTN_H;
 
-        h = Math.max(at, right) + 8 + 1 + FOOT_H;
-        x = (screenW - w) / 2;
-        y = Math.max(4, (screenH - h) / 2);
+        int contentH = (one ? right : Math.max(at, right)) + 8;
+        int natural = contentH + 1 + FOOT_H;
+        h = Ui.fitH(screenH, natural);
+        if (h < natural && squeeze < LORE_ROWS.length - 1) { squeeze++; layout(); return; }
+        x = Ui.midX(screenW, w);
+        y = Ui.midY(screenH, h);
         footY = h - FOOT_H;
-        if (h > screenH - 8 && squeeze < LORE_ROWS.length - 1) { squeeze++; layout(); return; }
+        pane.fit(HEAD_H + 1, footY, contentH);
+        placeWidgets();
+    }
 
+    private void placeWidgets() {
         nameField.setX(leftX() + 7);
-        nameField.setY(y + nameY + (INPUT_H - 12) / 2 + 2);
+        nameField.setY(absY(nameY) + (INPUT_H - 12) / 2 + 2);
         nameField.setWidth(lw - 14);
         int cw = numW();
         for (int i = 0; i < 3; i++) {
             TextFieldWidget f = numField(i);
             f.setX(leftX() + i * (cw + 4) + 6);
-            f.setY(y + numsY + (INPUT_H - 12) / 2 + 2);
+            f.setY(absY(numsY) + (INPUT_H - 12) / 2 + 2);
             f.setWidth(cw - 12);
         }
         nbtBox.setX(rightX() + 4);
-        nbtBox.setY(y + nbtY + 3);
+        nbtBox.setY(absY(nbtY) + 3);
         nbtBox.setWidth(rw - 8);
         nbtBox.setHeight(nbtH - 6);
     }
@@ -253,9 +288,13 @@ public final class ItemStudio {
         return i == 0 ? countField : i == 1 ? damageField : modelField;
     }
 
-    private int absY(int rel) { return y + rel; }
+    private int absY(int rel) { return y + pane.at(rel); }
+
+    private int footAbsY() { return y + footY; }
 
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+        lastMx = mouseX;
+        lastMy = mouseY;
         if (picker != null) { picker.render(ctx, mouseX, mouseY, delta); return; }
         if (studio != null) { studio.render(ctx, mouseX, mouseY, delta); return; }
         if (enchPicker != null) { enchPicker.render(ctx, mouseX, mouseY, delta); return; }
@@ -277,10 +316,13 @@ public final class ItemStudio {
         Ui.closeButton(ctx, mouseX, mouseY, x + w - PAD - 14, y + 6, 14);
         Ui.hairline(ctx, x + 1, y + HEAD_H, w - 2);
 
+        ctx.enableScissor(x + 1, y + pane.top(), x + w - 1, y + footY);
         drawLeft(ctx, mouseX, mouseY, delta);
         drawRight(ctx, mouseX, mouseY, delta);
+        ctx.disableScissor();
+        pane.drawBar(ctx, bar, x + w - 4, y, lastMx, lastMy);
 
-        Ui.hairline(ctx, x + 1, absY(footY) - 1, w - 2);
+        Ui.hairline(ctx, x + 1, footAbsY() - 1, w - 2);
         drawFooter(ctx, mouseX, mouseY);
     }
 
@@ -359,8 +401,9 @@ public final class ItemStudio {
                     Ui.DANGER, true);
         }
         if (maxLoreScroll() > 0)
-            Ui.scrollbar(ctx, leftX() + lw - ROW - 6, absY(loreY), shownLore * (ROW + 2),
-                    v.lore.size() * (ROW + 2), shownLore * (ROW + 2), loreScroll * (ROW + 2));
+            loreBar.draw(ctx, leftX() + lw - ROW - 6, absY(loreY), shownLore * (ROW + 2),
+                    v.lore.size() * (ROW + 2), shownLore * (ROW + 2), loreScroll * (ROW + 2),
+                    lastMx, lastMy);
         Ui.Cluster loreBtn = loreAdd();
         Ui.glyphButton(ctx, tr, mouseX, mouseY, loreBtn.x(0), loreAddY(), loreBtn.w(0), ADD_H,
                 Draw.PLUS, "добавить строку", Ui.GHOST, v.lore.size() < 32);
@@ -494,7 +537,7 @@ public final class ItemStudio {
     }
 
     private void drawFooter(DrawContext ctx, int mouseX, int mouseY) {
-        int fy = absY(footY) + (FOOT_H - 16) / 2;
+        int fy = footAbsY() + (FOOT_H - 16) / 2;
         String hint = System.currentTimeMillis() - flashAt < 1800 ? flash : Stacks.summary(v);
         if (hint.isEmpty()) hint = "Enter — готово, Esc — отмена";
         Draw.textFit(ctx, tr, hint, x + PAD, fy + 4, inner() - 120, Theme.TEXT_FAINT, false);
@@ -539,6 +582,12 @@ public final class ItemStudio {
 
         int mx = (int) click.x(), my = (int) click.y();
         if (Ui.hit(mx, my, x + w - PAD - 14, y + 6, 14, 14)) { closed = true; return true; }
+        if (!pane.inBody(my, y)) {
+            int fy = footAbsY() + (FOOT_H - 16) / 2;
+            if (Ui.hit(mx, my, x + w - PAD - 56, fy, 56, 16)) { finish(); return true; }
+            if (Ui.hit(mx, my, x + w - PAD - 114, fy, 52, 16)) { closed = true; return true; }
+            return true;
+        }
 
         int half = (lw - 5) / 2;
         Ui.Cluster items = itemRow();
@@ -575,6 +624,11 @@ public final class ItemStudio {
                 v.itemParsing = p.id();
                 sync();
             }
+            return true;
+        }
+        if (bar.press(mx, my)) { pane.scroll = bar.follow(my, 1, pane.max()); return true; }
+        if (loreBar.press(mx, my)) {
+            loreScroll = loreBar.follow(my, ROW + 2, maxLoreScroll());
             return true;
         }
         Ui.Cluster names = nameRow();
@@ -669,7 +723,7 @@ public final class ItemStudio {
             return true;
         }
 
-        int fy = absY(footY) + (FOOT_H - 16) / 2;
+        int fy = footAbsY() + (FOOT_H - 16) / 2;
         if (Ui.hit(mx, my, x + w - PAD - 56, fy, 56, 16)) { finish(); return true; }
         if (Ui.hit(mx, my, x + w - PAD - 114, fy, 52, 16)) { closed = true; return true; }
         return true;
@@ -750,6 +804,11 @@ public final class ItemStudio {
     }
 
     public boolean mouseDragged(Click click, double dx, double dy) {
+        if (bar.dragging()) { pane.scroll = bar.follow(click.y(), 1, pane.max()); return true; }
+        if (loreBar.dragging()) {
+            loreScroll = loreBar.follow(click.y(), ROW + 2, maxLoreScroll());
+            return true;
+        }
         if (picker != null) return picker.mouseDragged(click, dx, dy);
         if (studio != null) return studio.mouseDragged(click, dx, dy);
         if (enchPicker != null) return enchPicker.mouseDragged(click, dx, dy);
@@ -759,6 +818,8 @@ public final class ItemStudio {
     }
 
     public void mouseReleased() {
+        bar.release();
+        loreBar.release();
         if (studio != null) studio.mouseReleased();
         if (enchPicker != null) enchPicker.mouseReleased();
         if (picker != null) picker.mouseReleased();
@@ -789,6 +850,10 @@ public final class ItemStudio {
                 bump(COUNT + i, (int) Math.signum(amount));
                 return true;
             }
+        if (pane.max() > 0) {
+            pane.wheel(amount);
+            placeWidgets();
+        }
         return true;
     }
 

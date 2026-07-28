@@ -3,9 +3,14 @@ package com.xerocode.ui;
 import com.xerocode.Audio;
 import com.xerocode.Catalog;
 import com.xerocode.Functions;
+import com.xerocode.History;
+import com.xerocode.Mapping;
 import com.xerocode.Script;
+import com.xerocode.Settings;
 import com.xerocode.Stacks;
 import com.xerocode.Value;
+import com.xerocode.Values;
+import com.xerocode.XeroCode;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
@@ -42,6 +47,7 @@ public final class EditorScreen extends Screen {
     private Snap snap;
 
     private Menu menu;
+    private CatalogPicker condPicker;
     private ValueEditor editor;
     private SettingsPanel settings;
     private String editorUndo;
@@ -73,7 +79,7 @@ public final class EditorScreen extends Screen {
     public EditorScreen(Script script) {
         super(Text.literal("XeroCode"));
         this.script = script;
-        com.xerocode.History.clear();
+        History.clear();
     }
 
     private int canvasLeft() { return Theme.PALETTE_W; }
@@ -82,9 +88,13 @@ public final class EditorScreen extends Screen {
     private int toScreenX(double cx) { return (int) Math.round(canvasLeft() + panX + cx * zoom); }
     private int toScreenY(double cy) { return (int) Math.round(Theme.TOPBAR_H + panY + cy * zoom); }
 
+    private int paletteLimit() {
+        return Math.max(Theme.PALETTE_MIN_W,
+                Math.min(Math.min(Theme.PALETTE_MAX_W, width - 200), width * 55 / 100));
+    }
+
     private void setPaletteWidth(int w) {
-        Theme.PALETTE_W = Math.max(Theme.PALETTE_MIN_W,
-                Math.min(Math.min(Theme.PALETTE_MAX_W, width - 240), w));
+        Theme.PALETTE_W = Math.max(Theme.PALETTE_MIN_W, Math.min(paletteLimit(), w));
         script.paletteW = Theme.PALETTE_W;
         search.setWidth(Palette.searchTextW());
         search.setX(Palette.searchTextX());
@@ -113,7 +123,7 @@ public final class EditorScreen extends Screen {
         }
         if (script.paletteW > 0) Theme.PALETTE_W = script.paletteW;
         Theme.PALETTE_W = Math.max(Theme.PALETTE_MIN_W,
-                Math.min(Math.min(Theme.PALETTE_MAX_W, Math.max(240, width - 240)), Theme.PALETTE_W));
+                Math.min(paletteLimit(), Theme.PALETTE_W));
         search = Ui.field(textRenderer, Palette.searchTextX(), Palette.SEARCH_Y + 6,
                 Palette.searchTextW(), 10, "поиск блока…");
         search.setDrawsBackground(false);
@@ -128,6 +138,11 @@ public final class EditorScreen extends Screen {
             fitView();
             status = "";
         }
+        if (editor != null) editor.resize(width, height);
+        if (settings != null) settings.resize(width, height);
+        if (condPicker != null) condPicker.resize(width, height);
+        menu = null;
+        topStamp = Integer.MIN_VALUE;
         reopenPending();
     }
 
@@ -139,23 +154,23 @@ public final class EditorScreen extends Screen {
         statusAt = System.currentTimeMillis();
     }
 
-    private String snapshot() { return com.xerocode.History.snapshot(script); }
+    private String snapshot() { return History.snapshot(script); }
 
     private void pushUndo() { pushUndo(snapshot()); }
 
     private void pushUndo(String state) {
-        com.xerocode.History.push(state);
+        History.push(state);
         revision++;
     }
 
     private void undo() {
         closeOverlays();
-        if (com.xerocode.History.undo(script)) { revision++; toast("отменено"); }
+        if (History.undo(script)) { revision++; toast("отменено"); }
     }
 
     private void redo() {
         closeOverlays();
-        if (com.xerocode.History.redo(script)) { revision++; toast("возвращено"); }
+        if (History.redo(script)) { revision++; toast("возвращено"); }
     }
 
     private void closeOverlays() {
@@ -166,14 +181,10 @@ public final class EditorScreen extends Screen {
 
     private void finishEditor() {
         if (editor == null) return;
-        int was = script.codeHash();
         if (!editor.cancelled()) editor.commit();
         editor.dispose();
         if (editor.changed() && editorUndo != null) pushUndo(editorUndo);
         editorUndo = null;
-        com.xerocode.XeroCode.LOG.info("[xerocode] окно значения закрыто: слот {}, отмена={},"
-                        + " панель сказала «изменено»={}, отпечаток {} → {}",
-                editor.argIndex(), editor.cancelled(), editor.changed(), was, script.codeHash());
         boolean toWorld = editor.pickInWorld();
         Script.Node node = editor.node();
         int arg = editor.argIndex(), cell = editor.selected();
@@ -219,6 +230,10 @@ public final class EditorScreen extends Screen {
                 for (Value v : list)
                     if (want.equals(v.type) && !v.name.isBlank())
                         counts.merge(v.name, 1, Integer::sum);
+            for (Value v : n.markerVars.values())
+                if (want.equals(v.type) && !v.name.isBlank())
+                    counts.merge(v.name, 1, Integer::sum);
+            if (n.cond != null) collectNames(List.of(n.cond), parameters, counts);
             collectNames(n.body, parameters, counts);
         }
     }
@@ -238,8 +253,6 @@ public final class EditorScreen extends Screen {
 
     @Override
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        if (com.xerocode.PickLog.on)
-            com.xerocode.PickLog.log("ПОЛОТНО", "рисуется поверх игры во время выбора точки");
         Draw.batch(null);
         SmoothText.clip(null);
         if (settings != null && settings.consumeChanged()) {
@@ -319,6 +332,10 @@ public final class EditorScreen extends Screen {
         if (menu != null) menu.render(ctx, textRenderer, mouseX, mouseY);
         else if (!exitPrompt && settings == null) drawTooltips(ctx, mouseX, mouseY);
         if (exitPrompt) drawExitPrompt(ctx, mouseX, mouseY);
+        if (condPicker != null) {
+            ctx.createNewRootLayer();
+            condPicker.render(ctx, mouseX, mouseY, delta);
+        }
         if (settings != null) settings.render(ctx, mouseX, mouseY, delta);
     }
 
@@ -336,8 +353,7 @@ public final class EditorScreen extends Screen {
             if (!chunk.visible(mouseCanvasX, mouseCanvasY, mouseCanvasX, mouseCanvasY)) continue;
             for (int i = chunk.to - 1; i >= chunk.from; i--) {
                 Layout.Box b = layout.boxes.get(i);
-                if (mouseCanvasX < b.x || mouseCanvasX >= b.x + b.w
-                        || mouseCanvasY < b.y || mouseCanvasY >= b.bottom()) continue;
+                if (!b.contains(mouseCanvasX, mouseCanvasY)) continue;
                 Layout.Chip c = b.chipAt(mouseCanvasX, mouseCanvasY);
                 if (c != null) { hoverBox = b; hoverChip = c; return; }
                 if (b.hitGrab(mouseCanvasX, mouseCanvasY)) { hoverBox = b; return; }
@@ -346,13 +362,13 @@ public final class EditorScreen extends Screen {
     }
 
     private void drawGrid(DrawContext ctx) {
-        int style = com.xerocode.Settings.gridStyle();
-        if (style == com.xerocode.Settings.GRID_NONE) return;
+        int style = Settings.gridStyle();
+        if (style == Settings.GRID_NONE) return;
         double step = 26 * zoom;
         while (step < 13) step *= 2;
         double ox = canvasLeft() + panX, oy = Theme.TOPBAR_H + panY;
         int faint = Theme.GRID, strong = Theme.GRID_STRONG;
-        if (style == com.xerocode.Settings.GRID_DOTS) {
+        if (style == Settings.GRID_DOTS) {
             drawGridDots(ctx, step, ox, oy, faint, strong);
             return;
         }
@@ -430,7 +446,7 @@ public final class EditorScreen extends Screen {
     private void drawBlock(DrawContext ctx, Layout.Box box) {
         Script.Node n = box.node;
         boolean hovered = hoverBox == box && hoverChip == null && drag == null;
-        boolean grad = com.xerocode.Settings.gradient();
+        boolean grad = Settings.gradient();
         int base = hovered ? blockColor(n) : 0;
         int top = hovered ? Draw.opaque(Draw.shade(base, grad ? 0.28f : 0.16f)) : box.top;
         int bottom = hovered ? (grad ? Draw.opaque(Draw.shade(base, 0.02f)) : top) : box.bottom;
@@ -489,8 +505,11 @@ public final class EditorScreen extends Screen {
 
     private void drawChip(DrawContext ctx, Layout.Box box, Layout.Chip chip) {
         if (chip.isPlus()) drawPlusChip(ctx, chip);
+        else if (chip.isCondition()) drawConditionChip(ctx, box, chip);
         else if (chip.isArg() || chip.isCell()) drawArgChip(ctx, box, chip);
         else drawMarkerChip(ctx, box, chip);
+        if (hoverChip == chip) Draw.roundOutline(ctx, chip.x, chip.y, chip.w, Layout.CHIP_H,
+                Layout.CHIP_H / 2, Draw.argb(0xAA, 0xFFFFFF));
     }
 
     private void drawCard(DrawContext ctx, Layout.Box box, int ink, boolean lightHead, int head) {
@@ -514,6 +533,8 @@ public final class EditorScreen extends Screen {
             Draw.text(ctx, textRenderer, c.verb, c.verbX, c.nameY, soft, !lightHead);
         Draw.textScaled(ctx, textRenderer, c.name, c.nameX, c.nameY, c.scale,
                 c.named ? ink : mute, !lightHead);
+        if (c.id != null)
+            Draw.text(ctx, textRenderer, c.id, c.idX, c.idY, mute, !lightHead);
         if (c.kind != null)
             Draw.text(ctx, textRenderer, c.kind, c.kindX, c.kindY, mute, !lightHead);
         if (c.missing)
@@ -528,6 +549,8 @@ public final class EditorScreen extends Screen {
                 Draw.rect(ctx, from, c.nameY + 8 * c.scale, c.nameX + c.nameW - from, 1,
                         Draw.opaque(mute));
             }
+            if (c.hitId(mouseCanvasX, mouseCanvasY))
+                Draw.rect(ctx, c.idX, c.idY + 8, c.idW, 1, Draw.opaque(mute));
             if (c.hitDesc(mouseCanvasX, mouseCanvasY))
                 Draw.rect(ctx, c.descX, c.descY + c.desc.size() * Layout.DESC_H - 2, c.descW, 1,
                         Draw.opaque(mute));
@@ -544,30 +567,18 @@ public final class EditorScreen extends Screen {
     }
 
     private void drawPlusChip(DrawContext ctx, Layout.Chip chip) {
-        int h = Layout.CHIP_H;
-        Draw.pill(ctx, chip.x, chip.y, chip.w, h, chip.border);
-        Draw.pillGrad(ctx, chip.x + 1, chip.y + 1, chip.w - 2, h - 2, chip.top, chip.bottom);
+        Draw.pill(ctx, chip.x, chip.y, chip.w, Layout.CHIP_H, chip.border);
+        Draw.pillGrad(ctx, chip.x + 1, chip.y + 1, chip.w - 2, Layout.CHIP_H - 2,
+                chip.top, chip.bottom);
         Draw.glyph(ctx, Draw.PLUS, chip.x + 5, chip.y + 5, chip.ink);
         Draw.text(ctx, textRenderer, chip.fitted, chip.x + 16, chip.y + 4, chip.ink, false);
-        if (hoverChip == chip)
-            Draw.roundOutline(ctx, chip.x, chip.y, chip.w, h, h / 2, Draw.argb(0xAA, 0xFFFFFF));
     }
 
     private void drawArgChip(DrawContext ctx, Layout.Box box, Layout.Chip chip) {
-        int h = Layout.CHIP_H;
-
-        Draw.pill(ctx, chip.x, chip.y, chip.w, h, chip.border);
-        Draw.pillGrad(ctx, chip.x + 1, chip.y + 1, chip.w - 2, h - 2, chip.top, chip.bottom);
-        if (!chip.icon.isEmpty()) {
-            Matrix3x2fStack m = ctx.getMatrices();
-            m.pushMatrix();
-            m.translate(chip.x + 2f, chip.y + 2f);
-            m.scale(11 / 16f, 11 / 16f);
-            ctx.drawItem(chip.icon, 0, 0);
-            m.popMatrix();
-        } else {
-            Draw.dot(ctx, chip.x + 5, chip.y + 5, chip.dot);
-        }
+        Draw.pill(ctx, chip.x, chip.y, chip.w, Layout.CHIP_H, chip.border);
+        Draw.pillGrad(ctx, chip.x + 1, chip.y + 1, chip.w - 2, Layout.CHIP_H - 2,
+                chip.top, chip.bottom);
+        chipBadge(ctx, chip, chip.icon, chip.dot);
 
         int textRight = chip.x + chip.w - 6;
         if (chip.count != null) {
@@ -583,20 +594,55 @@ public final class EditorScreen extends Screen {
         Draw.text(ctx, textRenderer, chip.fitted,
                 chip.x + (chip.icon.isEmpty() ? Layout.CHIP_INK_X : Layout.CHIP_ITEM_INK_X),
                 chip.y + 4, chip.ink, false);
+    }
 
-        if (hoverChip == chip)
-            Draw.roundOutline(ctx, chip.x, chip.y, chip.w, h, h / 2, Draw.argb(0xAA, 0xFFFFFF));
+    private static void chipBadge(DrawContext ctx, Layout.Chip chip, ItemStack icon, int dot) {
+        if (icon == null || icon.isEmpty()) {
+            Draw.dot(ctx, chip.x + 5, chip.y + 5, dot);
+            return;
+        }
+        Matrix3x2fStack m = ctx.getMatrices();
+        m.pushMatrix();
+        m.translate(chip.x + 2f, chip.y + 2f);
+        m.scale(11 / 16f, 11 / 16f);
+        ctx.drawItem(icon, 0, 0);
+        m.popMatrix();
+    }
+
+    private static int chipPill(DrawContext ctx, Layout.Chip chip, int face, boolean tinted) {
+        boolean grad = Settings.gradient();
+        int top = tinted ? Draw.shade(face, grad ? 0.12f : 0.02f) : Theme.MARKER_TOP;
+        int bottom = tinted ? Draw.shade(face, grad ? -0.10f : 0.02f)
+                : grad ? Theme.MARKER_BOTTOM : Theme.MARKER_TOP;
+        Draw.pill(ctx, chip.x, chip.y, chip.w, Layout.CHIP_H,
+                Draw.opaque(tinted ? Draw.shade(face, -0.5f) : Theme.MARKER_BORDER));
+        Draw.pillGrad(ctx, chip.x + 1, chip.y + 1, chip.w - 2, Layout.CHIP_H - 2,
+                Draw.opaque(top), Draw.opaque(bottom));
+        return top;
+    }
+
+    private void drawConditionChip(DrawContext ctx, Layout.Box box, Layout.Chip chip) {
+        Script.Node cond = box.node.cond;
+        boolean set = cond != null;
+        int face = set && cond.action.category != null
+                ? cond.action.category.color : Theme.MARKER_TOP;
+        int top = chipPill(ctx, chip, face, set);
+        chipBadge(ctx, chip, set && !cond.action.item.isEmpty()
+                ? Catalog.stackOf(cond.action.item) : null, Draw.opaque(Draw.shade(face, -0.55f)));
+        int ink = Draw.isLight(top) ? 0x141821 : set ? 0xFFFFFF : Theme.TEXT_DIM;
+        Draw.text(ctx, textRenderer, chip.fitted, chip.x + 15, chip.y + 4, ink, false);
     }
 
     private void drawMarkerChip(DrawContext ctx, Layout.Box box, Layout.Chip chip) {
-        int h = Layout.CHIP_H;
-        Draw.pill(ctx, chip.x, chip.y, chip.w, h, Draw.opaque(0x424B5B));
-        Draw.pillGrad(ctx, chip.x + 1, chip.y + 1, chip.w - 2, h - 2,
-                Draw.opaque(0x2A303D), Draw.opaque(0x1E232D));
-        Draw.text(ctx, textRenderer, chip.fitted, chip.x + 8, chip.y + 4, Theme.TEXT, false);
-        Draw.glyph(ctx, Draw.CARET_DOWN, chip.x + chip.w - 11, chip.y + 6, Theme.TEXT_DIM);
-        if (hoverChip == chip)
-            Draw.roundOutline(ctx, chip.x, chip.y, chip.w, h, h / 2, Draw.argb(0xAA, 0xFFFFFF));
+        boolean bound = Layout.markerBound(Layout.chipNode(box.node), chip.settingIndex);
+        int face = bound ? Values.color(Value.VARIABLE) : Theme.MARKER_TOP;
+        int top = chipPill(ctx, chip, face, bound);
+        int ink = Draw.isLight(top) ? 0x141821 : bound ? 0xFFFFFF : Theme.TEXT;
+        if (bound) Draw.dot(ctx, chip.x + 5, chip.y + 5, Draw.opaque(Draw.shade(face, -0.55f)));
+        Draw.text(ctx, textRenderer, chip.fitted, chip.x + (bound ? 13 : 8), chip.y + 4,
+                ink, false);
+        Draw.glyph(ctx, Draw.CARET_DOWN, chip.x + chip.w - 11, chip.y + 6,
+                bound ? Draw.argb(0xCC, ink) : Draw.opaque(Theme.TEXT_DIM));
     }
 
     private void drawDragged(DrawContext ctx) {
@@ -616,7 +662,8 @@ public final class EditorScreen extends Screen {
 
     private static final int B_UNDO = 1, B_REDO = 2, B_PLAY = 3, B_BUILD = 4, B_CLEAR = 5,
             B_ZOOM_OUT = 6, B_ZOOM_IN = 7, B_FIT = 8,
-            B_ORIGINAL = 9, B_CANVAS = 10, B_SETTINGS = 11, B_UPLOAD = 12;
+            B_ORIGINAL = 9, B_CANVAS = 10, B_SETTINGS = 11, B_UPLOAD = 12, B_MORE = 13,
+            B_ZOOM_LABEL = 14;
 
     private static final class TopBtn {
         int id, x, w;
@@ -626,6 +673,10 @@ public final class EditorScreen extends Screen {
         boolean separatorAfter;
         boolean active;
         boolean joinLeft, joinRight;
+    }
+
+    private TopBtn btn(int id, String[] icon, String tip) {
+        return btn(id, icon, null, tip);
     }
 
     private TopBtn btn(int id, String[] icon, String label, String tip) {
@@ -639,20 +690,43 @@ public final class EditorScreen extends Screen {
     private List<TopBtn> topCache;
     private int topStamp = Integer.MIN_VALUE;
     private List<TopBtn> topButtons() {
-        int stamp = width * 31 + countNodes() * 64
-                + (com.xerocode.History.canUndo() ? 1 : 0) + (com.xerocode.History.canRedo() ? 2 : 0)
+        int stamp = width * 31 + canvasLeft() * 7 + countNodes() * 64
+                + (History.canUndo() ? 1 : 0) + (History.canRedo() ? 2 : 0)
                 + (script.roots.isEmpty() ? 0 : 4)
-                + (com.xerocode.Settings.canvasMode() ? 8 : 0);
+                + (Settings.canvasMode() ? 8 : 0);
         if (topCache != null && stamp == topStamp) return topCache;
         List<TopBtn> list = buildTop(0, true);
         if (!topFits(list)) list = buildTop(0, false);
+        for (int drop = 1; !topFits(list) && drop <= HIDE_ORDER.length; drop++)
+            list = buildTop(drop, false);
         topStamp = stamp;
         topCache = list;
         return list;
     }
 
-    private static final String[] LABELS = {"Отменить", "Вернуть", "Игра", "Строить", "Очистить",
-            "На сервер"};
+    private static final int[] HIDE_ORDER = {B_CLEAR, B_BUILD, B_PLAY, B_UPLOAD, B_REDO,
+            B_UNDO, B_FIT, B_ZOOM_LABEL, B_ZOOM_OUT, B_ORIGINAL};
+
+    private boolean zoomLabelShown = true;
+
+    private boolean infoShown() { return width - canvasLeft() >= 400; }
+
+    private final List<TopBtn> hiddenTop = new ArrayList<>();
+
+    private void openTopMenu(int mx, int my) {
+        List<Menu.Item> items = new ArrayList<>();
+        List<TopBtn> acts = new ArrayList<>(hiddenTop);
+        for (TopBtn b : acts) {
+            String label = b.tip == null ? "" : b.tip;
+            int nl = label.indexOf('\n');
+            if (nl >= 0) label = label.substring(0, nl);
+            Menu.Item item = new Menu.Item(label.trim(), b.id == B_CLEAR, b.icon);
+            item.enabled = b.enabled;
+            items.add(item);
+        }
+        menu = Menu.actions(width, height, mx, my, textRenderer, items,
+                i -> { if (i >= 0 && i < acts.size()) onTopButton(acts.get(i).id); });
+    }
 
     private boolean topFits(List<TopBtn> list) {
         int leftEnd = canvasLeft(), rightStart = width;
@@ -665,35 +739,31 @@ public final class EditorScreen extends Screen {
         return leftEnd + 10 <= rightStart;
     }
 
-    private List<TopBtn> buildTop(int labels, boolean modeLabels) {
+    private List<TopBtn> buildTop(int drop, boolean modeLabels) {
         List<TopBtn> list = new ArrayList<>();
-        TopBtn undo = btn(B_UNDO, Draw.UNDO, labels > 0 ? LABELS[0] : null,
-                "Отменить  " + hotkey(com.xerocode.Settings.Hot.UNDO));
-        undo.enabled = com.xerocode.History.canUndo();
-        TopBtn redo = btn(B_REDO, Draw.REDO, labels > 1 ? LABELS[1] : null,
-                "Вернуть  " + hotkey(com.xerocode.Settings.Hot.REDO));
-        redo.enabled = com.xerocode.History.canRedo();
+        TopBtn undo = btn(B_UNDO, Draw.UNDO, "Отменить  " + hotkey(Settings.Hot.UNDO));
+        undo.enabled = History.canUndo();
+        TopBtn redo = btn(B_REDO, Draw.REDO, "Вернуть  " + hotkey(Settings.Hot.REDO));
+        redo.enabled = History.canRedo();
         redo.separatorAfter = true;
         list.add(undo);
         list.add(redo);
-        list.add(btn(B_PLAY, Draw.PLAY, labels > 2 ? LABELS[2] : null,
-                "Игра  " + hotkey(com.xerocode.Settings.Hot.PLAY) + "\nЗапустить мир и проверить код"));
-        list.add(btn(B_BUILD, Draw.BRICKS, labels > 3 ? LABELS[3] : null,
-                "Строительство  " + hotkey(com.xerocode.Settings.Hot.BUILD)
+        list.add(btn(B_PLAY, Draw.PLAY, "Игра  " + hotkey(Settings.Hot.PLAY)
+                + "\nЗапустить мир и проверить код"));
+        list.add(btn(B_BUILD, Draw.BRICKS, "Строительство  " + hotkey(Settings.Hot.BUILD)
                         + "\nВернуться строить мир"));
-        TopBtn clear = btn(B_CLEAR, Draw.TRASH, labels > 4 ? LABELS[4] : null, "Очистить полотно");
+        TopBtn clear = btn(B_CLEAR, Draw.TRASH, "Очистить полотно");
         clear.enabled = !script.roots.isEmpty();
         list.add(clear);
-        TopBtn upload = btn(B_UPLOAD, Draw.UPLOAD, labels > 5 ? LABELS[5] : null,
-                "Сохранить на сервер  " + hotkey(com.xerocode.Settings.Hot.UPLOAD)
+        TopBtn upload = btn(B_UPLOAD, Draw.UPLOAD, "Сохранить на сервер  " + hotkey(Settings.Hot.UPLOAD)
                         + "\nЗаписать код полотна блоками в мир");
         upload.enabled = !script.roots.isEmpty();
         upload.separatorAfter = true;
         list.add(upload);
 
-        boolean canvasMode = com.xerocode.Settings.canvasMode();
+        boolean canvasMode = Settings.canvasMode();
         TopBtn original = btn(B_ORIGINAL, Draw.BRICKS, modeLabels ? "3D" : null,
-                "3D-кодинг  " + hotkey(com.xerocode.Settings.Hot.MODE)
+                "3D-кодинг  " + hotkey(Settings.Hot.MODE)
                         + "\nЗакрыть полотно и собирать код блоками в мире");
         original.active = !canvasMode;
         original.joinRight = true;
@@ -704,38 +774,69 @@ public final class EditorScreen extends Screen {
         list.add(original);
         list.add(canvas);
 
+        List<TopBtn> right = new ArrayList<>();
+        right.add(btn(B_ZOOM_OUT, Draw.MINUS, "Отдалить"));
+        right.add(btn(B_ZOOM_IN, Draw.PLUS, "Приблизить"));
+        right.add(btn(B_FIT, Draw.FIT, "Показать всё  " + hotkey(Settings.Hot.FIT)));
+        TopBtn gear = btn(B_SETTINGS, Draw.GEAR, "Настройки  " + hotkey(Settings.Hot.SETTINGS)
+                        + "\nГорячие клавиши и внешний вид");
+
+        hiddenTop.clear();
+        zoomLabelShown = true;
+        for (int i = 0; i < drop && i < HIDE_ORDER.length; i++) {
+            if (HIDE_ORDER[i] == B_ZOOM_LABEL) zoomLabelShown = false;
+            TopBtn hide = find(list, HIDE_ORDER[i]);
+            if (hide == null) hide = find(right, HIDE_ORDER[i]);
+            if (hide != null) hiddenTop.add(hide);
+            if (HIDE_ORDER[i] == B_ZOOM_OUT) {
+                TopBtn zoomIn = find(right, B_ZOOM_IN);
+                if (zoomIn != null) hiddenTop.add(zoomIn);
+            }
+        }
+        list.removeAll(hiddenTop);
+        right.removeAll(hiddenTop);
+        if (find(list, B_ORIGINAL) == null) list.remove(find(list, B_CANVAS));
+        if (find(list, B_CANVAS) == null) for (TopBtn b : list) b.joinRight = false;
+        if (!hiddenTop.isEmpty()) {
+            TopBtn more = btn(B_MORE, Draw.CARET_DOWN, "Ещё");
+            more.separatorAfter = true;
+            list.add(0, more);
+        }
+        for (int i = 0; i < list.size(); i++)
+            list.get(i).separatorAfter = list.get(i).separatorAfter && i < list.size() - 1;
+
         int x = canvasLeft() + 8;
         for (TopBtn b : list) {
             b.x = x;
             x += b.w + (b.separatorAfter ? 11 : b.joinRight ? 0 : 4);
         }
 
-        List<TopBtn> right = new ArrayList<>();
-        right.add(btn(B_ZOOM_OUT, Draw.MINUS, null, "Отдалить"));
-        right.add(btn(B_ZOOM_IN, Draw.PLUS, null, "Приблизить"));
-        right.add(btn(B_FIT, Draw.FIT, null,
-                "Показать всё  " + hotkey(com.xerocode.Settings.Hot.FIT)));
-        TopBtn gear = btn(B_SETTINGS, Draw.GEAR, null,
-                "Настройки  " + hotkey(com.xerocode.Settings.Hot.SETTINGS)
-                        + "\nГорячие клавиши и внешний вид");
-        int zoomLabelW = textRenderer.getWidth("999%") + 6;
-        int total = zoomLabelW + gear.w + 11;
+        boolean zoomShown = find(right, B_ZOOM_OUT) != null && zoomLabelShown;
+        int zoomLabelW = zoomShown ? textRenderer.getWidth("999%") + 6 : 0;
+        int total = zoomLabelW + gear.w + (right.isEmpty() ? 0 : 11);
         for (TopBtn b : right) total += b.w + 4;
-        int rx = width - 12 - infoWidth() - 12 - total;
-        right.get(0).x = rx;
-        rx += right.get(0).w + 4 + zoomLabelW + 4;
-        right.get(1).x = rx;
-        rx += right.get(1).w + 8;
-        right.get(2).x = rx;
-        right.get(2).separatorAfter = true;
-        gear.x = rx + right.get(2).w + 11;
+        int rx = width - 12 - (infoShown() ? infoWidth() + 12 : 0) - total;
+        for (TopBtn b : right) {
+            b.x = rx;
+            rx += b.w + 4 + (b.id == B_ZOOM_OUT ? zoomLabelW + 4 : 0);
+        }
+        if (!right.isEmpty()) {
+            right.get(right.size() - 1).separatorAfter = true;
+            rx += 7;
+        }
+        gear.x = rx;
         right.add(gear);
         list.addAll(right);
         return list;
     }
 
-    private static String hotkey(com.xerocode.Settings.Hot hot) {
-        return com.xerocode.Settings.get().label(hot);
+    private static TopBtn find(List<TopBtn> list, int id) {
+        for (TopBtn b : list) if (b.id == id) return b;
+        return null;
+    }
+
+    private static String hotkey(Settings.Hot hot) {
+        return Settings.get().label(hot);
     }
 
     private String infoText() { return "блоков: " + countNodes(); }
@@ -755,8 +856,8 @@ public final class EditorScreen extends Screen {
             if (b.joinRight) joinFirst = b;
             if (b.joinLeft) joinLast = b;
         }
-        boolean outlined = com.xerocode.Settings.outlined();
-        int r = com.xerocode.Settings.radius(18);
+        boolean outlined = Settings.outlined();
+        int r = Settings.radius(18);
 
         for (TopBtn b : buttons) {
             boolean hover = b.enabled && hitBtn(b, mouseX, mouseY);
@@ -785,7 +886,7 @@ public final class EditorScreen extends Screen {
             if (b.label != null) Draw.text(ctx, textRenderer, b.label, gx, 11, color, false);
             if (b.separatorAfter)
                 Draw.rect(ctx, b.x + b.w + 5, 8, 1, 14, Draw.opaque(Theme.LINE));
-            if (b.id == B_ZOOM_OUT) {
+            if (b.id == B_ZOOM_OUT && zoomLabelShown) {
                 String z = Math.round(zoom * 100) + "%";
                 Draw.text(ctx, textRenderer, z,
                         b.x + b.w + 4 + (textRenderer.getWidth("999%") + 6 - textRenderer.getWidth(z)) / 2,
@@ -799,7 +900,8 @@ public final class EditorScreen extends Screen {
                     Draw.argb(outlined ? 0xFF : 0x66, outlined ? Ui.BORDER : 0x000000));
         }
         Draw.batch(null);
-        Draw.textRight(ctx, textRenderer, infoText(), width - 12, 11, Theme.TEXT_FAINT, false);
+        if (infoShown())
+            Draw.textRight(ctx, textRenderer, infoText(), width - 12, 11, Theme.TEXT_FAINT, false);
     }
 
     private static boolean hitBtn(TopBtn b, double mx, double my) {
@@ -901,7 +1003,8 @@ public final class EditorScreen extends Screen {
             maxX = Math.max(maxX, b.x + b.w);
             maxY = Math.max(maxY, b.bottom());
         }
-        int vw = width - canvasLeft() - 40, vh = height - Theme.TOPBAR_H - 40;
+        int vw = Math.max(40, width - canvasLeft() - 40);
+        int vh = Math.max(40, height - Theme.TOPBAR_H - 40);
         zoom = snapZoom(Math.max(MIN_ZOOM, Math.min(1.5,
                 Math.min(vw / (double) (maxX - minX), vh / (double) (maxY - minY)))));
         panX = 20 + (vw - (maxX - minX) * zoom) / 2 - minX * zoom;
@@ -922,48 +1025,45 @@ public final class EditorScreen extends Screen {
     }
 
     private void toOriginal() {
-        com.xerocode.Settings s = com.xerocode.Settings.get();
-        s.mode = com.xerocode.Settings.Mode.ORIGINAL;
+        Settings s = Settings.get();
+        s.mode = Settings.Mode.ORIGINAL;
         s.save();
         closeOverlays();
         rememberView();
         saveScript();
         MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
-        com.xerocode.XeroCode.canvasClosed();
+        XeroCode.canvasClosed();
         mc.setScreen(null);
         mc.inGameHud.setTitleTicks(3, 50, 10);
         mc.inGameHud.setTitle(Text.literal("3D-кодинг"));
         mc.inGameHud.setSubtitle(Text.literal(
-                "код — блоками в мире · " + s.label(com.xerocode.Settings.Hot.OPEN)
+                "код — блоками в мире · " + s.label(Settings.Hot.OPEN)
                         + " — вернуться в 2D"));
     }
 
-    private static final int EXIT_W = 344, EXIT_H = 92, EXIT_BTN_H = 22;
+    private static final int EXIT_WANT_W = 344, EXIT_H = 92, EXIT_BTN_H = 22;
 
-    private int exitX() { return (width - EXIT_W) / 2; }
-    private int exitY() { return (height - EXIT_H) / 2; }
+    private int exitW() { return Ui.fitW(width, EXIT_WANT_W); }
+    private int exitX() { return Ui.midX(width, exitW()); }
+    private int exitY() { return Ui.midY(height, EXIT_H); }
 
     private void askExit(String command) {
         closeOverlays();
         exitTo = command;
-        boolean ask = dirty();
-        com.xerocode.XeroCode.LOG.info("[xerocode] выход в {}: спрашиваем={} (отпечаток {} против базы {},"
-                + " база взята={}, блоков {})", command, ask, script.codeHash(), savedStamp,
-                stampTaken, countNodes());
-        if (!ask) { leaveTo(command); return; }
+        if (!dirty()) { leaveTo(command); return; }
         exitPrompt = true;
     }
 
     private void drawExitPrompt(DrawContext ctx, int mouseX, int mouseY) {
         Ui.dim(ctx, width, height);
         int x = exitX(), y = exitY();
-        Ui.panel(ctx, x, y, EXIT_W, EXIT_H);
-        Ui.headerStrip(ctx, x, y, EXIT_W, 26, Theme.ACCENT);
+        Ui.panel(ctx, x, y, exitW(), EXIT_H);
+        Ui.headerStrip(ctx, x, y, exitW(), 26, Theme.ACCENT);
         Draw.textFit(ctx, textRenderer, "СОХРАНИТЬ?", x + 14, y + (26 - Ui.TEXT_H) / 2 + 1,
-                EXIT_W - 28, Theme.TEXT, false);
-        Ui.hairline(ctx, x + 1, y + 26, EXIT_W - 2);
+                exitW() - 28, Theme.TEXT, false);
+        Ui.hairline(ctx, x + 1, y + 26, exitW() - 2);
 
-        int cx = x + 14, cw = EXIT_W - 28, cy = y + 26 + 14;
+        int cx = x + 14, cw = exitW() - 28, cy = y + 26 + 14;
         Draw.textFit(ctx, textRenderer, script.roots.isEmpty()
                         ? "Полотно пусто — очистить код в мире?"
                         : "Сохранить код в блоках JustMC?",
@@ -988,7 +1088,7 @@ public final class EditorScreen extends Screen {
 
     private boolean exitPromptClicked(double mx, double my) {
         int x = exitX(), y = exitY();
-        int cx = x + 14, cw = EXIT_W - 28, by = y + EXIT_H - 14 - EXIT_BTN_H;
+        int cx = x + 14, cw = exitW() - 28, by = y + EXIT_H - 14 - EXIT_BTN_H;
         int bx = cx + cw;
         for (int i = EXIT_BUTTONS.length - 1; i >= 0; i--) {
             int bw = exitBtnW(i);
@@ -1001,7 +1101,7 @@ public final class EditorScreen extends Screen {
             }
             bx -= 6;
         }
-        if (!Ui.hit(mx, my, x, y, EXIT_W, EXIT_H)) exitPrompt = false;
+        if (!Ui.hit(mx, my, x, y, exitW(), EXIT_H)) exitPrompt = false;
         return true;
     }
 
@@ -1010,8 +1110,8 @@ public final class EditorScreen extends Screen {
         saveScript();
         MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
         if (mc.getNetworkHandler() != null) mc.getNetworkHandler().sendChatCommand(command);
-        com.xerocode.XeroCode.canvasClosed();
-        com.xerocode.XeroCode.cover("play".equals(command) ? "Запуск мира…" : "Режим строительства…", null);
+        XeroCode.canvasClosed();
+        XeroCode.cover("play".equals(command) ? "Запуск мира…" : "Режим строительства…", null);
     }
 
     private void publish(String exitCommand) {
@@ -1074,13 +1174,13 @@ public final class EditorScreen extends Screen {
             lines.add(Text.literal("Добавить параметр"));
             lines.add(Text.literal("§8станет строчной переменной с этим именем"));
         } else if (hoverChip.isCell()) {
-            com.xerocode.Value p = hoverChip.value;
+            Value p = hoverChip.value;
             lines.add(Text.literal(p == null || p.name.isBlank() ? "параметр без имени" : p.name));
             if (p != null) {
                 lines.add(Text.literal("§8принимает: §7" + p.paramNote()));
-                if (com.xerocode.Value.ENUM.equals(p.typeKey)) {
+                if (Value.ENUM.equals(p.typeKey)) {
                     StringBuilder sb = new StringBuilder();
-                    for (com.xerocode.Value.Elem e : p.elements) {
+                    for (Value.Elem e : p.elements) {
                         if (sb.length() > 0) sb.append(", ");
                         sb.append(e.name);
                     }
@@ -1088,17 +1188,30 @@ public final class EditorScreen extends Screen {
                 }
             }
             lines.add(Text.literal("§8ЛКМ — правка, ПКМ — удалить"));
+        } else if (hoverChip.isCondition()) {
+            Script.Node cond = hoverBox.node.cond;
+            lines.add(Text.literal(cond == null ? "Условие не выбрано" : cond.action.name));
+            if (cond == null) {
+                lines.add(Text.literal("§8блок работает по вложенному условию"));
+            } else {
+                lines.add(Text.literal("§8" + (cond.action.category == null
+                        ? "" : cond.action.category.name)
+                        + (cond.inverted() ? " §8· §7НЕ" : "")));
+                for (String line : describe(cond.action.description))
+                    lines.add(Text.literal("§7" + line));
+            }
+            lines.add(Text.literal("§8ЛКМ — выбрать условие, ПКМ — НЕ"));
         } else if (hoverChip.isArg()) {
-            Catalog.Arg arg = hoverBox.node.args().get(hoverChip.argIndex);
+            Catalog.Arg arg = Layout.chipNode(hoverBox.node).args().get(hoverChip.argIndex);
             lines.add(Text.literal(arg.purpose));
             lines.add(Text.literal("§8слот: §7" + arg.type
                     + (arg.list ? " §8· до " + arg.capacity + " значений" : "")));
-            com.xerocode.Value v = hoverChip.value;
+            Value v = hoverChip.value;
             if (v != null) {
-                lines.add(Text.literal("§8значение: §7" + com.xerocode.Values.kindName(v.type)
+                lines.add(Text.literal("§8значение: §7" + Values.kindName(v.type)
                         + (v.note().isEmpty() ? "" : " §8· " + v.note())));
-                if (com.xerocode.Value.GAME_VALUE.equals(v.type)) {
-                    com.xerocode.Values.GameValue g = com.xerocode.Values.gameValue(v.gameValue);
+                if (Value.GAME_VALUE.equals(v.type)) {
+                    Values.GameValue g = Values.gameValue(v.gameValue);
                     if (g != null) {
                         for (String line : describe(g.description)) lines.add(Text.literal("§7" + line));
                         if (!g.returns.isEmpty())
@@ -1109,9 +1222,19 @@ public final class EditorScreen extends Screen {
             }
             lines.add(Text.literal("§8ЛКМ — значение, ПКМ — очистить"));
         } else {
-            Catalog.Setting s = hoverBox.node.settings().get(hoverChip.settingIndex);
+            Script.Node owner = Layout.chipNode(hoverBox.node);
+            Catalog.Setting s = owner.settings().get(hoverChip.settingIndex);
             lines.add(Text.literal(s.label));
-            lines.add(Text.literal("§8" + s.options.size() + " вариантов"));
+            Value bound = owner.markerVar(hoverChip.settingIndex);
+            if (bound != null && !bound.name.isBlank()) {
+                Values.Scope sc = Values.scope(bound.scope);
+                lines.add(Text.literal("§8привязана к переменной: §7" + bound.name
+                        + (sc == null ? "" : " §8· " + sc.name())));
+                lines.add(Text.literal("§8по умолчанию: §7"
+                        + owner.marker(hoverChip.settingIndex)));
+            } else {
+                lines.add(Text.literal("§8" + s.options.size() + " вариантов"));
+            }
             lines.add(Text.literal("§8ЛКМ — список, колесо — перебрать"));
         }
         ctx.drawTooltip(textRenderer, lines, mouseX, mouseY);
@@ -1119,16 +1242,19 @@ public final class EditorScreen extends Screen {
 
     private static final int TOOLTIP_W = 260;
 
+    private int tooltipW() { return Math.max(120, Math.min(TOOLTIP_W, width - 40)); }
+
     private List<String> describe(String description) {
         List<String> out = new ArrayList<>();
         if (description == null || description.isBlank()) return out;
+        int room = tooltipW();
         for (String part : description.split("(?=»)")) {
             String piece = part.trim();
             if (piece.isEmpty()) continue;
             StringBuilder line = new StringBuilder();
             for (String word : piece.split(" ")) {
                 String next = line.isEmpty() ? word : line + " " + word;
-                if (!line.isEmpty() && textRenderer.getWidth(next) > TOOLTIP_W) {
+                if (!line.isEmpty() && textRenderer.getWidth(next) > room) {
                     out.add(line.toString());
                     line = new StringBuilder(word);
                 } else {
@@ -1164,6 +1290,15 @@ public final class EditorScreen extends Screen {
             for (Catalog.Setting s : a.settings)
                 lines.add(Text.literal("§8• §7" + s.label + " §8= " + s.def));
         }
+        if (node != null && node.cond != null) {
+            lines.add(Text.literal("§fУсловие:"));
+            lines.add(Text.literal("§8• §7" + (node.cond.inverted() ? "НЕ " : "")
+                    + node.cond.action.name));
+            for (Catalog.Arg g : node.cond.action.args)
+                lines.add(Text.literal("§8• §7" + g.purpose + " §8— " + g.type));
+        } else if (node != null && Mapping.hasConditional(a)) {
+            lines.add(Text.literal("§eУсловие не выбрано"));
+        }
         if (node != null && (node.declares() || node.invokes())) functionTooltip(lines, node);
         if (node != null) {
             int target = node.settingIndex(Catalog.TARGET);
@@ -1195,7 +1330,15 @@ public final class EditorScreen extends Screen {
                 return;
             }
             decl = s.declaration();
-            lines.add(Text.literal("§f" + name));
+            String shown = Layout.titleOf(s);
+            lines.add(Text.literal("§f" + shown));
+            if (!shown.equals(name)) lines.add(Text.literal("§8" + name));
+        }
+        if (declares) {
+            Value display = Functions.displayOf(decl);
+            if (display != null)
+                lines.add(Text.literal("§8отображается как §7"
+                        + McText.plain(display.text, display.parsing).trim()));
         }
         List<Value> params = Functions.parametersOf(decl);
         if (params.isEmpty()) {
@@ -1218,6 +1361,11 @@ public final class EditorScreen extends Screen {
         double mx = click.x(), my = click.y();
         int button = click.button();
 
+        if (condPicker != null) {
+            condPicker.mouseClicked(click, doubled);
+            if (condPicker.isClosed()) condPicker = null;
+            return true;
+        }
         if (settings != null) {
             settings.mouseClicked(click, doubled);
             if (settings.isClosed()) closeSettings();
@@ -1243,7 +1391,11 @@ public final class EditorScreen extends Screen {
         }
         if (my < Theme.TOPBAR_H && mx >= canvasLeft()) {
             for (TopBtn b : topButtons())
-                if (b.enabled && hitBtn(b, mx, my)) { onTopButton(b.id); return true; }
+                if (b.enabled && hitBtn(b, mx, my)) {
+                    if (b.id == B_MORE) openTopMenu(b.x, Theme.TOPBAR_H);
+                    else onTopButton(b.id);
+                    return true;
+                }
             return true;
         }
         if (mx < canvasLeft()) return paletteClicked(click, doubled);
@@ -1266,6 +1418,7 @@ public final class EditorScreen extends Screen {
             }
             return true;
         }
+        if (palette.barPress(mx, my)) return true;
         if (palette.hitCrumb(mx, my)) {
             if (!search.getText().isEmpty()) search.setText("");
             else palette.openCategory(-1);
@@ -1293,15 +1446,11 @@ public final class EditorScreen extends Screen {
     private boolean canvasClicked(double mx, double my, int button) {
         search.setFocused(false);
         Layout l = layout();
-        if (button <= 1) {
-            for (int i = l.boxes.size() - 1; i >= 0; i--) {
-                Layout.Box box = l.boxes.get(i);
-                Layout.Chip chip = box.chipAt(mouseCanvasX, mouseCanvasY);
-                if (chip != null) { chipClicked(box, chip, button); return true; }
-            }
-        }
         for (int i = l.boxes.size() - 1; i >= 0; i--) {
             Layout.Box box = l.boxes.get(i);
+            if (!box.contains(mouseCanvasX, mouseCanvasY)) continue;
+            Layout.Chip chip = button <= 1 ? box.chipAt(mouseCanvasX, mouseCanvasY) : null;
+            if (chip != null) { chipClicked(box, chip, button); return true; }
             if (!box.hitGrab(mouseCanvasX, mouseCanvasY)) continue;
             if (button == 1) { openBlockMenu(box, (int) mx, (int) my); return true; }
             if (button == 0 && box.hitTarget(mouseCanvasX, mouseCanvasY)) {
@@ -1321,56 +1470,126 @@ public final class EditorScreen extends Screen {
         Layout.Card c = box.card;
         Script.Node n = box.node;
         boolean name = c.hitName(mouseCanvasX, mouseCanvasY);
+        boolean id = c.hitId(mouseCanvasX, mouseCanvasY);
         boolean icon = c.hitIcon(mouseCanvasX, mouseCanvasY);
-        if (!name && !icon && !c.hitDesc(mouseCanvasX, mouseCanvasY)) return false;
+        if (!name && !id && !icon && !c.hitDesc(mouseCanvasX, mouseCanvasY)) return false;
         if (n.invokes()) { chooseFunction(n, mx, my); return true; }
-        int arg = name ? Catalog.FN_NAME : icon ? Catalog.FN_ICON : Catalog.FN_DESC;
+        int arg = id ? Catalog.FN_NAME
+                : name ? (c.id != null ? Catalog.FN_DISPLAY : Catalog.FN_NAME)
+                : icon ? Catalog.FN_ICON : Catalog.FN_DESC;
         openValue(n, arg, mx, my, false, -1);
         return true;
     }
 
     private void chipClicked(Layout.Box box, Layout.Chip chip, int button) {
         int sx = toScreenX(chip.x), sy = toScreenY(chip.y + Layout.CHIP_H) + 3;
+        if (chip.isCondition()) {
+            if (button == 1) {
+                if (box.node.cond != null) {
+                    pushUndo();
+                    box.node.cond.setSetting(Catalog.INVERT,
+                            box.node.cond.inverted() ? Catalog.INVERT_OFF : Catalog.INVERT_ON);
+                }
+                return;
+            }
+            chooseCondition(box.node, sx, sy);
+            return;
+        }
+        Script.Node target = Layout.chipNode(box.node);
         if (chip.isPlus()) {
-            if (button == 0) openValue(box.node, chip.argIndex, sx, sy, true, -1);
+            if (button == 0) openValue(target, chip.argIndex, sx, sy, true, -1);
             return;
         }
         if (chip.isCell()) {
             if (button == 1) {
                 pushUndo();
-                List<Value> params = box.node.valuesOf(chip.argIndex);
+                List<Value> params = target.valuesOf(chip.argIndex);
                 if (chip.cell < params.size()) params.remove(chip.cell);
                 toast("параметр удалён");
                 return;
             }
-            openValue(box.node, chip.argIndex, sx, sy, false, chip.cell);
+            openValue(target, chip.argIndex, sx, sy, false, chip.cell);
             return;
         }
         if (chip.isArg()) {
             if (button == 1) {
-                if (Layout.argFilled(box.node, chip.argIndex)) {
+                if (Layout.argFilled(target, chip.argIndex)) {
                     pushUndo();
-                    box.node.valuesOf(chip.argIndex).clear();
+                    target.valuesOf(chip.argIndex).clear();
                     toast("значение очищено");
                 }
                 return;
             }
-            openValue(box.node, chip.argIndex, sx, sy, false, -1);
+            openValue(target, chip.argIndex, sx, sy, false, -1);
             return;
         }
-        Catalog.Setting s = box.node.settings().get(chip.settingIndex);
+        Catalog.Setting s = target.settings().get(chip.settingIndex);
         if (button == 1) {
             pushUndo();
-            box.node.cycleMarker(chip.settingIndex, false);
+            target.cycleMarker(chip.settingIndex, false);
             return;
         }
-        int current = Math.max(0, s.options.indexOf(box.node.marker(chip.settingIndex)));
-        Script.Node node = box.node;
+        Script.Node node = target;
         int settingIndex = chip.settingIndex;
-        menu = Menu.options(width, height, toScreenX(chip.x), toScreenY(chip.y + Layout.CHIP_H) + 2,
-                textRenderer, s.label, s.options, current, i -> {
+        boolean bound = Layout.markerBound(node, settingIndex);
+        List<Menu.Item> items = new ArrayList<>();
+        for (String option : s.options) items.add(new Menu.Item(option));
+        int bindAt = items.size();
+        Value was = node.markerVar(settingIndex);
+        items.add(new Menu.Item(bound ? "Переменная: " + was.name : "Привязать переменную…",
+                false, Draw.PIN));
+        int unbindAt = bound ? items.size() : -1;
+        if (bound) items.add(new Menu.Item("Отвязать переменную", true, Draw.CROSS));
+        int current = Math.max(0, s.options.indexOf(node.marker(settingIndex)));
+        menu = Menu.picker(width, height, toScreenX(chip.x), toScreenY(chip.y + Layout.CHIP_H) + 2,
+                textRenderer, s.label, items, current, i -> {
+                    if (i == bindAt) { bindMarker(node, settingIndex, chip); return; }
+                    if (i == unbindAt) {
+                        pushUndo();
+                        node.bindMarker(settingIndex, null);
+                        toast("переменная отвязана");
+                        return;
+                    }
+                    if (i >= 0 && i < s.options.size()) {
+                        pushUndo();
+                        node.markers.put(settingIndex, s.options.get(i));
+                    }
+                });
+    }
+
+    private void bindMarker(Script.Node node, int settingIndex, Layout.Chip chip) {
+        Value was = node.markerVar(settingIndex);
+        Value start = was != null ? was.copy() : Value.of(Value.VARIABLE);
+        String label = node.settings().get(settingIndex).label;
+        editorUndo = snapshot();
+        editor = ValueEditor.forCell(start, "Настройка «" + label + "»", Value.VARIABLE,
+                textRenderer, toScreenX(chip.x), toScreenY(chip.y + Layout.CHIP_H) + 2,
+                width, height, namesUsed(false), namesUsed(true),
+                edited -> node.bindMarker(settingIndex, edited));
+    }
+
+    private void chooseCondition(Script.Node wrapper, int sx, int sy) {
+        List<String> allowed = Mapping.conditionCategories(wrapper.action);
+        List<CatalogPicker.Item> items = new ArrayList<>();
+        for (Catalog.Action a : Catalog.ACTIONS) {
+            if (a.category == null || !allowed.contains(a.category.name)) continue;
+            items.add(new CatalogPicker.Item(Catalog.keyOf(a), a.name, a.category.name, a.item,
+                    a.description, a.args.isEmpty() ? "" : a.args.size() + " арг.", ""));
+        }
+        if (items.isEmpty()) { toast("для этого блока условий нет"); return; }
+        String current = wrapper.cond == null ? "" : Catalog.keyOf(wrapper.cond.action);
+        condPicker = new CatalogPicker(textRenderer, width, height, "Условие блока",
+                wrapper.action.category == null ? Theme.ACCENT : wrapper.action.category.color,
+                items, null, current, null, id -> {
+                    Catalog.Action chosen = Catalog.byKey(id);
+                    if (chosen == null) return;
                     pushUndo();
-                    node.markers.put(settingIndex, s.options.get(i));
+                    if (wrapper.cond == null || wrapper.cond.action != chosen) {
+                        boolean was = wrapper.cond != null && wrapper.cond.inverted();
+                        wrapper.cond = new Script.Node(chosen);
+                        if (was) wrapper.cond.setSetting(Catalog.INVERT, Catalog.INVERT_ON);
+                    }
+                    revision++;
                 });
     }
 
@@ -1395,6 +1614,8 @@ public final class EditorScreen extends Screen {
             acts.add(() -> openValue(node, Catalog.FN_NAME, mx, my, false, -1));
             items.add(new Menu.Item("Добавить параметр", false, Draw.PLUS));
             acts.add(() -> openValue(node, Catalog.FN_PARAMS, mx, my, true, -1));
+            items.add(new Menu.Item("Отображаемое имя…", false, Draw.STRIKE_TEXT));
+            acts.add(() -> openValue(node, Catalog.FN_DISPLAY, mx, my, false, -1));
             items.add(new Menu.Item("Описание…", false, Draw.WINDOW));
             acts.add(() -> openValue(node, Catalog.FN_DESC, mx, my, false, -1));
             items.add(new Menu.Item("Значок…", false, Draw.BRICKS));
@@ -1441,9 +1662,12 @@ public final class EditorScreen extends Screen {
             Functions.Signature s = map.get(name);
             ItemStack icon = s.icon() != null ? Stacks.preview(s.icon())
                     : s.declaration().action.icon();
-            String note = Functions.signatureText(s);
-            items.add(Menu.Item.rich(name, icon,
-                    note.isEmpty() ? "без параметров" : note, Layout.descAll(s.declaration())));
+            String sig = Functions.signatureText(s);
+            if (sig.isEmpty()) sig = "без параметров";
+            String shown = Layout.titleOf(s);
+            items.add(Menu.Item.rich(shown, icon,
+                    shown.equals(name) ? sig : name + "  ·  " + sig,
+                    Layout.descAll(s.declaration())));
         }
         items.add(new Menu.Item(call.isStart() ? "Ввести имя процесса…" : "Ввести имя функции…",
                 false, Draw.STRIKE_TEXT));
@@ -1528,6 +1752,9 @@ public final class EditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(Click click, double dx, double dy) {
+        if (menu != null && menu.mouseDragged(click.y())) return true;
+        if (palette.barDragging()) { palette.barDrag(click.y(), height); return true; }
+        if (condPicker != null) return condPicker.mouseDragged(click, click.x(), click.y());
         if (settings != null) return settings.mouseDragged(click.x(), click.y());
         if (resizingPalette) {
             paletteDrag += dx;
@@ -1543,6 +1770,8 @@ public final class EditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(Click click) {
+        palette.barRelease();
+        if (menu != null) menu.mouseReleased();
         if (settings != null) { settings.mouseReleased(); return true; }
         panning = false;
         draggingSearch = false;
@@ -1593,6 +1822,7 @@ public final class EditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double hAmount, double vAmount) {
+        if (condPicker != null) return condPicker.mouseScrolled(mx, my, vAmount);
         if (settings != null) return settings.mouseScrolled(mx, my, vAmount);
         if (menu != null && menu.mouseScrolled(mx, my, vAmount)) return true;
         if (editor != null && editor.mouseScrolled(mx, my, vAmount)) return true;
@@ -1600,7 +1830,7 @@ public final class EditorScreen extends Screen {
         if (my < Theme.TOPBAR_H) return true;
         if (hoverChip != null && hoverBox != null && hoverChip.isMarker()) {
             pushUndo();
-            hoverBox.node.cycleMarker(hoverChip.settingIndex, vAmount < 0);
+            Layout.chipNode(hoverBox.node).cycleMarker(hoverChip.settingIndex, vAmount < 0);
             return true;
         }
         zoomTo(zoom * (vAmount > 0 ? 1.08 : 1 / 1.08), mx, my);
@@ -1666,6 +1896,11 @@ public final class EditorScreen extends Screen {
     public boolean keyPressed(KeyInput input) {
         int key = input.key();
 
+        if (condPicker != null) {
+            condPicker.keyPressed(input);
+            if (condPicker.isClosed()) condPicker = null;
+            return true;
+        }
         if (settings != null) {
             settings.keyPressed(input);
             if (settings.isClosed()) closeSettings();
@@ -1680,8 +1915,8 @@ public final class EditorScreen extends Screen {
             if (editor.isClosed()) finishEditor();
             return true;
         }
-        com.xerocode.Settings st = com.xerocode.Settings.get();
-        com.xerocode.Settings.Hot hot = st.match(key, input.modifiers());
+        Settings st = Settings.get();
+        Settings.Hot hot = st.match(key, input.modifiers());
         if (hot != null && (st.mods(hot) != 0 || !search.isFocused()) && runHotkey(hot)) return true;
         if (search.isFocused()) {
             if (key == GLFW.GLFW_KEY_ESCAPE) {
@@ -1705,7 +1940,7 @@ public final class EditorScreen extends Screen {
         return super.keyPressed(input);
     }
 
-    private boolean runHotkey(com.xerocode.Settings.Hot hot) {
+    private boolean runHotkey(Settings.Hot hot) {
         switch (hot) {
             case UNDO -> undo();
             case REDO -> redo();
@@ -1726,6 +1961,7 @@ public final class EditorScreen extends Screen {
 
     @Override
     public boolean charTyped(CharInput input) {
+        if (condPicker != null) { condPicker.charTyped(input); return true; }
         if (settings != null) { settings.charTyped(input); return true; }
         if (menu != null) return true;
         if (editor != null) return editor.charTyped(input);
@@ -1744,7 +1980,7 @@ public final class EditorScreen extends Screen {
         closeOverlays();
         rememberView();
         saveScript();
-        com.xerocode.XeroCode.canvasClosed();
+        XeroCode.canvasClosed();
         super.close();
     }
 

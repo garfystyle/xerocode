@@ -6,6 +6,7 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.input.KeyInput;
+import net.minecraft.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -16,7 +17,16 @@ import java.util.Objects;
 
 public final class CatalogPicker extends PickerPanel {
     public record Item(String id, String name, String category, String icon,
-                       String description, String badge, String note) {}
+                       String description, String badge, String note, ItemStack stack) {
+        public Item(String id, String name, String category, String icon,
+                    String description, String badge, String note) {
+            this(id, name, category, icon, description, badge, note, null);
+        }
+
+        public ItemStack picture() {
+            return stack != null ? stack : Catalog.stackOf(icon);
+        }
+    }
 
     public interface Done { void apply(String id); }
 
@@ -55,7 +65,9 @@ public final class CatalogPicker extends PickerPanel {
     private String category;
     private String selected;
     private int scroll;
-    private final int rows, stripH;
+    private final Ui.Bar bar = new Ui.Bar();
+    private int rows;
+    private final int stripH;
 
     public CatalogPicker(TextRenderer tr, int screenW, int screenH, String title, int accent,
                          List<Item> items, Map<String, Integer> categories, String current,
@@ -69,19 +81,24 @@ public final class CatalogPicker extends PickerPanel {
         this.stripH = extra == null ? 0 : extra.height() + 2;
         this.selected = current == null ? "" : current;
 
-        int panelW = Math.min(620, Math.max(360, screenW - 24));
-        int rail = tr.getWidth("Всё") + 46;
-        for (String c : this.categories.keySet()) rail = Math.max(rail, tr.getWidth(c) + 46);
-        rail = Math.min(170, Math.max(96, rail));
-        int det = Math.min(DET_W, panelW - rail - LIST_MIN);
-        det = det < 120 ? 0 : det;
-
-        int wanted = Math.min(screenH - 20, HEAD_H + 2 + 14 * ROW_H + stripH + FOOT_H);
-        this.rows = Math.max(4, (wanted - HEAD_H - FOOT_H - stripH - 2) / ROW_H);
-        place(panelW, HEAD_H + 2 + rows * ROW_H + stripH + FOOT_H, rail, det, "найти…");
-
+        layout();
         refresh(false);
         scrollToSelected();
+    }
+
+    @Override
+    protected void layout() {
+        int panelW = Ui.fitW(screenW, 620);
+        int measured = tr.getWidth("Всё") + 46;
+        for (String c : this.categories.keySet()) measured = Math.max(measured, tr.getWidth(c) + 46);
+        int rail = railW(panelW, measured);
+        int det = Math.min(DET_W, panelW - rail - Math.min(LIST_MIN, panelW * 45 / 100));
+        det = det < 120 ? 0 : det;
+
+        int wanted = Ui.fitH(screenH, HEAD_H + 2 + 14 * ROW_H + stripH + FOOT_H);
+        this.rows = Math.max(3, (wanted - HEAD_H - FOOT_H - stripH - 2) / ROW_H);
+        place(panelW, HEAD_H + 2 + rows * ROW_H + stripH + FOOT_H, rail, det, "найти…");
+        scroll = Math.max(0, Math.min(maxScroll(), scroll));
     }
 
     private static Map<String, Integer> countCategories(List<Item> items) {
@@ -210,7 +227,7 @@ public final class CatalogPicker extends PickerPanel {
             } else if (i % 2 == 1) {
                 Draw.rect(ctx, lx, ry, lw, ROW_H, Draw.opaque(Ui.WELL));
             }
-            ctx.drawItem(Catalog.stackOf(it.icon()), lx + 6, ry + 1);
+            ctx.drawItem(it.picture(), lx + 6, ry + 1);
             String badge = it.badge();
             int badgeW = badge.isEmpty() ? 0 : Draw.badgeWidth(tr, badge) + 6;
             Draw.textFit(ctx, tr, it.name(), lx + 27, ry + 5, lw - 33 - badgeW,
@@ -225,7 +242,8 @@ public final class CatalogPicker extends PickerPanel {
         if (hits.isEmpty())
             Draw.textFit(ctx, tr, "ничего не найдено", lx + 10, ly + 6, lw - 16,
                     Theme.TEXT_FAINT, false);
-        Ui.scrollbar(ctx, lx + lw - 4, ly + 1, lh - 2, hits.size() * ROW_H, lh, scroll * ROW_H);
+        bar.draw(ctx, lx + lw - 4, ly + 1, lh - 2, hits.size() * ROW_H, lh, scroll * ROW_H,
+                lastMx, lastMy);
     }
 
     @Override
@@ -237,7 +255,7 @@ public final class CatalogPicker extends PickerPanel {
             return;
         }
         int inner = detailsInner(), tx = detailsX();
-        int at = detailsHead(ctx, Catalog.stackOf(it.icon()), it.name(), it.category(),
+        int at = detailsHead(ctx, it.picture(), it.name(), it.category(),
                 Draw.shade(accent, 0.1f));
 
         int bottom = detailsBottom();
@@ -285,6 +303,7 @@ public final class CatalogPicker extends PickerPanel {
 
     @Override
     protected boolean bodyClicked(Click click, boolean doubled, int mx, int my) {
+        if (bar.press(mx, my)) { scroll = bar.follow(my, ROW_H, maxScroll()); return true; }
         int i = indexAt(mx, my);
         if (i >= 0) {
             selected = hits.get(i).id();
@@ -301,6 +320,7 @@ public final class CatalogPicker extends PickerPanel {
 
     @Override
     public boolean mouseDragged(Click click, double dx, double dy) {
+        if (bar.dragging()) { scroll = bar.follow(click.y(), ROW_H, maxScroll()); return true; }
         if (extra != null && extra.mouseDragged((int) click.x(), stripX(), stripY(), stripW(),
                 stripBodyH())) return true;
         return super.mouseDragged(click, dx, dy);
@@ -308,6 +328,7 @@ public final class CatalogPicker extends PickerPanel {
 
     @Override
     public void mouseReleased() {
+        bar.release();
         if (extra != null) extra.mouseReleased();
     }
 

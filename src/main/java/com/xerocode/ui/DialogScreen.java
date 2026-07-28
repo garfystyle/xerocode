@@ -14,12 +14,14 @@ abstract class DialogScreen extends Screen {
     protected static final int BTN_H = 22;
     protected static final int BAR_H = 10;
 
-    private final int panelW;
+    private final int wantW;
 
     protected DialogScreen(int panelW) {
         super(Text.literal("XeroCode"));
-        this.panelW = panelW;
+        this.wantW = panelW;
     }
+
+    protected int panelW() { return Ui.fitW(width, wantW); }
 
     @Override
     public boolean shouldPause() { return false; }
@@ -31,11 +33,11 @@ abstract class DialogScreen extends Screen {
     protected int accent() { return Theme.ACCENT; }
 
     protected int panelH() { return HEAD_H + PAD + bodyH() + PAD; }
-    protected int panelX() { return (width - panelW) / 2; }
-    protected int panelY() { return (height - panelH()) / 2; }
+    protected int panelX() { return Ui.midX(width, panelW()); }
+    protected int panelY() { return Ui.midY(height, panelH()); }
     protected int bodyX()  { return panelX() + PAD; }
     protected int bodyY()  { return panelY() + HEAD_H + PAD; }
-    protected int bodyW()  { return panelW - PAD * 2; }
+    protected int bodyW()  { return panelW() - PAD * 2; }
     protected int buttonY() { return panelY() + panelH() - PAD - BTN_H; }
 
     @Override
@@ -45,11 +47,11 @@ abstract class DialogScreen extends Screen {
         ctx.createNewRootLayer();
 
         int x = panelX(), y = panelY();
-        Ui.panel(ctx, x, y, panelW, panelH());
-        Ui.headerStrip(ctx, x, y, panelW, HEAD_H, accent());
+        Ui.panel(ctx, x, y, panelW(), panelH());
+        Ui.headerStrip(ctx, x, y, panelW(), HEAD_H, accent());
         Draw.textFit(ctx, textRenderer, title(), x + PAD, y + (HEAD_H - Ui.TEXT_H) / 2 + 1,
-                panelW - PAD * 2, Theme.TEXT, false);
-        Ui.hairline(ctx, x + 1, y + HEAD_H, panelW - 2);
+                panelW() - PAD * 2, Theme.TEXT, false);
+        Ui.hairline(ctx, x + 1, y + HEAD_H, panelW() - 2);
 
         drawBody(ctx, mouseX, mouseY, bodyX(), bodyY(), bodyW());
     }

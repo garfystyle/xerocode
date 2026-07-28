@@ -19,7 +19,7 @@ import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
 
 public final class SettingsPanel {
-    private static final int W = 384;
+    private static final int WANT_W = 384;
     private static final int PAD = 14;
     private static final int HEAD_H = 26;
     private static final int TAB_H = 18;
@@ -27,11 +27,12 @@ public final class SettingsPanel {
     private static final int ROW_GAP = 3;
     private static final int BTN_H = 20;
     private static final int PREVIEW_H = 58;
-    private static final int LABEL_W = 104;
-    private static final int KEY_W = 96;
+    private static final int WANT_LABEL_W = 104;
+    private static final int WANT_KEY_W = 96;
     private static final int HINT_H = 10;
     private static final int COLOR_H = 16;
-    private static final int SV_W = 168, SV_H = 56, HUE_H = 8;
+    private static final int WANT_SV_W = 168;
+    private static final int SV_H = 56, HUE_H = 8;
     private static final String WAITING = "жду клавишу…";
 
     private static final List<String> TABS = List.of("Клавиши", "Внешний вид", "Цвета");
@@ -61,8 +62,9 @@ public final class SettingsPanel {
     private final List<Row> rows = new ArrayList<>();
     private final List<Catalog.Category> categories = new ArrayList<>();
 
-    private final int screenW, screenH;
-    private final int x, y, h;
+    private int screenW, screenH;
+    private int W, LABEL_W, KEY_W, SV_W;
+    private int x, y, h;
     private int tab;
     private final int[] scroll = new int[TABS.size()];
     private Hot binding;
@@ -76,10 +78,29 @@ public final class SettingsPanel {
 
     public SettingsPanel(TextRenderer tr, int screenW, int screenH) {
         this.tr = tr;
+        categories.addAll(Catalog.CATEGORIES);
+        build(screenW, screenH);
+    }
+
+    public void resize(int sw, int sh) {
+        if (sw == screenW && sh == screenH) return;
+        rows.clear();
+        binding = null;
+        hexField = null;
+        openColor = -1;
+        build(sw, sh);
+    }
+
+    private void build(int screenW, int screenH) {
         this.screenW = screenW;
         this.screenH = screenH;
+        this.W = Ui.fitW(screenW, WANT_W);
+        int inner = W - PAD * 2;
+        this.LABEL_W = Math.min(WANT_LABEL_W, inner * 40 / 100);
+        this.KEY_W = Math.min(WANT_KEY_W, inner * 45 / 100);
+        this.SV_W = Math.min(WANT_SV_W, inner - 12 - 74);
 
-        int chipsW = W - PAD * 2 - LABEL_W;
+        int chipsW = inner - LABEL_W;
         rows.add(new Row("Тема", "цвет самого редактора: панели, полотно, подписи",
                 Settings.THEME_NAMES, () -> s.theme, v -> s.theme = v, tr, chipsW));
         rows.add(new Row("Кнопки", "форма и заливка кнопок, чипов и полей во всём редакторе",
@@ -99,11 +120,10 @@ public final class SettingsPanel {
             r.dy = dy;
             dy += r.height() + 7;
         }
-        categories.addAll(Catalog.CATEGORIES);
 
-        this.x = (screenW - W) / 2;
-        this.h = Math.min(392, screenH - 24);
-        this.y = Math.max(12, (screenH - h) / 2);
+        this.x = Ui.midX(screenW, W);
+        this.h = Ui.fitH(screenH, 392);
+        this.y = Ui.midY(screenH, h);
     }
 
     public boolean isClosed() { return closed; }
@@ -137,7 +157,12 @@ public final class SettingsPanel {
 
     private int scroll() { return Math.min(scroll[tab], maxScroll()); }
 
+    private final Ui.Bar bar = new Ui.Bar();
+    private int lastMx, lastMy;
+
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+        lastMx = mouseX;
+        lastMy = mouseY;
         Ui.dim(ctx, screenW, screenH);
         Ui.panel(ctx, x, y, W, h);
         Ui.headerStrip(ctx, x, y, W, HEAD_H, Theme.ACCENT);
@@ -160,7 +185,7 @@ public final class SettingsPanel {
             default -> drawColors(ctx, mouseX, mouseY, delta, top);
         }
         ctx.disableScissor();
-        Ui.scrollbar(ctx, x + W - 5, cy, ch, contentNeed(), ch, scroll());
+        bar.draw(ctx, x + W - 5, cy, ch, contentNeed(), ch, scroll(), lastMx, lastMy);
 
         Ui.hairline(ctx, x + 1, footerY() - 12, W - 2);
         int resetW = Ui.buttonW(tr, "По умолчанию");
@@ -335,6 +360,7 @@ public final class SettingsPanel {
         double mx = click.x(), my = click.y();
         int button = click.button();
         if (!contains(mx, my)) { close(); return true; }
+        if (bar.press(mx, my)) { scroll[tab] = bar.follow(my, 1, maxScroll()); return true; }
         if (hexField != null) {
             boolean inField = Ui.hit(mx, my, hexField.getX() - 8, hexField.getY() - 5,
                     hexField.getWidth() + 12, ROW_H);
@@ -529,6 +555,7 @@ public final class SettingsPanel {
     private static float clamp01(float v) { return v < 0 ? 0 : Math.min(v, 1); }
 
     public boolean mouseDragged(double mx, double my) {
+        if (bar.dragging()) { scroll[tab] = bar.follow(my, 1, maxScroll()); return true; }
         if (hexDrag && hexField != null) {
             hexField.setCursor(hexIndexAt(mx), true);
             return true;
@@ -544,7 +571,7 @@ public final class SettingsPanel {
         return true;
     }
 
-    public void mouseReleased() { dragging = 0; hexDrag = false; }
+    public void mouseReleased() { dragging = 0; hexDrag = false; bar.release(); }
 
     public boolean mouseScrolled(double mx, double my, double amount) {
         if (!contains(mx, my)) return false;

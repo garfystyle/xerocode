@@ -1,7 +1,6 @@
 package com.xerocode.ui;
 
 import com.xerocode.XeroCode;
-import com.xerocode.PickLog;
 import com.xerocode.Script;
 import com.xerocode.Value;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
@@ -118,10 +117,8 @@ public final class LocationPick {
 
     public static boolean active() { return active; }
 
-    public static net.minecraft.util.ActionResult interceptHands(
-            net.minecraft.world.World world, String what) {
+    public static net.minecraft.util.ActionResult interceptHands(net.minecraft.world.World world) {
         if (!active || !world.isClient()) return net.minecraft.util.ActionResult.PASS;
-        PickLog.log("перехват", what + " — отменено, чтобы не улетел пакет взаимодействия");
         return net.minecraft.util.ActionResult.FAIL;
     }
 
@@ -155,9 +152,6 @@ public final class LocationPick {
         }
         fromSlot = has;
 
-        PickLog.start("слот " + arg + " узла «" + target.action.name + "»");
-        PickLog.log("экран", "закрываем полотно, было "
-                + (client.currentScreen == null ? "нет" : client.currentScreen.getClass().getName()));
         XeroCode.canvasClosed();
         XeroCode.cover("Выбор местоположения…", null);
         hudWas = client.options.hudHidden;
@@ -187,8 +181,6 @@ public final class LocationPick {
         camPitch = player.getPitch();
         lastYaw = camYaw;
         lastPitch = camPitch;
-        PickLog.log("камера", "поднимаем в мире "
-                + client.world.getRegistryKey().getValue() + ", игрок " + vec(frozen));
         if (fromSlot) frame();
         else placeUnderAim(client, false);
         try {
@@ -198,7 +190,6 @@ public final class LocationPick {
             client.setCameraEntity(cam);
         } catch (Throwable e) {
             XeroCode.LOG.warn("[xerocode] фрикам не поднялся, выбор точки идёт от игрока", e);
-            PickLog.log("камера", "не поднялась: " + e);
             cam = null;
         }
         snapCam = true;
@@ -337,7 +328,6 @@ public final class LocationPick {
             renderFrame(ctx);
         } catch (Throwable e) {
             XeroCode.LOG.error("[xerocode] выбор местоположения упал, выходим из режима", e);
-            PickLog.log("сбой", String.valueOf(e));
             try { abandon(); } catch (Throwable ignored) { }
         }
     }
@@ -382,23 +372,6 @@ public final class LocationPick {
 
         keyActions(client);
 
-        if (PickLog.on) {
-            Entity focus = client.gameRenderer.getCamera().getFocusedEntity();
-            PickLog.frame((op == Op.NONE ? "обзор" : op == Op.MOVE ? "ДВИГАТЬ" : "КРУТИТЬ")
-                    + (axis < 0 ? "" : (planeMode ? " плоск " : " ось ") + "XYZ".charAt(axis))
-                    + " | экран " + (client.currentScreen == null ? "нет"
-                    : client.currentScreen.getClass().getSimpleName())
-                    + " | камера " + (client.getCameraEntity() == cam ? "наша"
-                    : client.getCameraEntity() == player ? "ИГРОК"
-                    : String.valueOf(client.getCameraEntity()))
-                    + " | фокус " + (focus == cam ? "наш" : focus == player ? "ИГРОК"
-                    : String.valueOf(focus))
-                    + " | из " + vec(client.gameRenderer.getCamera().getCameraPos())
-                    + " " + fmt(camYaw) + "/" + fmt(camPitch)
-                    + " | цель " + vec(new Vec3d(cx, cy, cz))
-                    + " | точка " + vec(point()) + " " + fmt(pyaw) + "/" + fmt(ppitch)
-                    + " | ручка " + hover + " | прилипание " + snap + " | fps " + client.getCurrentFps());
-        }
 
         if (client.currentScreen instanceof LocationForm) return;
         SmoothText.clip(null);
@@ -744,7 +717,6 @@ public final class LocationPick {
         py = at.y;
         pz = at.z;
         if (!undoable) { pyaw = MathHelper.wrapDegrees(camYaw); ppitch = camPitch; }
-        PickLog.log("точка", "поставлена " + vec(at));
     }
 
     private static void frame() {
@@ -754,7 +726,6 @@ public final class LocationPick {
         cz = pz - back.z;
         snapCam = true;
         place(true);
-        PickLog.log("камера", "подлетаем к точке " + vec(point()));
     }
 
     public static void tick(MinecraftClient client) {
@@ -780,9 +751,6 @@ public final class LocationPick {
         player.lastZ = player.lastRenderZ = frozen.z;
         player.fallDistance = 0;
         if (client.getCameraEntity() != cam) {
-            PickLog.log("камера", "её подменили: "
-                    + (client.getCameraEntity() == null ? "null"
-                    : client.getCameraEntity().getClass().getName()) + " → забираем обратно");
             client.setCameraEntity(cam);
         }
 
@@ -839,12 +807,6 @@ public final class LocationPick {
     private static double r3(double d) { return Math.round(d * 1000.0) / 1000.0; }
     private static double r1(double d) { return Math.round(d * 10.0) / 10.0; }
 
-    private static String fmt(double d) { return String.format("%.2f", d); }
-
-    private static String vec(Vec3d v) {
-        return v == null ? "нет" : "(" + fmt(v.x) + " " + fmt(v.y) + " " + fmt(v.z) + ")";
-    }
-
     private static void write() {
         if (node == null) return;
         List<Value> slot = node.valuesOf(argIndex);
@@ -859,15 +821,12 @@ public final class LocationPick {
         v.z = r3(pz);
         v.yaw = r1(MathHelper.wrapDegrees(pyaw));
         v.pitch = r1(MathHelper.clamp(ppitch, -90f, 90f));
-        PickLog.log("запись", vec(point()) + " поворот " + fmt(v.yaw) + "/" + fmt(v.pitch));
     }
 
     private static void finish(MinecraftClient client, boolean applied) {
         Script.Node target = node;
         int arg = argIndex, i = index;
-        PickLog.log("выход", applied ? "точка сохранена" : "отмена");
         abandon();
-        PickLog.stop(applied ? "точка сохранена" : "отмена");
         if (applied && target != null) EditorScreen.openPanelAfter(target, arg, i);
         XeroCode.openCanvas(client);
     }
@@ -907,7 +866,6 @@ public final class LocationPick {
             worldFrame(ctx);
         } catch (Throwable e) {
             XeroCode.LOG.error("[xerocode] линии выбора местоположения упали, выходим из режима", e);
-            PickLog.log("сбой", String.valueOf(e));
             try { abandon(); } catch (Throwable ignored) { }
         }
     }
@@ -916,9 +874,6 @@ public final class LocationPick {
         MinecraftClient client = MinecraftClient.getInstance();
         MatrixStack matrices = ctx.matrices();
         if (matrices == null || client.world == null || client.player == null) {
-            PickLog.log("мир", "линии не рисуются: матрица "
-                    + (matrices == null ? "нет" : "есть") + ", мир "
-                    + (client.world == null ? "нет" : "есть"));
             return;
         }
         origin = client.gameRenderer.getCamera().getCameraPos();
@@ -1104,8 +1059,8 @@ public final class LocationPick {
         int sw = ctx.getScaledWindowWidth(), sh = ctx.getScaledWindowHeight();
         crosshair(ctx, sw, sh);
 
-        int w = Math.min(PANEL_W, Math.max(MIN_W, sw - 16));
-        int x = (sw - w) / 2, y = 8;
+        int w = Math.max(Math.min(MIN_W, sw - 8), Ui.fitW(sw, PANEL_W));
+        int x = Ui.midX(sw, w), y = 8;
         int h = PAD + 11 + 3 + 16 + 5 + 15 + PAD - 2;
         Draw.card(ctx, x, y, w, h, Ui.R, Draw.opaque(Ui.PANEL), Draw.opaque(Ui.BORDER));
         Draw.rect(ctx, x + Ui.R, y + 1, w - 2 * Ui.R, 1, Ui.sheen());

@@ -43,6 +43,7 @@ public final class Palette {
     private int catIndex = -1;
     private String query = "";
     private double scroll, scrollTarget;
+    private final Ui.Bar bar = new Ui.Bar();
     private int contentH;
     private boolean dirty = true;
 
@@ -137,6 +138,17 @@ public final class Palette {
         return Math.max(0, contentH - (screenH - listTop()));
     }
 
+    public boolean barPress(double mx, double my) { return bar.press(mx, my); }
+
+    public boolean barDragging() { return bar.dragging(); }
+
+    public void barRelease() { bar.release(); }
+
+    public void barDrag(double my, int screenH) {
+        scrollTarget = bar.follow(my, 1, (int) maxScroll(screenH));
+        scroll = scrollTarget;
+    }
+
     public void scrollBy(double amount, int screenH) {
         scrollTarget = Math.max(0, Math.min(maxScroll(screenH), scrollTarget - amount * 42));
     }
@@ -176,12 +188,9 @@ public final class Palette {
         ctx.disableScissor();
 
         double max = maxScroll(screenH);
-        if (max > 0) {
-            int trackH = screenH - top - 8;
-            int thumbH = Math.max(20, (int) (trackH * (trackH / (double) contentH)));
-            int thumbY = top + 4 + (int) ((trackH - thumbH) * (scroll / max));
-            Draw.round(ctx, w - 6, thumbY, 3, thumbH, 1, Draw.argb(0xCC, 0x4A5468));
-        }
+        if (max > 0)
+            bar.draw(ctx, w - 6, top + 4, screenH - top - 8, contentH,
+                    (int) (contentH - max), (int) Math.round(scroll), mouseX, mouseY);
     }
 
     private void drawSearchBox(DrawContext ctx, TextRenderer tr, int mouseX, int mouseY) {

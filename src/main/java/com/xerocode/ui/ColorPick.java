@@ -11,8 +11,9 @@ import org.lwjgl.glfw.GLFW;
 public final class ColorPick {
     public interface Done { void apply(int rgb); }
 
-    private static final int W = 232, PAD = 10, ROW = 18, CAP = 11;
-    private static final int SV_W = W - PAD * 2, SV_H = 84, HUE_H = 10;
+    private static final int WANT_W = 232, PAD = 10, ROW = 18, CAP = 11;
+    private static final int WANT_SV_H = 84;
+    private static final int HUE_H = 10;
     private static final int SWATCH = 20, SWATCH_GAP = 2;
 
     private final TextRenderer tr;
@@ -27,6 +28,8 @@ public final class ColorPick {
 
     private int x, y, h;
     private int svY, hueY, hexY, swatchY, footY;
+    private final int W, SV_W;
+    private final int SV_H;
     private final int rows;
 
     public ColorPick(TextRenderer tr, String title, int rgb, int anchorX, int anchorY,
@@ -36,6 +39,8 @@ public final class ColorPick {
         this.done = done;
         this.screenW = screenW;
         this.screenH = screenH;
+        this.W = Ui.fitW(screenW, WANT_W);
+        this.SV_W = W - PAD * 2;
 
         float[] hsv = McText.rgbHsv(rgb & 0xFFFFFF);
         pickH = hsv[0];
@@ -49,8 +54,11 @@ public final class ColorPick {
         hex.setText(hexOf(rgb));
         hex.setChangedListener(this::hexTyped);
 
-        int perRow = (SV_W + SWATCH_GAP) / (SWATCH + SWATCH_GAP);
+        int perRow = Math.max(1, (SV_W + SWATCH_GAP) / (SWATCH + SWATCH_GAP));
         this.rows = (McText.COLOURS.size() + perRow - 1) / perRow;
+
+        int tail = 4 + HUE_H + 6 + ROW + 8 + CAP + rows * (SWATCH + SWATCH_GAP) + 8 + ROW + PAD;
+        this.SV_H = Math.max(40, Math.min(WANT_SV_H, screenH - 8 - PAD - CAP - tail));
 
         svY = PAD + CAP;
         hueY = svY + SV_H + 4;
@@ -58,8 +66,8 @@ public final class ColorPick {
         swatchY = hexY + ROW + 8 + CAP;
         footY = swatchY + rows * (SWATCH + SWATCH_GAP) + 8;
         h = footY + ROW + PAD;
-        x = Math.max(4, Math.min(anchorX, screenW - W - 4));
-        y = Math.max(4, Math.min(anchorY, screenH - h - 4));
+        x = Ui.anchorX(screenW, anchorX, W);
+        y = Ui.anchorY(screenH, anchorY, h);
     }
 
     public boolean isClosed() { return closed; }

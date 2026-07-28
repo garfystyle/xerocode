@@ -28,6 +28,10 @@ public final class Theme {
 
     public static boolean LIGHT;
 
+    public static int MARKER_BORDER = 0x424B5B;
+    public static int MARKER_TOP    = 0x2A303D;
+    public static int MARKER_BOTTOM = 0x1E232D;
+
     public static int PALETTE_W = 218;
     public static final int PALETTE_MIN_W = 150;
     public static final int PALETTE_MAX_W = 460;
@@ -63,6 +67,9 @@ public final class Theme {
         SHADOW        = 0x3A000000;
         SHADOW_SOFT   = 0x18000000;
         SCRIM         = 0xC005070B;
+        MARKER_BORDER = 0x424B5B;
+        MARKER_TOP    = 0x2A303D;
+        MARKER_BOTTOM = 0x1E232D;
 
         Ui.PANEL   = 0x171A21;
         Ui.HEAD    = 0x1C212B;
@@ -103,6 +110,9 @@ public final class Theme {
         SHADOW        = 0x1E1B2333;
         SHADOW_SOFT   = 0x0E1B2333;
         SCRIM         = 0x662A3040;
+        MARKER_BORDER = 0xA9B3C3;
+        MARKER_TOP    = 0xF3F5FA;
+        MARKER_BOTTOM = 0xE2E7F0;
 
         Ui.PANEL   = 0xFFFFFF;
         Ui.HEAD    = 0xF1F4FA;

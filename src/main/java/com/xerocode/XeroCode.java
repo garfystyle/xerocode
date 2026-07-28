@@ -62,8 +62,6 @@ public final class XeroCode implements ClientModInitializer {
     private int coverTicks;
     private CoverScreen cover;
     private Runnable coverDone;
-    private int coverLog;
-    private boolean coverOwnsLog;
     private net.minecraft.world.GameMode coverMode;
     private String worldModeNow = "";
 
@@ -113,9 +111,29 @@ public final class XeroCode implements ClientModInitializer {
         }
     }
 
+    private static String scriptPlot;
+
     public static Script script() {
-        if (script == null) script = Script.load();
+        if (script == null) {
+            scriptPlot = plotId(MinecraftClient.getInstance().world);
+            script = Script.load(scriptPlot);
+        }
         return script;
+    }
+
+    private void switchWorld(MinecraftClient client, ClientWorld world) {
+        String plot = plotId(world);
+        if (script == null) { scriptPlot = plot; return; }
+        if (plot.equals(scriptPlot)) return;
+        script.save();
+        LOG.info("[xerocode] мир сменился: {} → {}",
+                scriptPlot == null || scriptPlot.isEmpty() ? "черновик" : scriptPlot,
+                plot.isEmpty() ? "черновик" : plot);
+        scriptPlot = plot;
+        script = Script.load(plot);
+        History.clear();
+        if (client.currentScreen instanceof EditorScreen) client.setScreen(new EditorScreen(script));
+        holding = null;
     }
 
     private boolean openKeyDown(MinecraftClient client) {
@@ -157,37 +175,16 @@ public final class XeroCode implements ClientModInitializer {
 
         WorldRenderEvents.START_MAIN.register(ctx -> {
             MinecraftClient mc = MinecraftClient.getInstance();
-            if (coverLog > 0 && PickLog.on) {
-                boolean dev = Codespace.inDev(mc.world);
-                boolean covered = mc.currentScreen != null;
-                PickLog.frame((dev && !covered ? "ВИДНО КОДИНГ" : dev ? "кодинг за экраном" : "мир")
-                        + " | измерение " + (mc.world == null ? "нет"
-                        : mc.world.getRegistryKey().getValue().getPath())
-                        + " | экран " + (mc.currentScreen == null ? "нет"
-                        : mc.currentScreen.getClass().getSimpleName())
-                        + " | ширма " + (cover == null ? "нет" : "стоит " + coverTicks)
-                        + " | удержание " + holdScreen
-                        + " | fps " + mc.getCurrentFps());
-            }
             if (holdScreen <= 0 || holding == null || mc.currentScreen != null) return;
-            if (picking()) {
-                PickLog.log("удержание", "кадр мира хотел вернуть полотно (hold=" + holdScreen
-                        + ") — не даём");
-                return;
-            }
+            if (picking()) return;
             restore(mc);
         });
 
         ClientWorldEvents.AFTER_CLIENT_WORLD_CHANGE.register((client, world) -> {
+            switchWorld(client, world);
             dropCover(client, "измерение сменилось");
-            PickLog.log("мир", "измерение сменилось на "
-                    + (world == null ? "нет" : world.getRegistryKey().getValue())
-                    + ", hold=" + holdScreen + ", ждём /dev " + waitingDev);
             if (waitingDev > 0 && Codespace.inDev(world) && holding == null) allowed(client);
-            if (holdScreen > 0 && holding != null) {
-                if (picking()) PickLog.log("удержание", "смена измерения хотела вернуть полотно — не даём");
-                else client.setScreen(holding);
-            }
+            if (holdScreen > 0 && holding != null && !picking()) client.setScreen(holding);
         });
 
         ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) -> {
@@ -221,7 +218,6 @@ public final class XeroCode implements ClientModInitializer {
         });
 
         ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
-            if (PickLog.on) PickLog.stack("экран открыт " + screen.getClass().getName());
             if (holdScreen <= 0 || holding == null || restoring || picking()) return;
             if (screen == holding || screen instanceof ImportScreen) return;
             restoring = true;
@@ -246,11 +242,11 @@ public final class XeroCode implements ClientModInitializer {
                 LocationPick.active() && world.isClient() ? ActionResult.FAIL : ActionResult.PASS);
 
         AttackEntityCallback.EVENT.register((player, world, hand, entity, hit) ->
-                LocationPick.interceptHands(world, "удар по " + entity.getType().getUntranslatedName()));
+                LocationPick.interceptHands(world));
         UseEntityCallback.EVENT.register((player, world, hand, entity, hit) ->
-                LocationPick.interceptHands(world, "клик по " + entity.getType().getUntranslatedName()));
+                LocationPick.interceptHands(world));
         UseItemCallback.EVENT.register((player, world, hand) ->
-                LocationPick.interceptHands(world, "применение предмета"));
+                LocationPick.interceptHands(world));
 
         ClientTickEvents.START_CLIENT_TICK.register(LocationPick::startTick);
 
@@ -258,19 +254,12 @@ public final class XeroCode implements ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (cover != null) {
-                if (client.currentScreen == null) {
-                    PickLog.log("ширма", "экран сняли не мы — ставим обратно");
-                    client.setScreen(cover);
-                }
+                if (client.currentScreen == null) client.setScreen(cover);
                 var now = client.interactionManager == null ? null
                         : client.interactionManager.getCurrentGameMode();
                 if (coverMode != null && now != null && now != coverMode)
                     dropCover(client, "сменился игровой режим: " + coverMode + " → " + now);
                 else if (--coverTicks <= 0) dropCover(client, "сервер не ответил");
-            }
-            if (coverLog > 0 && --coverLog == 0 && coverOwnsLog) {
-                PickLog.stop("переход дописан");
-                coverOwnsLog = false;
             }
             LocationPick.tick(client);
             boolean openRaw = openKeyDown(client);
@@ -377,18 +366,11 @@ public final class XeroCode implements ClientModInitializer {
         INSTANCE.coverTicks = 30;
         INSTANCE.coverMode = client.interactionManager == null ? null
                 : client.interactionManager.getCurrentGameMode();
-        INSTANCE.coverOwnsLog = !PickLog.on;
-        if (INSTANCE.coverOwnsLog) PickLog.start("переход: " + label);
-        INSTANCE.coverLog = DEV_WAIT + 40;
-        PickLog.log("ширма", "ставим «" + label + "», экран был "
-                + (client.currentScreen == null ? "нет"
-                : client.currentScreen.getClass().getName()));
         client.setScreen(INSTANCE.cover);
     }
 
     public static void coverDismissed() {
         if (INSTANCE == null || INSTANCE.cover == null) return;
-        PickLog.log("ширма", "сняли руками");
         INSTANCE.cover = null;
         INSTANCE.coverDone = null;
         INSTANCE.coverTicks = 0;
@@ -397,7 +379,6 @@ public final class XeroCode implements ClientModInitializer {
 
     private void dropCover(MinecraftClient client, String why) {
         if (cover == null) return;
-        PickLog.log("ширма", "снимаем: " + why);
         Runnable done = coverDone;
         cover = null;
         coverDone = null;
@@ -454,7 +435,7 @@ public final class XeroCode implements ClientModInitializer {
 
     private void hold(MinecraftClient client) {
         if (--holdScreen <= 0 || holding == null) return;
-        if (picking()) { PickLog.log("удержание", "тик хотел вернуть полотно — не даём"); return; }
+        if (picking()) return;
         if (client.currentScreen == holding || client.currentScreen instanceof ImportScreen) return;
         client.setScreen(holding);
     }

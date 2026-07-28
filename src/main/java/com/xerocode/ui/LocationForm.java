@@ -15,14 +15,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class LocationForm extends Screen {
-    private static final int W = 300, PAD = 10, FIELD_H = 16, BTN_H = 20, GAP = 4;
+    private static final int WANT_W = 300;
+    private static final int PAD = 10, FIELD_H = 16, BTN_H = 20, GAP = 4;
 
     private static final int[] INK = {0xF0605E, 0x8FD94F, 0x5B8CF5, 0xFFD54A, 0xFFD54A};
     private static final String[] CAPS = {"X", "Y", "Z", "yaw", "pitch"};
 
     private final List<TextFieldWidget> fields = new ArrayList<>();
     private int focus;
-    private int x, y, h;
+    private int x, y, h, W;
 
     private int scrubField = -1;
     private double scrubFrom, scrubX0;
@@ -32,9 +33,10 @@ public final class LocationForm extends Screen {
 
     @Override
     protected void init() {
+        W = Ui.fitW(width, WANT_W);
         h = PAD + 11 + 6 + (9 + FIELD_H) + GAP + (9 + FIELD_H) + 8 + BTN_H + PAD;
-        x = (width - W) / 2;
-        y = Math.max(8, (height - h) / 2);
+        x = Ui.midX(width, W);
+        y = Ui.midY(height, h);
         fields.clear();
         double[] v = LocationPick.values();
         for (int i = 0; i < 5; i++) {

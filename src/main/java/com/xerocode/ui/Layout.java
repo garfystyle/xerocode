@@ -2,7 +2,10 @@ package com.xerocode.ui;
 
 import com.xerocode.Catalog;
 import com.xerocode.Functions;
+import com.xerocode.Mapping;
 import com.xerocode.Script;
+import com.xerocode.Settings;
+import com.xerocode.Stacks;
 import com.xerocode.Value;
 import com.xerocode.Values;
 import net.minecraft.client.font.TextRenderer;
@@ -37,6 +40,7 @@ public final class Layout {
     public static final int CARD_ID_H = 28, CARD_ICON = 20, NAME_SCALE = 2;
     public static final int DESC_H = 11, SEP_H = 7;
     public static final int NAME_MAX = 250;
+    public static final int ID_MAX = 90, ID_GAP = 6;
     public static final int MARKER_PARAM_COLOR = 0x9AA6BD;
 
     public static final class Chip {
@@ -65,10 +69,13 @@ public final class Layout {
             this.cell = cell; this.plus = plus; this.w = w;
         }
 
-        public boolean isArg() { return argIndex >= 0 && cell < 0 && !plus; }
+        public boolean condition;
+
+        public boolean isArg() { return argIndex >= 0 && cell < 0 && !plus && !condition; }
         public boolean isCell() { return cell >= 0 && !plus; }
         public boolean isPlus() { return plus; }
-        public boolean isMarker() { return settingIndex >= 0 && !plus; }
+        public boolean isMarker() { return settingIndex >= 0 && !plus && !condition; }
+        public boolean isCondition() { return condition; }
         public int h() { return CHIP_H; }
         public boolean hit(double mx, double my) {
             return mx >= x && mx < x + w && my >= y && my < y + CHIP_H;
@@ -85,6 +92,8 @@ public final class Layout {
         public int kindX, kindY, kindW;
         public OrderedText verb;
         public int verbX, verbW;
+        public OrderedText id;
+        public int idX, idY, idW;
         public boolean missing;
         public final List<OrderedText> desc = new ArrayList<>();
         public int descX, descY, descW;
@@ -93,12 +102,17 @@ public final class Layout {
         public int sepY;
         public int headH;
 
-        String nameRaw, kindRaw, verbRaw;
+        String nameRaw, kindRaw, verbRaw, idRaw;
         final List<String> descRaws = new ArrayList<>();
 
         public boolean hitName(double mx, double my) {
             return name != null && mx >= (verb == null ? nameX : verbX) - 3
                     && mx < nameX + nameW + 6
+                    && my >= nameY - 4 && my < nameY + 8 * scale + 4;
+        }
+
+        public boolean hitId(double mx, double my) {
+            return id != null && mx >= idX - 3 && mx < idX + idW + 3
                     && my >= nameY - 4 && my < nameY + 8 * scale + 4;
         }
 
@@ -160,7 +174,12 @@ public final class Layout {
                     && my >= top && my < top + 15;
         }
 
+        public boolean contains(double mx, double my) {
+            return mx >= x && mx < x + w && my >= y && my < bottom();
+        }
+
         public Chip chipAt(double mx, double my) {
+            if (!contains(mx, my)) return null;
             for (Chip c : chips) if (c.hit(mx, my)) return c;
             return null;
         }
@@ -253,27 +272,42 @@ public final class Layout {
         return cy;
     }
 
+    public static Script.Node chipNode(Script.Node n) { return n.cond == null ? n : n.cond; }
+
+    public static String conditionText(Script.Node n) {
+        if (n.cond == null) return "выбрать условие";
+        return (n.cond.inverted() ? INVERT_PREFIX : "") + n.cond.action.name;
+    }
+
     private static void measure(Box box, TextRenderer tr) {
-        Script.Node n = box.node;
-        Catalog.Action a = n.action;
+        Script.Node outer = box.node;
+        Script.Node n = chipNode(outer);
+        Catalog.Action a = outer.action;
 
         String name = null, target = null;
         int titleW;
-        if (n.declares() || n.invokes()) {
+        if (outer.declares() || outer.invokes()) {
             box.card = new Card();
             titleW = measureCard(box, tr);
         } else {
-            name = n.inverted() ? INVERT_PREFIX + a.name : a.name;
-            box.targetSetting = n.settingIndex(Catalog.TARGET);
-            target = box.targetSetting < 0 ? null : n.marker(box.targetSetting);
+            name = outer.inverted() ? INVERT_PREFIX + a.name : a.name;
+            box.targetSetting = outer.settingIndex(Catalog.TARGET);
+            target = box.targetSetting < 0 ? null : outer.marker(box.targetSetting);
             if (target != null && Catalog.TARGET_DEFAULT.equals(target)) target = null;
             box.targetW = target == null ? 0 : tr.getWidth(target) + TARGET_GAP;
             titleW = 20 + tr.getWidth(name) + (a.unavailable ? 10 : 0) + box.targetW;
         }
 
         List<Chip> chips = new ArrayList<>();
-        if (n.declares()) {
-            paramChips(n, chips, tr);
+        if (Mapping.hasConditional(a)) {
+            String text = conditionText(outer);
+            Chip c = new Chip(-1, -1, 15 + tr.getWidth(text) + 7);
+            c.condition = true;
+            c.fitted = Draw.ordered(Draw.fit(tr, text, c.w - 15 - 7));
+            chips.add(c);
+        }
+        if (outer.declares()) {
+            paramChips(outer, chips, tr);
         } else {
             for (int i = 0; i < n.args().size(); i++) {
                 if (box.card != null && i == Catalog.CALL_NAME) continue;
@@ -289,7 +323,8 @@ public final class Layout {
         for (int i = 0; i < settings.size(); i++) {
             if (settings.get(i).quiet) continue;
             Chip c = new Chip(-1, i, markerChipWidth(n, i, tr));
-            c.fitted = Draw.ordered(Draw.fit(tr, markerText(n, i), c.w - 8 - 13));
+            c.fitted = Draw.ordered(Draw.fit(tr, markerText(n, i),
+                    c.w - (markerBound(n, i) ? 13 : 8) - 13));
             chips.add(c);
         }
         if (box.card != null) plusChip(box, chips, tr);
@@ -328,7 +363,7 @@ public final class Layout {
         }
         int base = a.category == null ? 0x7A7A7A : a.category.color;
         if (a.unavailable) base = Draw.mix(base, 0x8A8A8A, 0.4f);
-        boolean grad = com.xerocode.Settings.gradient();
+        boolean grad = Settings.gradient();
         int head = Draw.shade(base, grad ? 0.15f : 0.04f);
         box.top = Draw.opaque(head);
         box.bottom = grad ? Draw.opaque(Draw.shade(base, -0.12f)) : box.top;
@@ -355,14 +390,18 @@ public final class Layout {
         c.iconSize = declares ? CARD_ICON : 16;
         c.idH = declares ? CARD_ID_H : TITLE_H;
 
-        String name = declares ? Functions.nameOf(n) : Functions.targetOf(n);
-        c.named = !name.isBlank();
-        c.nameRaw = c.named ? name : declares
+        String id = declares ? Functions.nameOf(n) : Functions.targetOf(n);
+        Value display = declares ? Functions.displayOf(n) : n.dynDisplay;
+        String shown = display == null ? "" : McText.plain(display.text, display.parsing).trim();
+        c.named = !id.isBlank();
+        c.nameRaw = !shown.isEmpty() ? shown : c.named ? id : declares
                 ? (n.isProcess() ? "имя процесса" : "имя функции")
                 : (n.isStart() ? "процесс" : "функцию");
+        c.idRaw = !shown.isEmpty() && c.named ? id : null;
 
         int need = c.iconSize + (declares ? 4 : 3)
                 + Math.min(NAME_MAX, tr.getWidth(c.nameRaw) * c.scale);
+        if (c.idRaw != null) need += ID_GAP + Math.min(ID_MAX, tr.getWidth(c.idRaw));
         if (declares) {
             c.kindRaw = n.isProcess() ? "ПРОЦЕСС" : "ФУНКЦИЯ";
             need += TARGET_GAP + tr.getWidth(c.kindRaw);
@@ -374,7 +413,7 @@ public final class Layout {
         }
 
         Value icon = declares ? Functions.iconOf(n) : n.dynIcon;
-        c.icon = icon != null ? com.xerocode.Stacks.preview(icon) : n.action.icon();
+        c.icon = icon != null ? Stacks.preview(icon) : n.action.icon();
 
         if (declares) {
             c.descRaws.addAll(descAll(n));
@@ -383,6 +422,12 @@ public final class Layout {
         }
         c.headH = c.idH + c.descRaws.size() * DESC_H + (declares ? SEP_H : 0);
         return need;
+    }
+
+    public static String titleOf(Functions.Signature signature) {
+        Value display = signature.display();
+        String shown = display == null ? "" : McText.plain(display.text, display.parsing).trim();
+        return shown.isEmpty() ? signature.name() : shown;
     }
 
     public static int descLines(Script.Node declaration) {
@@ -395,8 +440,8 @@ public final class Layout {
         if (lines == null) return out;
         for (Value v : lines) {
             if (!Value.TEXT.equals(v.type)) continue;
-            String plain = McText.plain(v.text, v.parsing);
-            if (!plain.isBlank()) out.add(plain);
+            for (String part : McText.plain(v.text, v.parsing).split("\n"))
+                if (!part.isBlank()) out.add(part);
         }
         return out;
     }
@@ -425,11 +470,26 @@ public final class Layout {
             right = c.kindX - TARGET_GAP;
         }
         if (c.missing) right -= 9;
-        String name = Draw.fit(tr, c.nameRaw, Math.max(8, (right - textX) / c.scale));
+        c.id = null;
+        c.idW = 0;
+        int idRoom = 0;
+        if (c.idRaw != null) {
+            int want = Math.min(ID_MAX, tr.getWidth(c.idRaw));
+            if (tr.getWidth(c.nameRaw) * c.scale + ID_GAP + want <= right - textX) idRoom = want;
+        }
+        String name = Draw.fit(tr, c.nameRaw,
+                Math.max(8, (right - textX - (idRoom == 0 ? 0 : idRoom + ID_GAP)) / c.scale));
         c.name = Draw.ordered(name);
         c.nameW = tr.getWidth(name) * c.scale;
         c.nameX = textX;
         c.nameY = big ? top + (c.idH - 8 * c.scale) / 2 : inkY;
+        if (idRoom > 0) {
+            String id = Draw.fit(tr, c.idRaw, idRoom);
+            c.id = Draw.ordered(id);
+            c.idW = tr.getWidth(id);
+            c.idX = c.nameX + c.nameW + ID_GAP;
+            c.idY = c.nameY + (8 * c.scale - 8);
+        }
 
         int cy = top + c.idH;
         c.descX = left;
@@ -478,7 +538,7 @@ public final class Layout {
                 c.w - 6 - CHIP_INK_X - (note.isEmpty() ? 0 : c.noteW + 4)));
 
         c.filled = true;
-        boolean grad = com.xerocode.Settings.gradient();
+        boolean grad = Settings.gradient();
         c.border = Draw.opaque(Draw.shade(tc, -0.5f));
         c.top = Draw.opaque(Draw.shade(tc, grad ? 0.12f : 0.02f));
         c.bottom = grad ? Draw.opaque(Draw.shade(tc, -0.10f)) : c.top;
@@ -495,7 +555,7 @@ public final class Layout {
         String label = "параметр";
         Chip c = new Chip(Catalog.FN_PARAMS, -1, -1, true, 16 + tr.getWidth(label) + 7);
         c.fitted = Draw.ordered(label);
-        boolean grad = com.xerocode.Settings.gradient();
+        boolean grad = Settings.gradient();
         c.border = Draw.opaque(Draw.shade(0xB8C2D4, -0.62f));
         c.top = Theme.LIGHT ? Draw.argb(0xC4, 0xF4F6FA) : Draw.argb(0xB4, 0x11151D);
         c.bottom = grad
@@ -546,7 +606,11 @@ public final class Layout {
         Catalog.Arg a = n.args().get(argIndex);
         if (!a.list) return null;
         List<Value> v = n.values.get(argIndex);
-        return (v == null ? 0 : v.size()) + "/" + a.capacity;
+        if (v == null) return "0/" + a.capacity;
+        if (Catalog.slots(n.action, argIndex) == null) return v.size() + "/" + a.capacity;
+        int filled = 0;
+        for (Value it : v) if (!it.isBlank()) filled++;
+        return filled + "/" + a.capacity;
     }
 
     private static void label(Chip c, Script.Node n, TextRenderer tr) {
@@ -568,12 +632,12 @@ public final class Layout {
         else
             c.fitted = Draw.ordered(Draw.fit(tr, argText(n, c.argIndex), room));
         if (v != null && Value.ITEM.equals(v.type) && !v.itemId.isEmpty())
-            c.icon = com.xerocode.Stacks.preview(v);
+            c.icon = Stacks.preview(v);
 
         int tc = v != null ? v.color()
                 : Catalog.TYPE_COLORS.getOrDefault(n.args().get(c.argIndex).type, 0xAAAAAA);
         c.filled = argFilled(n, c.argIndex);
-        boolean grad = com.xerocode.Settings.gradient();
+        boolean grad = Settings.gradient();
         if (c.filled) {
             c.border = Draw.opaque(Draw.shade(tc, -0.5f));
             c.top = Draw.opaque(Draw.shade(tc, grad ? 0.12f : 0.02f));
@@ -601,16 +665,24 @@ public final class Layout {
     }
 
     public static String markerText(Script.Node n, int settingIndex) {
+        Value bound = n.markerVar(settingIndex);
+        if (bound != null && !bound.name.isBlank())
+            return n.settings().get(settingIndex).label + ": " + bound.name;
         String option = n.marker(settingIndex);
         if (!n.invokes()) return option;
         return n.settings().get(settingIndex).label + ": " + option;
+    }
+
+    public static boolean markerBound(Script.Node n, int settingIndex) {
+        Value bound = n.markerVar(settingIndex);
+        return bound != null && !bound.name.isBlank();
     }
 
     public static final int TARGET_GAP = 8;
     public static final String INVERT_PREFIX = "НЕ ";
 
     private static int markerChipWidth(Script.Node n, int i, TextRenderer tr) {
-        int w = 8 + tr.getWidth(markerText(n, i)) + 6 + 5 + 6;
+        int w = (markerBound(n, i) ? 13 : 8) + tr.getWidth(markerText(n, i)) + 6 + 5 + 6;
         return Math.max(CHIP_MIN_W, Math.min(CHIP_MAX_W, w));
     }
 

@@ -104,7 +104,6 @@ public final class Stacks {
         ALL.addAll(entries(stacksOf(ItemGroups.getSearchGroup())));
         if (ALL.isEmpty()) for (Tab t : TABS) ALL.addAll(t.entries());
         if (ALL.isEmpty()) fallback();
-        XeroCode.LOG.info("[xerocode] items: {} tabs, {} stacks", TABS.size(), ALL.size());
     }
 
     private static void fallback() {

@@ -1,6 +1,7 @@
 package com.xerocode;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.client.MinecraftClient;
@@ -26,8 +27,10 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.zip.Inflater;
 
 public final class Codespace {
@@ -44,8 +47,15 @@ public final class Codespace {
     private static final int PICK_TICKS = 30;
     private static final int ATTEMPTS = 3;
 
-    private static final int GAP_START = 25, GAP_MIN = 10, GAP_MAX = 45;
-    private static final int GAP_UP = 4, GAP_DOWN = 2;
+    private static final int GAP_START = 27, GAP_MIN = 26, GAP_MAX = 70;
+    private static final int GAP_UP = 4, GAP_DOWN = 1;
+    private static final int REFUSE_UP = 6, REFUSE_MAX = 8;
+
+    private static final double NEAR = 8.0;
+    private static final int NEAR_TRIES = 20;
+
+    private static final String SAID_LIMIT = "Подождите перед сохранением";
+    private static final String SAID_SAVED = "Строка сохранена";
 
     public static boolean inDev(ClientWorld world) {
         return world != null
@@ -119,7 +129,84 @@ public final class Codespace {
         return path;
     }
 
+    public static String key(BlockPos pos) {
+        return pos.getX() + "," + pos.getY() + "," + pos.getZ();
+    }
+
     public enum State { RUNNING, DONE, CANCELLED, FAILED }
+
+    public static final class Memo {
+        public String world = "";
+        public int next;
+        public int total;
+        public final Set<String> skip = new LinkedHashSet<>();
+        public JsonArray handlers = new JsonArray();
+
+        public static Path file() {
+            return MinecraftClient.getInstance().runDirectory.toPath()
+                    .resolve("xerocode/resume.json");
+        }
+
+        public static Memo read(String world) {
+            try {
+                Path path = file();
+                if (!Files.exists(path)) return null;
+                JsonObject root = JsonParser
+                        .parseString(Files.readString(path, StandardCharsets.UTF_8))
+                        .getAsJsonObject();
+                Memo memo = new Memo();
+                memo.world = root.get("world").getAsString();
+                if (!memo.world.equals(world)) return null;
+                memo.next = root.get("next").getAsInt();
+                memo.total = root.get("total").getAsInt();
+                for (JsonElement el : root.getAsJsonArray("skip")) memo.skip.add(el.getAsString());
+                if (root.has("handlers")) memo.handlers = root.getAsJsonArray("handlers");
+                return memo;
+            } catch (Exception e) {
+                XeroCode.LOG.warn("[xerocode] недочитанное чтение не разобралось", e);
+                return null;
+            }
+        }
+
+        public static Memo fresh(String world, Memo old) {
+            Memo memo = new Memo();
+            memo.world = world;
+            if (old != null) memo.skip.addAll(old.skip);
+            return memo;
+        }
+
+        public boolean fits(int lines) {
+            return total == lines && next > 0 && next < lines;
+        }
+
+        public int done() {
+            return handlers.size();
+        }
+
+        public void write() {
+            try {
+                JsonObject root = new JsonObject();
+                root.addProperty("world", world);
+                root.addProperty("next", next);
+                root.addProperty("total", total);
+                JsonArray list = new JsonArray();
+                for (String at : skip) list.add(at);
+                root.add("skip", list);
+                root.add("handlers", handlers);
+                Files.createDirectories(file().getParent());
+                Files.writeString(file(), root.toString(), StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                XeroCode.LOG.warn("[xerocode] недочитанное чтение не сохранилось", e);
+            }
+        }
+
+        public static void drop() {
+            try {
+                Files.deleteIfExists(file());
+            } catch (IOException ignored) {
+            }
+        }
+    }
 
     public static final class Scan {
         private final MinecraftClient client = MinecraftClient.getInstance();
@@ -129,6 +216,7 @@ public final class Codespace {
         private final ItemStack slotBefore;
         private final Vec3d origin;
         private final long startedAt = System.currentTimeMillis();
+        private final Memo memo;
 
         private int index;
         private int attempt;
@@ -136,30 +224,42 @@ public final class Codespace {
         private boolean picking;
         private int failed;
         private int ticks;
-        private int lastPick = -1000;
+        private int lastOk = -1000;
+        private int pickTick;
         private int gap = GAP_START;
         private int clean;
-        private int retries;
+        private int refusedHere;
+        private int nearTries;
+        private int skipped;
+        private int walked;
 
         public State state = State.RUNNING;
         public String error = "";
         public Path file;
         public long millis;
 
-        Scan(ClientWorld world, List<BlockPos> lines) {
+        Scan(ClientWorld world, List<BlockPos> lines, Memo memo) {
             this.world = world;
             this.lines = lines;
+            this.memo = memo == null ? Memo.fresh(worldId(world), null) : memo;
             ClientPlayerEntity player = client.player;
             this.slotBefore = player == null
                     ? ItemStack.EMPTY : player.getInventory().getStack(SLOT).copy();
             this.origin = player == null ? Vec3d.ZERO : player.getEntityPos();
-            if (lines.isEmpty()) state = State.DONE;
-            else teleport();
+            if (this.memo.fits(lines.size())) {
+                index = this.memo.next;
+                for (JsonElement el : this.memo.handlers) handlers.add(el);
+            }
+            index = ahead(index);
+            if (lines.isEmpty() || index >= lines.size()) { state = State.DONE; return; }
+            teleport();
         }
 
         public int index()  { return Math.min(index + 1, lines.size()); }
         public int total()  { return lines.size(); }
         public int failedLines() { return failed; }
+        public int skippedLines() { return skipped; }
+        public Set<String> skipList() { return memo.skip; }
         public int blocks() { return handlers.size(); }
         public JsonArray handlers() { return handlers; }
 
@@ -168,9 +268,9 @@ public final class Codespace {
         }
 
         public float remaining() {
-            if (index == 0) return -1;
-            float perLine = (System.currentTimeMillis() - startedAt) / 1000f / index;
-            return perLine * (lines.size() - index);
+            if (walked <= 0) return -1;
+            float perLine = (System.currentTimeMillis() - startedAt) / 1000f / walked;
+            return perLine * Math.max(0, lines.size() - index);
         }
 
         public void cancel() {
@@ -178,28 +278,34 @@ public final class Codespace {
             millis = System.currentTimeMillis() - startedAt;
             restore();
             save();
+            forget();
             state = State.CANCELLED;
         }
 
         public void tick() {
             if (state != State.RUNNING) return;
             ticks++;
-            if (client.player == null || client.world != world) {
-                state = State.FAILED;
-                error = "Мир сменился, чтение прервано";
+            if (client.world == null || client.player == null) {
+                broke("связь с миром потеряна");
+                return;
+            }
+            if (client.world != world) {
+                broke("мир сменился на " + client.world.getRegistryKey().getValue().getPath());
                 return;
             }
             if (picking) {
                 String raw = template(client.player.getInventory().getStack(SLOT));
                 if (raw != null) {
-                    if (attempt == 0 && ++clean >= 3) { gap = Math.max(GAP_MIN, gap - GAP_DOWN); clean = 0; }
+                    if (attempt == 0 && ++clean >= 3) {
+                        gap = Math.max(GAP_MIN, gap - GAP_DOWN);
+                        clean = 0;
+                    }
                     collect(raw);
                     next();
                     return;
                 }
                 if (--timer > 0) return;
                 if (++attempt < ATTEMPTS) {
-                    retries++;
                     clean = 0;
                     gap = Math.min(GAP_MAX, gap + GAP_UP);
                     pick();
@@ -209,8 +315,49 @@ public final class Codespace {
                 next();
             } else {
                 if (--timer > 0) return;
+                if (waitTeleport()) return;
                 pick();
             }
+        }
+
+        void saved() {
+            if (lastOk < pickTick) lastOk = ticks;
+        }
+
+        void refused() {
+            refusedHere++;
+            clean = 0;
+            gap = Math.min(GAP_MAX, gap + REFUSE_UP);
+            if (!picking || refusedHere >= REFUSE_MAX) return;
+            picking = false;
+            timer = Math.max(TP_TICKS, gap - (ticks - lastOk));
+        }
+
+        private int ahead(int at) {
+            while (at < lines.size() && memo.skip.contains(key(lines.get(at)))) {
+                skipped++;
+                at++;
+            }
+            return at;
+        }
+
+        private double away() {
+            ClientPlayerEntity player = client.player;
+            if (player == null) return -1;
+            BlockPos pos = lines.get(index);
+            return Math.sqrt(player.squaredDistanceTo(
+                    pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
+        }
+
+        private boolean waitTeleport() {
+            double away = away();
+            if (away < 0 || away <= NEAR || nearTries >= NEAR_TRIES) {
+                nearTries = 0;
+                return false;
+            }
+            nearTries++;
+            timer = 2;
+            return true;
         }
 
         private void teleport() {
@@ -220,13 +367,15 @@ public final class Codespace {
                     "editor tp %.2f %d %.1f", 2.85, pos.getY(), pos.getZ() + 0.5));
             picking = false;
             attempt = 0;
-            timer = Math.max(TP_TICKS, gap - (ticks - lastPick));
+            nearTries = 0;
+            refusedHere = 0;
+            timer = Math.max(TP_TICKS, gap - (ticks - lastOk));
         }
 
         private void pick() {
             ClientPlayNetworkHandler net = client.getNetworkHandler();
             ClientPlayerEntity player = client.player;
-            if (net == null || player == null) return;
+            if (net == null || player == null) { broke("связь с миром потеряна"); return; }
             player.getInventory().setStack(SLOT, ItemStack.EMPTY);
             if (client.interactionManager != null)
                 client.interactionManager.clickCreativeStack(ItemStack.EMPTY, 36 + SLOT);
@@ -236,11 +385,12 @@ public final class Codespace {
             net.sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(-90f, 45f, true, true));
             net.sendPacket(new PickItemFromBlockC2SPacket(lines.get(index), false));
             picking = true;
-            lastPick = ticks;
+            pickTick = ticks;
             timer = PICK_TICKS;
         }
 
         private void collect(String raw) {
+            saved();
             String json = decompress(raw);
             if (json == null) { failed++; return; }
             try {
@@ -253,16 +403,38 @@ public final class Codespace {
         }
 
         private void next() {
-            index++;
+            walked++;
+            index = ahead(index + 1);
             if (index >= lines.size()) { finish(); return; }
             teleport();
+        }
+
+        private void broke(String why) {
+            millis = System.currentTimeMillis() - startedAt;
+            state = State.FAILED;
+            error = why;
+            if (picking && index < lines.size()) memo.skip.add(key(lines.get(index)));
+            memo.next = Math.min(index + 1, lines.size());
+            memo.total = lines.size();
+            memo.handlers = handlers;
+            memo.write();
+            save();
         }
 
         private void finish() {
             millis = System.currentTimeMillis() - startedAt;
             restore();
             save();
+            forget();
             state = State.DONE;
+        }
+
+        private void forget() {
+            memo.next = 0;
+            memo.total = 0;
+            memo.handlers = new JsonArray();
+            if (memo.skip.isEmpty()) Memo.drop();
+            else memo.write();
         }
 
         private void save() {
@@ -275,8 +447,6 @@ public final class Codespace {
                 try (Writer w = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
                     w.write(root.toString());
                 }
-                XeroCode.LOG.info("[xerocode] {} строк кода сохранено в {} (пауза между запросами {} тиков, "
-                        + "повторов {})", handlers.size(), file, gap, retries);
             } catch (IOException e) {
                 XeroCode.LOG.error("[xerocode] не удалось сохранить код", e);
                 file = null;
@@ -290,6 +460,7 @@ public final class Codespace {
                 if (client.interactionManager != null)
                     client.interactionManager.clickCreativeStack(slotBefore, 36 + SLOT);
             }
+            if (client.world != world) return;
             ClientPlayNetworkHandler net = client.getNetworkHandler();
             if (net != null) net.sendChatCommand(String.format(Locale.ROOT,
                     "editor tp %.2f %.2f %.2f", origin.x, origin.y, origin.z));
@@ -298,9 +469,24 @@ public final class Codespace {
 
     private static Scan current;
 
-    public static Scan start(ClientWorld world, List<BlockPos> lines) {
+    public static void serverSaid(String text) {
+        Scan scan = current;
+        if (scan == null || scan.state != State.RUNNING) return;
+        if (text.contains(SAID_LIMIT)) scan.refused();
+        else if (text.contains(SAID_SAVED)) scan.saved();
+    }
+
+    public static void watch() {
+        Scan scan = current;
+        if (scan == null || scan.state != State.RUNNING) return;
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.world == scan.world && client.player != null) return;
+        scan.broke("сервер увёл клиента из мира");
+    }
+
+    public static Scan start(ClientWorld world, List<BlockPos> lines, Memo memo) {
         if (current != null) current.cancel();
-        current = new Scan(world, lines);
+        current = new Scan(world, lines, memo);
         return current;
     }
 

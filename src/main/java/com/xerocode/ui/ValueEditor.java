@@ -28,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Function;
 
 public final class ValueEditor {
     private static final int PAD = 10;
@@ -188,9 +189,8 @@ public final class ValueEditor {
     }
 
     private JsonObject translations(boolean create) {
-        String field = localizedField();
-        if (field == null) return null;
-        String key = Importer.TRANSLATIONS + field;
+        if (localizedField() == null) return null;
+        String key = Importer.translationsKey(argIndex);
         if (node.raw != null && node.raw.has(key) && node.raw.get(key).isJsonObject()) {
             JsonObject was = node.raw.getAsJsonObject(key);
             JsonObject now = Localized.normalize(was);
@@ -228,7 +228,7 @@ public final class ValueEditor {
         if (all == null) return;
         if (any) all.add(id, Localized.entry(text.text(), text.parsing()));
         else all.remove(id);
-        if (all.isEmpty()) node.raw.remove(Importer.TRANSLATIONS + localizedField());
+        if (all.isEmpty()) node.raw.remove(Importer.translationsKey(argIndex));
         if (node.raw.isEmpty()) node.raw = null;
     }
 
@@ -279,6 +279,7 @@ public final class ValueEditor {
         if (studio != null) studio.resize(sw, sh);
         menu = null;
         colors = null;
+        readForm();
         buildForm();
     }
 
@@ -410,7 +411,7 @@ public final class ValueEditor {
         Value v = current();
         switch (v.type) {
             case Value.TEXT -> {
-                fields.add(field(v.text, arg.purpose));
+                fields.add(Ui.field(tr, v.text, arg.purpose, Ui.TEXT_MAX));
                 cap("ТЕКСТ");
                 part("input", FIELD_H);
                 gap();
@@ -699,12 +700,6 @@ public final class ValueEditor {
                 knownVars, knownParams, edited -> where.set(index, edited));
     }
 
-    private boolean carryingSlot() {
-        if (dragSlot < 0) return false;
-        slotMoved = true;
-        return true;
-    }
-
     private void slotDropped() {
         if (dragSlot < 0) return;
         int from = dragSlot;
@@ -798,7 +793,7 @@ public final class ValueEditor {
                 TextFieldWidget f = fields.get(r.from() + i);
                 f.setX(colX(r, i) + 6);
                 f.setY(ry);
-                f.setWidth(cw - 12);
+                Ui.width(f, cw - 12);
             }
         }
         String single = has("input") ? "input" : has("material") ? "material" : null;
@@ -816,7 +811,7 @@ public final class ValueEditor {
         int right = x + PAD + inner() - (stepper ? FIELD_H + 4 : 0) - 6;
         f.setX(left);
         f.setY(py(single) + (FIELD_H - 12) / 2 + 2);
-        f.setWidth(Math.max(20, right - left));
+        Ui.width(f, Math.max(20, right - left));
     }
 
     private static final int[] AXIS_INK = {0xF0605E, 0x8FD94F, 0x5B8CF5, 0xFFD54A, 0xFFD54A};
@@ -1477,14 +1472,30 @@ public final class ValueEditor {
         ctx.disableScissor();
     }
 
+    private static final int OK_W = 56, NO_W = 52, BTN_GAP = 6, FOOT_BTN_H = 16;
+
+    private int footBtnY() { return footY() + (FOOT_H - FOOT_BTN_H) / 2; }
+    private int okX()      { return x + w - PAD - OK_W; }
+    private int cancelX()  { return okX() - BTN_GAP - NO_W; }
+
     private void drawFooter(DrawContext ctx, int mouseX, int mouseY, int accent) {
-        int fy = footY() + (FOOT_H - 16) / 2;
+        int fy = footBtnY();
         ctx.drawItem(Catalog.stackOf(Values.kindItem(current().type)), x + PAD - 2, fy);
         Draw.textFit(ctx, tr, Values.kindName(current().type), x + PAD + 16, fy + 4,
-                inner() - 16 - 118, Draw.shade(accent, 0.25f), false);
-        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - 56, fy, 56, 16, "Готово", Ui.ACCENT);
-        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - 56 - 6 - 52, fy, 52, 16, "Отмена",
-                Ui.GHOST);
+                inner() - 16 - (OK_W + BTN_GAP + NO_W + 4), Draw.shade(accent, 0.25f), false);
+        Ui.button(ctx, tr, mouseX, mouseY, okX(), fy, OK_W, FOOT_BTN_H, "Готово", Ui.ACCENT);
+        Ui.button(ctx, tr, mouseX, mouseY, cancelX(), fy, NO_W, FOOT_BTN_H, "Отмена", Ui.GHOST);
+    }
+
+    private boolean footClicked(double mx, double my) {
+        int fy = footBtnY();
+        if (Ui.hit(mx, my, okX(), fy, OK_W, FOOT_BTN_H)) { commit(); closed = true; return true; }
+        if (Ui.hit(mx, my, cancelX(), fy, NO_W, FOOT_BTN_H)) {
+            cancelled = true;
+            closed = true;
+            return true;
+        }
+        return false;
     }
 
     private static boolean isNumber(String s) {
@@ -1569,8 +1580,9 @@ public final class ValueEditor {
                         });
             }
             case Value.POTION -> picker = new CatalogPicker(tr, screenW, screenH, "Зелье",
-                    Values.color(Value.POTION), potionItems(), Pickers.POTION_CATEGORIES,
-                    v.potion, null, id -> v.potion = id);
+                    Values.color(Value.POTION),
+                    items(Pickers.POTIONS, e -> Pickers.potionStack(e.id)),
+                    Pickers.POTION_CATEGORIES, v.potion, null, id -> v.potion = id);
             default -> { }
         }
     }
@@ -1607,21 +1619,18 @@ public final class ValueEditor {
         rebuildIfNeeded();
     }
 
-    private static List<CatalogPicker.Item> potionItems() {
-        List<CatalogPicker.Item> out = new ArrayList<>();
-        for (Pickers.Entry e : Pickers.POTIONS)
-            out.add(new CatalogPicker.Item(e.id, e.name, e.category, e.item, e.description,
-                    "", "", Pickers.potionStack(e.id)));
-        return out;
+    private static List<CatalogPicker.Item> items(List<Pickers.Entry> pool) {
+        return items(pool, null);
     }
 
-    private static List<CatalogPicker.Item> items(List<Pickers.Entry> pool) {
+    private static List<CatalogPicker.Item> items(List<Pickers.Entry> pool,
+                                                  Function<Pickers.Entry, ItemStack> picture) {
         List<CatalogPicker.Item> out = new ArrayList<>();
         for (Pickers.Entry e : pool) {
             String note = e.extras.isEmpty() ? ""
                     : "дополнительно: " + String.join(", ", e.extras).toLowerCase();
             out.add(new CatalogPicker.Item(e.id, e.name, e.category, e.item, e.description,
-                    "", note));
+                    "", note, picture == null ? null : picture.apply(e)));
         }
         return out;
     }
@@ -1687,24 +1696,14 @@ public final class ValueEditor {
         }
 
         if (!pane.inBody(my, y)) {
-            int fy = footY() + (FOOT_H - 16) / 2;
-            if (Ui.hit(mx, my, x + w - PAD - 56, fy, 56, 16)) { commit(); closed = true; return true; }
-            if (Ui.hit(mx, my, x + w - PAD - 114, fy, 52, 16)) {
-                cancelled = true;
-                closed = true;
-            }
+            footClicked(mx, my);
             return true;
         }
 
-        if (bodyBar.press(mx, my)) { pane.scroll = bodyBar.follow(my, 1, pane.max()); return true; }
-        if (listBar.press(mx, my)) {
-            listScroll = listBar.follow(my, ROW_H + 2, maxListScroll());
+        if (bodyBar.grabbed(mx, my, 1, pane.max(), v -> pane.scroll = v)) return true;
+        if (listBar.grabbed(mx, my, ROW_H + 2, maxListScroll(), v -> listScroll = v)) return true;
+        if (cellBar.grabbed(mx, my, ROW_H + 2, maxCellScroll(current()), v -> cellScroll = v))
             return true;
-        }
-        if (cellBar.press(mx, my)) {
-            cellScroll = cellBar.follow(my, ROW_H + 2, maxCellScroll(current()));
-            return true;
-        }
 
         if (list() && listClicked(mx, my)) return true;
 
@@ -1730,13 +1729,7 @@ public final class ValueEditor {
         if (click.button() == 1 && clearSlot(mx, my)) return true;
         if (formClicked(click, doubled, mx, my)) return true;
 
-        int fy = footY() + (FOOT_H - 16) / 2;
-        if (Ui.hit(mx, my, x + w - PAD - 56, fy, 56, 16)) { commit(); closed = true; return true; }
-        if (Ui.hit(mx, my, x + w - PAD - 114, fy, 52, 16)) {
-            cancelled = true;
-            closed = true;
-            return true;
-        }
+        footClicked(mx, my);
         return true;
     }
 
@@ -2044,7 +2037,7 @@ public final class ValueEditor {
                 fields.get(0).setText(name);
                 fields.get(0).setCursorToEnd(false);
                 current().name = name;
-                refreshSuggestions();
+                afterTyping();
                 return true;
             }
             at += cw + 3;
@@ -2072,16 +2065,11 @@ public final class ValueEditor {
         if (itemPicker != null) return itemPicker.mouseDragged(click, dx, dy);
         if (itemStudio != null) return itemStudio.mouseDragged(click, dx, dy);
         if (menu != null && menu.mouseDragged(click.y())) return true;
-        if (carryingSlot()) return true;
-        if (bodyBar.dragging()) { pane.scroll = bodyBar.follow(click.y(), 1, pane.max()); return true; }
-        if (listBar.dragging()) {
-            listScroll = listBar.follow(click.y(), ROW_H + 2, maxListScroll());
+        if (dragSlot >= 0) { slotMoved = true; return true; }
+        if (bodyBar.dragged(click.y(), 1, pane.max(), v -> pane.scroll = v)) return true;
+        if (listBar.dragged(click.y(), ROW_H + 2, maxListScroll(), v -> listScroll = v)) return true;
+        if (cellBar.dragged(click.y(), ROW_H + 2, maxCellScroll(current()), v -> cellScroll = v))
             return true;
-        }
-        if (cellBar.dragging()) {
-            cellScroll = cellBar.follow(click.y(), ROW_H + 2, maxCellScroll(current()));
-            return true;
-        }
         if (dragging) { moveTo((int) click.x() - dragX, (int) click.y() - dragY); return true; }
         if (scrub(click)) return true;
         if (has("player") && player.mouseDragged((int) click.x(), x + PAD, py("player"), inner(),
@@ -2258,15 +2246,14 @@ public final class ValueEditor {
         if (!Value.VARIABLE.equals(v.type) && !Value.PARAMETER.equals(v.type)) return;
         boolean had = has("sugg");
         refreshSuggestions();
-        if (had != !suggestions.isEmpty()) {
-            String text = fields.get(0).getText();
-            int cursor = fields.get(0).getCursor();
-            v.name = text.trim();
-            buildForm();
-            fields.get(0).setText(text);
-            fields.get(0).setCursor(cursor, false);
-            focus(0);
-        }
+        if (had == !suggestions.isEmpty()) return;
+        String text = fields.get(0).getText();
+        int cursor = fields.get(0).getCursor();
+        v.name = text.trim();
+        buildForm();
+        focus(0);
+        fields.get(0).setText(text);
+        fields.get(0).setCursor(cursor, false);
     }
 
     private static double parse(String s) {

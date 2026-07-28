@@ -37,6 +37,9 @@ public final class LocationForm extends Screen {
         h = PAD + 11 + 6 + (9 + FIELD_H) + GAP + (9 + FIELD_H) + 8 + BTN_H + PAD;
         x = Ui.midX(width, W);
         y = Ui.midY(height, h);
+        List<String> typed = new ArrayList<>();
+        for (TextFieldWidget f : fields) typed.add(f.getText());
+        int was = focus;
         fields.clear();
         double[] v = LocationPick.values();
         for (int i = 0; i < 5; i++) {
@@ -44,10 +47,10 @@ public final class LocationForm extends Screen {
             TextFieldWidget f = Ui.field(textRenderer, fieldX(i) + 7, fieldY(i) + 9 + 4,
                     cw - 14, 12, "0");
             f.setMaxLength(24);
-            f.setText(fmt(v[i]));
+            f.setText(i < typed.size() ? typed.get(i) : fmt(v[i]));
             fields.add(f);
         }
-        focus(0);
+        focus(was);
     }
 
     private int rowY(int row) { return y + PAD + 11 + 6 + row * (9 + FIELD_H + GAP); }

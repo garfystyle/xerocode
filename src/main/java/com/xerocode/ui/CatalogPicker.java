@@ -303,7 +303,7 @@ public final class CatalogPicker extends PickerPanel {
 
     @Override
     protected boolean bodyClicked(Click click, boolean doubled, int mx, int my) {
-        if (bar.press(mx, my)) { scroll = bar.follow(my, ROW_H, maxScroll()); return true; }
+        if (bar.grabbed(mx, my, ROW_H, maxScroll(), v -> scroll = v)) return true;
         int i = indexAt(mx, my);
         if (i >= 0) {
             selected = hits.get(i).id();
@@ -320,7 +320,7 @@ public final class CatalogPicker extends PickerPanel {
 
     @Override
     public boolean mouseDragged(Click click, double dx, double dy) {
-        if (bar.dragging()) { scroll = bar.follow(click.y(), ROW_H, maxScroll()); return true; }
+        if (bar.dragged(click.y(), ROW_H, maxScroll(), v -> scroll = v)) return true;
         if (extra != null && extra.mouseDragged((int) click.x(), stripX(), stripY(), stripW(),
                 stripBodyH())) return true;
         return super.mouseDragged(click, dx, dy);

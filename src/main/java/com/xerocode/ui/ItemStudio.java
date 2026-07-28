@@ -82,7 +82,7 @@ public final class ItemStudio {
         this.done = done;
         this.v = value;
 
-        nameField = field(v.itemName, "название предмета", 256);
+        nameField = field(v.itemName, "название предмета", Ui.TEXT_MAX);
         countField = field(String.valueOf(v.itemCount), "1", 3);
         damageField = field(v.itemDamage > 0 ? String.valueOf(v.itemDamage) : "", "0", 6);
         modelField = field(v.modelData >= 0 ? String.valueOf(v.modelData) : "", "нет", 9);
@@ -231,13 +231,13 @@ public final class ItemStudio {
     private void placeWidgets() {
         nameField.setX(leftX() + 7);
         nameField.setY(absY(nameY) + (INPUT_H - 12) / 2 + 2);
-        nameField.setWidth(lw - 14);
+        Ui.width(nameField, lw - 14);
         int cw = numW();
         for (int i = 0; i < 3; i++) {
             TextFieldWidget f = numField(i);
             f.setX(leftX() + i * (cw + 4) + 6);
             f.setY(absY(numsY) + (INPUT_H - 12) / 2 + 2);
-            f.setWidth(cw - 12);
+            Ui.width(f, cw - 12);
         }
         nbtBox.setX(rightX() + 4);
         nbtBox.setY(absY(nbtY) + 3);
@@ -536,13 +536,27 @@ public final class ItemStudio {
                 "очистить", Ui.GHOST, !v.components.isBlank());
     }
 
+    private static final int OK_W = 56, NO_W = 52, BTN_GAP = 6, FOOT_BTN_H = 16;
+
+    private int footBtnY() { return footAbsY() + (FOOT_H - FOOT_BTN_H) / 2; }
+    private int okX()      { return x + w - PAD - OK_W; }
+    private int cancelX()  { return okX() - BTN_GAP - NO_W; }
+
     private void drawFooter(DrawContext ctx, int mouseX, int mouseY) {
-        int fy = footAbsY() + (FOOT_H - 16) / 2;
+        int fy = footBtnY();
         String hint = System.currentTimeMillis() - flashAt < 1800 ? flash : Stacks.summary(v);
         if (hint.isEmpty()) hint = "Enter — готово, Esc — отмена";
-        Draw.textFit(ctx, tr, hint, x + PAD, fy + 4, inner() - 120, Theme.TEXT_FAINT, false);
-        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - 56, fy, 56, 16, "Готово", Ui.ACCENT);
-        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - 114, fy, 52, 16, "Отмена", Ui.GHOST);
+        Draw.textFit(ctx, tr, hint, x + PAD, fy + 4,
+                inner() - (OK_W + BTN_GAP + NO_W + 6), Theme.TEXT_FAINT, false);
+        Ui.button(ctx, tr, mouseX, mouseY, okX(), fy, OK_W, FOOT_BTN_H, "Готово", Ui.ACCENT);
+        Ui.button(ctx, tr, mouseX, mouseY, cancelX(), fy, NO_W, FOOT_BTN_H, "Отмена", Ui.GHOST);
+    }
+
+    private boolean footClicked(int mx, int my) {
+        int fy = footBtnY();
+        if (Ui.hit(mx, my, okX(), fy, OK_W, FOOT_BTN_H)) { finish(); return true; }
+        if (Ui.hit(mx, my, cancelX(), fy, NO_W, FOOT_BTN_H)) { closed = true; return true; }
+        return false;
     }
 
     private static int parsingIndex(String id) {
@@ -583,9 +597,7 @@ public final class ItemStudio {
         int mx = (int) click.x(), my = (int) click.y();
         if (Ui.hit(mx, my, x + w - PAD - 14, y + 6, 14, 14)) { closed = true; return true; }
         if (!pane.inBody(my, y)) {
-            int fy = footAbsY() + (FOOT_H - 16) / 2;
-            if (Ui.hit(mx, my, x + w - PAD - 56, fy, 56, 16)) { finish(); return true; }
-            if (Ui.hit(mx, my, x + w - PAD - 114, fy, 52, 16)) { closed = true; return true; }
+            footClicked(mx, my);
             return true;
         }
 
@@ -626,11 +638,8 @@ public final class ItemStudio {
             }
             return true;
         }
-        if (bar.press(mx, my)) { pane.scroll = bar.follow(my, 1, pane.max()); return true; }
-        if (loreBar.press(mx, my)) {
-            loreScroll = loreBar.follow(my, ROW + 2, maxLoreScroll());
-            return true;
-        }
+        if (bar.grabbed(mx, my, 1, pane.max(), v -> pane.scroll = v)) return true;
+        if (loreBar.grabbed(mx, my, ROW + 2, maxLoreScroll(), v -> loreScroll = v)) return true;
         Ui.Cluster names = nameRow();
         if (names.hit(0, mx, my, absY(nameBtnY), BTN_H)) { openStudio(-1); return true; }
         if (names.hit(1, mx, my, absY(nameBtnY), BTN_H)) {
@@ -723,9 +732,7 @@ public final class ItemStudio {
             return true;
         }
 
-        int fy = footAbsY() + (FOOT_H - 16) / 2;
-        if (Ui.hit(mx, my, x + w - PAD - 56, fy, 56, 16)) { finish(); return true; }
-        if (Ui.hit(mx, my, x + w - PAD - 114, fy, 52, 16)) { closed = true; return true; }
+        footClicked(mx, my);
         return true;
     }
 
@@ -804,11 +811,8 @@ public final class ItemStudio {
     }
 
     public boolean mouseDragged(Click click, double dx, double dy) {
-        if (bar.dragging()) { pane.scroll = bar.follow(click.y(), 1, pane.max()); return true; }
-        if (loreBar.dragging()) {
-            loreScroll = loreBar.follow(click.y(), ROW + 2, maxLoreScroll());
-            return true;
-        }
+        if (bar.dragged(click.y(), 1, pane.max(), v -> pane.scroll = v)) return true;
+        if (loreBar.dragged(click.y(), ROW + 2, maxLoreScroll(), v -> loreScroll = v)) return true;
         if (picker != null) return picker.mouseDragged(click, dx, dy);
         if (studio != null) return studio.mouseDragged(click, dx, dy);
         if (enchPicker != null) return enchPicker.mouseDragged(click, dx, dy);

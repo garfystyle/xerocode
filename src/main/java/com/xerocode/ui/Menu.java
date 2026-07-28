@@ -225,7 +225,7 @@ public final class Menu {
 
     public boolean mouseClicked(double mx, double my) {
         if (!contains(mx, my)) { closed = true; return false; }
-        if (bar.press(mx, my)) { scroll = bar.follow(my, 1, (int) maxScroll()); return true; }
+        if (bar.grabbed(mx, my, 1, (int) maxScroll(), v -> scroll = v)) return true;
         int i = indexAt(mx, my);
         if (i >= 0 && !items.get(i).enabled) return true;
         if (i >= 0) {
@@ -236,9 +236,7 @@ public final class Menu {
     }
 
     public boolean mouseDragged(double my) {
-        if (!bar.dragging()) return false;
-        scroll = bar.follow(my, 1, (int) maxScroll());
-        return true;
+        return bar.dragged(my, 1, (int) maxScroll(), v -> scroll = v);
     }
 
     public void mouseReleased() { bar.release(); }

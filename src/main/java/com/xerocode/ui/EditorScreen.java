@@ -1,9 +1,14 @@
 package com.xerocode.ui;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.xerocode.Audio;
 import com.xerocode.Catalog;
+import com.xerocode.Codespace;
 import com.xerocode.Functions;
 import com.xerocode.History;
+import com.xerocode.Importer;
 import com.xerocode.Mapping;
 import com.xerocode.Script;
 import com.xerocode.Settings;
@@ -24,6 +29,15 @@ import net.minecraft.text.Text;
 import org.joml.Matrix3x2fStack;
 import org.lwjgl.glfw.GLFW;
 
+import org.lwjgl.PointerBuffer;
+import org.lwjgl.system.MemoryStack;
+import org.lwjgl.util.tinyfd.TinyFileDialogs;
+
+import java.io.File;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -96,7 +110,7 @@ public final class EditorScreen extends Screen {
     private void setPaletteWidth(int w) {
         Theme.PALETTE_W = Math.max(Theme.PALETTE_MIN_W, Math.min(paletteLimit(), w));
         script.paletteW = Theme.PALETTE_W;
-        search.setWidth(Palette.searchTextW());
+        Ui.width(search, Palette.searchTextW());
         search.setX(Palette.searchTextX());
         palette.invalidate();
     }
@@ -663,7 +677,7 @@ public final class EditorScreen extends Screen {
     private static final int B_UNDO = 1, B_REDO = 2, B_PLAY = 3, B_BUILD = 4, B_CLEAR = 5,
             B_ZOOM_OUT = 6, B_ZOOM_IN = 7, B_FIT = 8,
             B_ORIGINAL = 9, B_CANVAS = 10, B_SETTINGS = 11, B_UPLOAD = 12, B_MORE = 13,
-            B_ZOOM_LABEL = 14;
+            B_ZOOM_LABEL = 14, B_LOAD = 15;
 
     private static final class TopBtn {
         int id, x, w;
@@ -704,7 +718,7 @@ public final class EditorScreen extends Screen {
         return list;
     }
 
-    private static final int[] HIDE_ORDER = {B_CLEAR, B_BUILD, B_PLAY, B_UPLOAD, B_REDO,
+    private static final int[] HIDE_ORDER = {B_CLEAR, B_LOAD, B_BUILD, B_PLAY, B_UPLOAD, B_REDO,
             B_UNDO, B_FIT, B_ZOOM_LABEL, B_ZOOM_OUT, B_ORIGINAL};
 
     private boolean zoomLabelShown = true;
@@ -726,6 +740,85 @@ public final class EditorScreen extends Screen {
         }
         menu = Menu.actions(width, height, mx, my, textRenderer, items,
                 i -> { if (i >= 0 && i < acts.size()) onTopButton(acts.get(i).id); });
+    }
+
+    private boolean choosingFile;
+
+    private void openLoadDialog() {
+        closeOverlays();
+        if (choosingFile) return;
+        choosingFile = true;
+        Path dir = Codespace.savedDir();
+        try {
+            Files.createDirectories(dir);
+        } catch (Exception ignored) {
+        }
+        String start = dir.toAbsolutePath() + File.separator;
+        toast(client != null && client.getWindow() != null && client.getWindow().isFullscreen()
+                ? "окно выбора файла открыто — сверни игру, оно позади"
+                : "выбери json в окне проводника");
+        Thread thread = new Thread(() -> {
+            String picked = null;
+            try {
+                TinyFileDialogs.tinyfd_setGlobalInt("tinyfd_winUtf8", 1);
+                try (MemoryStack stack = MemoryStack.stackPush()) {
+                    PointerBuffer filter = stack.mallocPointer(1);
+                    filter.put(stack.UTF8("*.json"));
+                    filter.flip();
+                    picked = TinyFileDialogs.tinyfd_openFileDialog("Загрузить json",
+                            start, filter, "код JustMC (*.json)", false);
+                }
+            } catch (Throwable e) {
+                XeroCode.LOG.error("[xerocode] окно выбора файла не открылось", e);
+            }
+            String chosen = picked;
+            MinecraftClient.getInstance().execute(() -> {
+                choosingFile = false;
+                if (chosen == null || chosen.isEmpty()) return;
+                if (client != null && client.currentScreen != this) return;
+                loadJson(Path.of(chosen));
+            });
+        }, "xerocode-json-dialog");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void loadJson(Path file) {
+        JsonArray handlers = null;
+        try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            JsonObject root = JsonParser.parseReader(r).getAsJsonObject();
+            if (root.has("handlers") && root.get("handlers").isJsonArray())
+                handlers = root.getAsJsonArray("handlers");
+        } catch (Throwable e) {
+            XeroCode.LOG.error("[xerocode] не удалось прочитать {}", file, e);
+            toast("файл не читается");
+            return;
+        }
+        if (handlers == null) {
+            toast("в файле нет «handlers» — это не код JustMC");
+            return;
+        }
+        closeOverlays();
+        drag = null;
+        snap = null;
+        hoverBox = null;
+        hoverChip = null;
+        pushUndo();
+        script.roots.clear();
+        Importer.Result res;
+        try {
+            res = Importer.importInto(script, handlers, textRenderer);
+        } catch (Throwable e) {
+            XeroCode.LOG.error("[xerocode] импорт из {} упал", file, e);
+            toast("код не разобрался, см. лог");
+            return;
+        }
+        fitView();
+        String note = Ui.plural(res.lines, "строка", "строки", "строк")
+                + " · " + Ui.plural(res.blocks, "блок", "блока", "блоков");
+        if (res.brokenLines > 0)
+            note += " · не разобралось " + Ui.plural(res.brokenLines, "строка", "строки", "строк");
+        toast("полотно заменено: " + note + " · Ctrl+Z вернёт");
     }
 
     private boolean topFits(List<TopBtn> list) {
@@ -758,8 +851,11 @@ public final class EditorScreen extends Screen {
         TopBtn upload = btn(B_UPLOAD, Draw.UPLOAD, "Сохранить на сервер  " + hotkey(Settings.Hot.UPLOAD)
                         + "\nЗаписать код полотна блоками в мир");
         upload.enabled = !script.roots.isEmpty();
-        upload.separatorAfter = true;
         list.add(upload);
+        TopBtn load = btn(B_LOAD, Draw.LOAD, "Загрузить json"
+                + "\nЗаменить полотно кодом из файла");
+        load.separatorAfter = true;
+        list.add(load);
 
         boolean canvasMode = Settings.canvasMode();
         TopBtn original = btn(B_ORIGINAL, Draw.BRICKS, modeLabels ? "3D" : null,
@@ -944,6 +1040,7 @@ public final class EditorScreen extends Screen {
             case B_ZOOM_IN -> zoomTo(zoom * 1.15, (canvasLeft() + width) / 2.0, (Theme.TOPBAR_H + height) / 2.0);
             case B_FIT -> fitView();
             case B_UPLOAD -> publish(null);
+            case B_LOAD -> openLoadDialog();
             case B_SETTINGS -> openSettings();
             case B_ORIGINAL -> toOriginal();
             case B_CANVAS -> { }
@@ -1895,7 +1992,6 @@ public final class EditorScreen extends Screen {
     @Override
     public boolean keyPressed(KeyInput input) {
         int key = input.key();
-
         if (condPicker != null) {
             condPicker.keyPressed(input);
             if (condPicker.isClosed()) condPicker = null;

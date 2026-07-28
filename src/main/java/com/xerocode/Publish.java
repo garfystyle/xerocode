@@ -107,8 +107,6 @@ public final class Publish {
             net.sendChatCommand(command);
             millis = sentAt - startedAt;
             state = State.SENT;
-            XeroCode.LOG.info("[xerocode] отправлено /{} ({} байт кода, за {} мс)",
-                    command, bytes(), millis);
         }
 
         public void cancel() {
@@ -132,23 +130,17 @@ public final class Publish {
 
     private static String upload(String body) throws IOException {
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
-        XeroCode.LOG.info("[xerocode] загрузка кода: {} байт на {}", payload.length, UPLOAD);
         IOException last = null;
         for (String way : new String[]{"HTTP/2", "HTTP/1.1", "HttpURLConnection"}) {
-            long started = System.currentTimeMillis();
             try {
                 String answer = switch (way) {
                     case "HTTP/2" -> viaHttpClient(payload, null);
                     case "HTTP/1.1" -> viaHttpClient(payload, HttpClient.Version.HTTP_1_1);
                     default -> viaUrlConnection(payload);
                 };
-                XeroCode.LOG.info("[xerocode] {}: ответ за {} мс — {}",
-                        way, System.currentTimeMillis() - started, cut(answer));
                 return BASE + idOf(answer) + ".json";
             } catch (Exception e) {
                 last = e instanceof IOException io ? io : new IOException(e);
-                XeroCode.LOG.warn("[xerocode] {} не прошёл за {} мс: {}",
-                        way, System.currentTimeMillis() - started, e.toString(), e);
             }
         }
         throw last == null ? new IOException("загрузка не удалась") : last;

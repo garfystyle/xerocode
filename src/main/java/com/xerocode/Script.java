@@ -172,7 +172,6 @@ public final class Script {
             Files.createDirectories(into.getParent());
             Files.copy(file(), into);
             Files.writeString(adopted(), plot, StandardCharsets.UTF_8);
-            XeroCode.LOG.info("[xerocode] прежний общий скрипт привязан к миру {}", plot);
         } catch (Exception e) {
             XeroCode.LOG.warn("[xerocode] не вышло привязать прежний скрипт к миру", e);
         }

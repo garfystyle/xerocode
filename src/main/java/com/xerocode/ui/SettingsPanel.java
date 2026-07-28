@@ -348,7 +348,7 @@ public final class SettingsPanel {
         if (hexField != null) {
             hexField.setX(rx + 13);
             hexField.setY(py + 26 + (ROW_H - Ui.TEXT_H) / 2);
-            hexField.setWidth(rw - 19);
+            Ui.width(hexField, rw - 19);
             hexField.render(ctx, mouseX, mouseY, delta);
             Ui.placeholder(ctx, tr, hexField);
         }
@@ -360,7 +360,7 @@ public final class SettingsPanel {
         double mx = click.x(), my = click.y();
         int button = click.button();
         if (!contains(mx, my)) { close(); return true; }
-        if (bar.press(mx, my)) { scroll[tab] = bar.follow(my, 1, maxScroll()); return true; }
+        if (bar.grabbed(mx, my, 1, maxScroll(), v -> scroll[tab] = v)) return true;
         if (hexField != null) {
             boolean inField = Ui.hit(mx, my, hexField.getX() - 8, hexField.getY() - 5,
                     hexField.getWidth() + 12, ROW_H);
@@ -555,7 +555,7 @@ public final class SettingsPanel {
     private static float clamp01(float v) { return v < 0 ? 0 : Math.min(v, 1); }
 
     public boolean mouseDragged(double mx, double my) {
-        if (bar.dragging()) { scroll[tab] = bar.follow(my, 1, maxScroll()); return true; }
+        if (bar.dragged(my, 1, maxScroll(), v -> scroll[tab] = v)) return true;
         if (hexDrag && hexField != null) {
             hexField.setCursor(hexIndexAt(mx), true);
             return true;

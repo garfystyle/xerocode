@@ -232,7 +232,7 @@ public final class ItemPicker extends PickerPanel {
 
     @Override
     protected boolean bodyClicked(Click click, boolean doubled, int mx, int my) {
-        if (bar.press(mx, my)) { scroll = bar.follow(my, CELL, maxScroll()); return true; }
+        if (bar.grabbed(mx, my, CELL, maxScroll(), v -> scroll = v)) return true;
         int i = indexAt(mx, my);
         if (i < 0) return false;
         selected = shown.get(i);
@@ -247,7 +247,7 @@ public final class ItemPicker extends PickerPanel {
 
     @Override
     public boolean mouseDragged(Click click, double dx, double dy) {
-        if (bar.dragging()) { scroll = bar.follow(click.y(), CELL, maxScroll()); return true; }
+        if (bar.dragged(click.y(), CELL, maxScroll(), v -> scroll = v)) return true;
         return super.mouseDragged(click, dx, dy);
     }
 

@@ -120,8 +120,6 @@ public final class Values {
             }
             KINDS.add(ITEM_KIND);
             KIND_BY_ID.put(ITEM_KIND.id(), ITEM_KIND);
-            XeroCode.LOG.info("[xerocode] values: {} kinds, {} game values, {} selectors",
-                    KINDS.size(), GAME_VALUES.size(), SELECTORS.size());
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] failed to read values.json", e);
         }

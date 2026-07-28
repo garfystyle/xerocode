@@ -118,9 +118,6 @@ public final class Pickers {
             }
             readList(root, "particles", PARTICLES, PARTICLE_CATEGORIES);
             readList(root, "potions", POTIONS, POTION_CATEGORIES);
-
-            XeroCode.LOG.info("[xerocode] pickers: {} sounds, {} particles, {} potions",
-                    SOUNDS.size(), PARTICLES.size(), POTIONS.size());
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] failed to read pickers.json", e);
         }
@@ -141,23 +138,22 @@ public final class Pickers {
         }
     }
 
+    private static final char SOUND = 's', PARTICLE = 'p', POTION = 'e';
+
     private static void add(List<Entry> list, Entry e) {
         list.add(e);
-        BY_ID.put(key(list, e.id), e);
+        BY_ID.put(key(list == SOUNDS ? SOUND : list == PARTICLES ? PARTICLE : POTION, e.id), e);
     }
 
-    private static String key(List<Entry> list, String id) {
-        String tag = list == SOUNDS ? "s" : list == PARTICLES ? "p" : "e";
-        return tag + "\0" + id;
-    }
+    private static String key(char tag, String id) { return tag + "\0" + id; }
 
     private static String str(JsonObject o, String k) {
         return o.has(k) && !o.get(k).isJsonNull() ? o.get(k).getAsString() : "";
     }
 
-    public static Entry sound(String id)    { return BY_ID.get("s\0" + id); }
-    public static Entry particle(String id) { return BY_ID.get("p\0" + id); }
-    public static Entry potion(String id)   { return BY_ID.get("e\0" + id); }
+    public static Entry sound(String id)    { return BY_ID.get(key(SOUND, id)); }
+    public static Entry particle(String id) { return BY_ID.get(key(PARTICLE, id)); }
+    public static Entry potion(String id)   { return BY_ID.get(key(POTION, id)); }
 
     public static String soundName(String id) {
         Entry e = sound(id);

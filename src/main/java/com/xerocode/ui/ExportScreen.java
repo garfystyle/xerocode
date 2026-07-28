@@ -42,13 +42,6 @@ public final class ExportScreen extends DialogScreen {
         if (code != null || failure != null) return;
         try {
             code = Exporter.export(script);
-            Exporter.Report r = code.report();
-            XeroCode.LOG.info("[xerocode] на отправку: {} строк, {} блоков, {} значений, {} маркеров, "
-                            + "{} предметов; без события {}, нет на сервере {}, потеряно значений {}",
-                    r.lines, r.blocks, r.values, r.markers, r.items, r.headless, r.unmapped,
-                    r.lostValues);
-            if (!r.problems.isEmpty())
-                XeroCode.LOG.warn("[xerocode] не уедет: {}", String.join(", ", r.problems));
         } catch (Throwable e) {
             failure = e.getClass().getSimpleName();
             XeroCode.LOG.error("[xerocode] сборка кода не удалась", e);
@@ -122,7 +115,8 @@ public final class ExportScreen extends DialogScreen {
                 lines.add(listening > 0 ? "Ждём ответа сервера…" : "Сервер ничего не ответил.");
         }
         if (code != null && code.report().unmapped > 0)
-            lines.add("не уехало блоков: " + code.report().unmapped);
+            lines.add("не уехало блоков: " + code.report().unmapped
+                    + " (" + String.join(", ", code.report().problems) + ")");
         lines.add(job == null || job.file == null
                 ? "файлом сохранить не удалось" : "Файл: " + job.file.getFileName());
         return lines;
@@ -163,8 +157,6 @@ public final class ExportScreen extends DialogScreen {
         if (code == null) { phase = Phase.DONE; return; }
         MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
         String world = mc.world == null ? "canvas" : Codespace.worldId(mc.world);
-        if (!Codespace.inDev(mc.world))
-            XeroCode.LOG.warn("[xerocode] отправка не из /dev — сервер такую команду не примет");
         job = Publish.start(code.json(), world, true);
     }
 
@@ -189,10 +181,7 @@ public final class ExportScreen extends DialogScreen {
         if (listening <= 0 || job == null) return;
         listening--;
         List<String> said = Publish.answersSince(job.sentAt);
-        if (said.size() != answers.size()) {
-            answers = said;
-            for (String line : said) XeroCode.LOG.info("[xerocode] сервер: {}", line);
-        }
+        if (said.size() != answers.size()) answers = said;
     }
 
     private void finish() {

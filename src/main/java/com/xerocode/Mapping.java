@@ -124,8 +124,6 @@ public final class Mapping {
                 for (String key : export.keySet())
                     EXPORT_ACTIONS.put(key, export.get(key).getAsString());
             }
-            XeroCode.LOG.info("[xerocode] mapping: {} events, {} actions, на запись {}",
-                    EVENTS.size(), ACTIONS.size(), EXPORT_ACTIONS.size());
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] failed to read mapping.json", e);
         }

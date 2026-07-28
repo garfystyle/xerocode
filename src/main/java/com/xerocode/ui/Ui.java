@@ -8,6 +8,7 @@ import net.minecraft.text.Text;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.IntConsumer;
 
 public final class Ui {
     public static int PANEL   = 0x171A21;
@@ -31,6 +32,7 @@ public final class Ui {
     public static int R = 6;
     public static int R_SM = 4;
     public static final int TEXT_H = 8;
+    public static final int TEXT_MAX = 32000;
 
     public static boolean hit(double mx, double my, int x, int y, int w, int h) {
         return mx >= x && mx < x + w && my >= y && my < y + h;
@@ -62,7 +64,7 @@ public final class Ui {
         return Math.max(4, Math.min(wanted, screenH - h - 4));
     }
 
-    public static int scrolled(int scroll, int contentH, int viewH, double amount) {
+    private static int scrolled(int scroll, int contentH, int viewH, double amount) {
         return Math.max(0, Math.min(Math.max(0, contentH - viewH),
                 scroll - (int) Math.round(amount * 18)));
     }
@@ -123,6 +125,12 @@ public final class Ui {
         f.setText(text);
         f.setCursorToStart(false);
         return f;
+    }
+
+    public static void width(TextFieldWidget f, int w) {
+        if (f == null || f.getWidth() == w) return;
+        f.setWidth(w);
+        f.setCursor(f.getCursor(), false);
     }
 
     public static void placeholder(DrawContext ctx, TextRenderer tr, TextFieldWidget f) {
@@ -353,6 +361,18 @@ public final class Ui {
             return Math.max(0, Math.min(max, at(my) / Math.max(1, step)));
         }
 
+        public boolean grabbed(double mx, double my, int step, int max, IntConsumer to) {
+            if (!press(mx, my)) return false;
+            to.accept(follow(my, step, max));
+            return true;
+        }
+
+        public boolean dragged(double my, int step, int max, IntConsumer to) {
+            if (!dragging) return false;
+            to.accept(follow(my, step, max));
+            return true;
+        }
+
         public boolean dragging() { return dragging; }
 
         public void release() { dragging = false; }
@@ -380,6 +400,27 @@ public final class Ui {
         int hx = x + (int) (hue * (w - 1));
         Draw.rect(ctx, hx - 1, y - 2, 3, h + 4, Draw.opaque(0x000000));
         Draw.rect(ctx, hx, y - 1, 1, h + 2, Draw.opaque(0xFFFFFF));
+    }
+
+    public static final int SL_HUE = 0, SL_SAT = 1, SL_VAL = 2;
+
+    public static void hsvSlider(DrawContext ctx, int x, int y, int w, int h, int kind,
+                                 float hue, float s, float v, boolean hot) {
+        if (w <= 1 || h <= 0) return;
+        for (int i = 0; i < w; i++) {
+            float t = i / (float) (w - 1);
+            int rgb = switch (kind) {
+                case SL_HUE -> McText.hsvRgb(t, 1f, 1f);
+                case SL_SAT -> McText.hsvRgb(hue, t, Math.max(0.15f, v));
+                default -> McText.hsvRgb(hue, s, t);
+            };
+            Draw.rect(ctx, x + i, y, 1, h, Draw.opaque(rgb));
+        }
+        Draw.roundOutline(ctx, x - 1, y - 1, w + 2, h + 2, 1, Draw.opaque(LINE_IN));
+        float t = kind == SL_HUE ? hue : kind == SL_SAT ? s : v;
+        int kx = x + Math.round(t * (w - 1));
+        Draw.rect(ctx, kx - 2, y - 2, 5, h + 4, Draw.opaque(0x000000));
+        Draw.rect(ctx, kx - 1, y - 1, 3, h + 2, Draw.opaque(hot ? Theme.ACCENT : 0xFFFFFF));
     }
 
     public static void swatch(DrawContext ctx, int x, int y, int w, int h, int rgb,
@@ -480,6 +521,12 @@ public final class Ui {
         }
 
         public int height() { return rows * rowH + (rows - 1) * gap; }
+
+        public int width() {
+            int w = 0;
+            for (Cell c : cells) w = Math.max(w, c.dx() + c.w());
+            return w;
+        }
 
         public int indexAt(double mx, double my, int ox, int oy) {
             for (Cell c : cells)

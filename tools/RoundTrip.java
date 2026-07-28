@@ -41,15 +41,13 @@ public final class RoundTrip {
             script.roots.add(r);
         }
         Functions.rebuild(script);
-        System.out.println("импорт: блоков " + res.blocks + ", значений " + res.values
-                + ", маркеров " + res.markers + ", потеряно " + res.skippedValues);
+        System.out.println("импорт: блоков " + res.blocks
+                + ", нет в каталоге " + res.unknownCount);
 
         Exporter.Result out = Exporter.export(script);
         Exporter.Report rep = out.report();
         System.out.println("экспорт: строк " + rep.lines + ", блоков " + rep.blocks
-                + ", значений " + rep.values + ", маркеров " + rep.markers
-                + ", без события " + rep.headless + ", нет на сервере " + rep.unmapped
-                + ", потеряно значений " + rep.lostValues);
+                + ", нет на сервере " + rep.unmapped);
         if (!rep.problems.isEmpty()) System.out.println("проблемы: " + rep.problems);
 
         Files.writeString(Path.of(args[1]), out.json().toString(), StandardCharsets.UTF_8);

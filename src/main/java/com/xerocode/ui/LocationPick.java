@@ -372,7 +372,6 @@ public final class LocationPick {
 
         keyActions(client);
 
-
         if (client.currentScreen instanceof LocationForm) return;
         SmoothText.clip(null);
         Draw.batch(null);

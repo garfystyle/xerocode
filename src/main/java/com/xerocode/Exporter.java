@@ -14,10 +14,8 @@ import java.util.Set;
 
 public final class Exporter {
     public static final class Report {
-        public int lines, blocks, values, markers, items;
-        public int headless;
+        public int lines, blocks;
         public int unmapped;
-        public int lostValues;
         public final Set<String> problems = new LinkedHashSet<>();
 
         void problem(String what) {
@@ -36,7 +34,7 @@ public final class Exporter {
         for (Script.Root root : roots) {
             if (root.chain.isEmpty()) continue;
             JsonObject handler = handler(root.chain.get(0), report);
-            if (handler == null) { report.headless++; continue; }
+            if (handler == null) continue;
             handler.addProperty("position", handlers.size());
             handler.add("operations", operations(root.chain.subList(1, root.chain.size()), report));
             handlers.add(handler);
@@ -52,11 +50,15 @@ public final class Exporter {
         if (head.declares()) {
             o.addProperty("type", head.isProcess() ? "process" : "function");
             o.addProperty("name", Functions.nameOf(head));
-            o.add("values", declarationValues(head, report));
+            o.add("values", declarationValues(head));
             report.blocks++;
             return o;
         }
-        if (!head.isHat()) return null;
+        if (!head.isHat()) {
+            report.unmapped++;
+            report.problem("не событие в начале строки: «" + head.action.name + "»");
+            return null;
+        }
         String event = Mapping.eventId(head.action);
         if (event == null) {
             report.unmapped++;
@@ -69,13 +71,13 @@ public final class Exporter {
         return o;
     }
 
-    private static JsonArray declarationValues(Script.Node head, Report report) {
+    private static JsonArray declarationValues(Script.Node head) {
         JsonArray values = new JsonArray();
-        JsonArray params = cells(head.values.get(Catalog.FN_PARAMS), report);
+        JsonArray params = cells(head.values.get(Catalog.FN_PARAMS));
         if (!params.isEmpty()) values.add(entry("parameters", array(params)));
 
-        localized(head, Catalog.FN_DISPLAY, "display_name", values, report);
-        localized(head, Catalog.FN_DESC, "display_description", values, report);
+        localized(head, Catalog.FN_DISPLAY, values);
+        localized(head, Catalog.FN_DESC, values);
 
         Value icon = head.value(Catalog.FN_ICON);
         String encoded = icon == null ? null : Stacks.toServer(icon);
@@ -84,27 +86,22 @@ public final class Exporter {
             item.addProperty("type", Value.ITEM);
             item.addProperty("item", encoded);
             values.add(entry("icon", item));
-            report.items++;
-            report.values++;
         }
         values.add(entry("is_hidden",
-                enumValue("Скрыть".equals(head.marker(0)) ? "TRUE" : "FALSE")));
-        report.markers++;
+                enumValue("Скрыть".equals(head.marker(0)) ? "TRUE" : "FALSE", null)));
         keptValues(head, values);
         return values;
     }
 
-    private static void localized(Script.Node head, int arg, String field, JsonArray values,
-                                  Report report) {
+    private static void localized(Script.Node head, int arg, JsonArray values) {
         Localized.Joined text = Localized.join(head.values.get(arg));
-        String key = Importer.TRANSLATIONS + field;
+        String key = Importer.translationsKey(arg);
         JsonObject translations = head.raw != null && head.raw.has(key)
                 && head.raw.get(key).isJsonObject()
                 ? Localized.normalize(head.raw.getAsJsonObject(key)) : null;
         String data = Localized.data(text.text(), text.parsing(), translations);
         if (Localized.blank(data)) return;
-        values.add(entry(field, Localized.value(data)));
-        report.values++;
+        values.add(entry(Catalog.localizedField(arg), Localized.value(data)));
     }
 
     private static JsonArray operations(List<Script.Node> chain, Report report) {
@@ -127,7 +124,7 @@ public final class Exporter {
             op.add("values", new JsonArray());
         } else if (node.invokes()) {
             op.addProperty("action", node.isStart() ? "start_process" : "call_function");
-            op.add("values", invokeValues(node, report));
+            op.add("values", invokeValues(node));
         } else if (node.declares()) {
             report.unmapped++;
             report.problem("«" + node.action.name + "» внутри строки");
@@ -188,13 +185,10 @@ public final class Exporter {
                 JsonObject selection = new JsonObject();
                 selection.addProperty("type", id);
                 op.add("selection", selection);
-                report.markers++;
             }
         }
-        if (Catalog.INVERT_ON.equals(node.settingOf(Catalog.INVERT))) {
+        if (Catalog.INVERT_ON.equals(node.settingOf(Catalog.INVERT)))
             op.addProperty("is_inverted", true);
-            report.markers++;
-        }
     }
 
     private static JsonArray values(Script.Node node, Mapping.Act act, Report report) {
@@ -204,12 +198,11 @@ public final class Exporter {
             if (list == null || list.isEmpty()) continue;
             String name = act.argNames.get(e.getKey());
             if (name == null) {
-                report.lostValues += list.size();
                 report.problem("аргумент " + (e.getKey() + 1) + " у «" + node.action.name + "»");
                 continue;
             }
             JsonElement value = slot(list, act.isPlural(name),
-                    Catalog.slots(node.action, e.getKey()) != null, report);
+                    Catalog.slots(node.action, e.getKey()) != null);
             if (value != null) out.add(entry(name, value));
         }
         for (Map.Entry<Integer, String> e : node.markers.entrySet()) {
@@ -219,7 +212,6 @@ public final class Exporter {
             String id = ids == null ? null : ids.get(e.getValue());
             if (name == null || id == null) continue;
             out.add(entry(name, enumValue(id, node.markerVar(e.getKey()))));
-            report.markers++;
         }
         keptValues(node, out);
         return out;
@@ -227,27 +219,26 @@ public final class Exporter {
 
     private static final String EMPTY_STACK = "AAAAAAAAAAA=";
 
-    private static JsonElement slot(List<Value> list, boolean plural, boolean slotted,
-                                    Report report) {
-        if (!plural) return value(list.get(0), report);
+    private static JsonElement slot(List<Value> list, boolean plural, boolean slotted) {
+        if (!plural) return value(list.get(0));
         if (list.size() == 1 && Value.ARRAY.equals(list.get(0).type))
-            return value(list.get(0), report);
-        return array(cells(list, slotted, report));
+            return value(list.get(0));
+        return array(cells(list, slotted));
     }
 
-    private static JsonArray cells(List<Value> list, Report report) {
-        return cells(list, false, report);
+    private static JsonArray cells(List<Value> list) {
+        return cells(list, false);
     }
 
-    private static JsonArray cells(List<Value> list, boolean slotted, Report report) {
+    private static JsonArray cells(List<Value> list, boolean slotted) {
         JsonArray cells = new JsonArray();
         if (list == null) return cells;
-        for (Value v : list) cells.add(cell(v, slotted, report));
+        for (Value v : list) cells.add(cell(v, slotted));
         return cells;
     }
 
-    private static JsonObject cell(Value v, boolean slotted, Report report) {
-        JsonObject cell = v == null || v.isBlank() ? null : value(v, report);
+    private static JsonObject cell(Value v, boolean slotted) {
+        JsonObject cell = v == null || v.isBlank() ? null : value(v);
         if (cell != null) return cell;
         if (!slotted) return new JsonObject();
         JsonObject empty = new JsonObject();
@@ -256,17 +247,17 @@ public final class Exporter {
         return empty;
     }
 
-    private static JsonArray invokeValues(Script.Node node, Report report) {
+    private static JsonArray invokeValues(Script.Node node) {
         JsonArray out = new JsonArray();
         String nameKey = node.isStart() ? "process_name" : "function_name";
         Value target = node.value(Catalog.CALL_NAME);
         if (target != null) {
-            JsonObject value = value(target, report);
+            JsonObject value = value(target);
             if (value != null) out.add(entry(nameKey, value));
         }
         if (node.isStart()) {
-            marker(out, node, 0, "local_variables_mode", report);
-            marker(out, node, 1, "target_mode", report);
+            marker(out, node, 0, "local_variables_mode");
+            marker(out, node, 1, "target_mode");
         }
 
         JsonObject args = new JsonObject();
@@ -275,7 +266,7 @@ public final class Exporter {
             List<Value> list = node.values.get(i);
             if (list == null || list.isEmpty()) continue;
             JsonElement passed = params.get(i).list
-                    ? array(cells(list, report)) : value(list.get(0), report);
+                    ? array(cells(list)) : value(list.get(0));
             if (passed == null) continue;
             args.add(paramKey(params.get(i).purpose), passed);
         }
@@ -295,13 +286,11 @@ public final class Exporter {
         return out;
     }
 
-    private static void marker(JsonArray out, Script.Node node, int index, String name,
-                               Report report) {
+    private static void marker(JsonArray out, Script.Node node, int index, String name) {
         if (index >= node.settings().size()) return;
         String id = SERVER_OPTIONS.get(node.marker(index));
         if (id == null) return;
         out.add(entry(name, enumValue(id, node.markerVar(index))));
-        report.markers++;
     }
 
     private static final Map<String, String> SERVER_OPTIONS = Map.of(
@@ -325,7 +314,7 @@ public final class Exporter {
         return o;
     }
 
-    private static JsonObject value(Value v, Report report) {
+    private static JsonObject value(Value v) {
         if (v == null) return null;
         switch (v.type) {
             case Value.ITEM -> {
@@ -334,8 +323,6 @@ public final class Exporter {
                 JsonObject o = new JsonObject();
                 o.addProperty("type", Value.ITEM);
                 o.addProperty("item", encoded);
-                report.items++;
-                report.values++;
                 return o;
             }
             case Value.ARRAY -> {
@@ -344,9 +331,8 @@ public final class Exporter {
                 int last = -1;
                 for (int i = 0; i < v.items.size(); i++) if (!v.items.get(i).isBlank()) last = i;
                 JsonArray cells = new JsonArray();
-                for (int i = 0; i <= last; i++) cells.add(cell(v.items.get(i), false, report));
+                for (int i = 0; i <= last; i++) cells.add(cell(v.items.get(i), false));
                 o.add("values", cells);
-                report.values++;
                 return o;
             }
             case Value.MAP -> {
@@ -356,17 +342,15 @@ public final class Exporter {
                 for (int i = 0; i < v.keys.size(); i++) {
                     Value key = v.keys.get(i);
                     Value val = i < v.items.size() ? v.items.get(i) : Value.blank();
-                    JsonObject keyJson = key.isBlank() ? null : value(key, report);
-                    JsonObject valJson = val.isBlank() ? null : value(val, report);
+                    JsonObject keyJson = key.isBlank() ? null : value(key);
+                    JsonObject valJson = val.isBlank() ? null : value(val);
                     entries.add(i + "_" + (keyJson == null ? "{}" : keyJson.toString()),
                             valJson == null ? new JsonObject() : valJson);
                 }
                 o.add("values", entries);
-                report.values++;
                 return o;
             }
             default -> {
-                report.values++;
                 return v.toJson();
             }
         }
@@ -378,8 +362,6 @@ public final class Exporter {
         o.add("value", value);
         return o;
     }
-
-    private static JsonObject enumValue(String id) { return enumValue(id, null); }
 
     private static JsonObject enumValue(String id, Value bound) {
         JsonObject o = new JsonObject();
@@ -402,7 +384,7 @@ public final class Exporter {
     private static void keptFields(Script.Node node, JsonObject op) {
         if (node.raw == null) return;
         for (String field : node.raw.keySet()) {
-            if ("values".equals(field) || field.startsWith("__")) continue;
+            if ("values".equals(field) || field.startsWith(Importer.PRIVATE)) continue;
             op.add(field, node.raw.get(field));
         }
     }

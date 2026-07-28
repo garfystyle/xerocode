@@ -105,7 +105,6 @@ public final class XeroCode implements ClientModInitializer {
         try {
             Files.createDirectories(ownFile().getParent());
             Files.write(ownFile(), OWN, StandardCharsets.UTF_8);
-            LOG.info("[xerocode] свой мир запомнен: {}", id);
         } catch (Exception e) {
             LOG.warn("[xerocode] не удалось записать список своих миров", e);
         }
@@ -126,9 +125,6 @@ public final class XeroCode implements ClientModInitializer {
         if (script == null) { scriptPlot = plot; return; }
         if (plot.equals(scriptPlot)) return;
         script.save();
-        LOG.info("[xerocode] мир сменился: {} → {}",
-                scriptPlot == null || scriptPlot.isEmpty() ? "черновик" : scriptPlot,
-                plot.isEmpty() ? "черновик" : plot);
         scriptPlot = plot;
         script = Script.load(plot);
         History.clear();
@@ -204,8 +200,9 @@ public final class XeroCode implements ClientModInitializer {
         });
 
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
-            if (overlay) return;
             String text = message.getString();
+            Codespace.serverSaid(text);
+            if (overlay) return;
             Publish.noteChat(text);
             if (text.contains("режиме строительства")) worldModeNow = "build";
             else if (text.contains("режиме игры")) worldModeNow = "play";
@@ -229,7 +226,6 @@ public final class XeroCode implements ClientModInitializer {
             if (script == null) return;
             if (client.currentScreen instanceof EditorScreen editor) editor.rememberView();
             script.save();
-            LOG.info("[xerocode] скрипт сохранён при выходе из игры");
         });
 
         HudElementRegistry.attachElementAfter(VanillaHudElements.SLEEP,
@@ -253,6 +249,7 @@ public final class XeroCode implements ClientModInitializer {
         ClientTickEvents.START_CLIENT_TICK.register(this::stealHotkeys);
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            Codespace.watch();
             if (cover != null) {
                 if (client.currentScreen == null) client.setScreen(cover);
                 var now = client.interactionManager == null ? null
@@ -315,11 +312,9 @@ public final class XeroCode implements ClientModInitializer {
             narratorWas = true;
             option.setValue(false);
             client.options.write();
-            LOG.info("[xerocode] Ctrl+B занят «Строительством» — ванильный диктор по этому сочетанию выключен");
         } else if (!ours && narratorWas != null) {
             option.setValue(narratorWas);
             client.options.write();
-            LOG.info("[xerocode] Ctrl+B больше не наш — горячая клавиша диктора возвращена");
             narratorWas = null;
         }
     }
@@ -345,7 +340,6 @@ public final class XeroCode implements ClientModInitializer {
         if (script != null) script.save();
         client.getNetworkHandler().sendChatCommand(command);
         cover("play".equals(command) ? "Запуск мира…" : "Режим строительства…", null);
-        LOG.info("[xerocode] режим мира из игры: /{}", command);
     }
 
     private static boolean ownWorld(MinecraftClient client) {
@@ -482,8 +476,6 @@ public final class XeroCode implements ClientModInitializer {
     }
 
     private static void preload() {
-        long started = System.nanoTime();
-        int loaded = 0;
         try {
             ModContainer mod = FabricLoader.getInstance().getModContainer("xerocode").orElse(null);
             if (mod == null) return;
@@ -495,7 +487,6 @@ public final class XeroCode implements ClientModInitializer {
                         if (name == null) continue;
                         try {
                             Class.forName(name, false, loader);
-                            loaded++;
                         } catch (Throwable ignored) {
                         }
                     }
@@ -503,10 +494,7 @@ public final class XeroCode implements ClientModInitializer {
             }
         } catch (Throwable e) {
             LOG.warn("[xerocode] could not preload the mod classes", e);
-            return;
         }
-        LOG.info("[xerocode] preloaded {} classes in {} ms",
-                loaded, (System.nanoTime() - started) / 1_000_000);
     }
 
     private static String className(Path root, Path path) {

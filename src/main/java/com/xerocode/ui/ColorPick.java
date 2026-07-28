@@ -23,6 +23,7 @@ public final class ColorPick {
     private final TextFieldWidget hex;
 
     private float pickH, pickS, pickV;
+    private int shown;
     private int dragging;
     private boolean closed, cancelled;
 
@@ -52,6 +53,7 @@ public final class ColorPick {
         hex.setDrawsBackground(false);
         hex.setEditableColor(Draw.opaque(Theme.TEXT));
         hex.setText(hexOf(rgb));
+        shown = rgb & 0xFFFFFF;
         hex.setChangedListener(this::hexTyped);
 
         int perRow = Math.max(1, (SV_W + SWATCH_GAP) / (SWATCH + SWATCH_GAP));
@@ -89,12 +91,14 @@ public final class ColorPick {
     }
 
     private void syncHex() {
-        String now = hexOf(rgb());
-        if (!now.equalsIgnoreCase(hex.getText())) {
-            hex.setChangedListener(s -> { });
-            hex.setText(now);
-            hex.setChangedListener(this::hexTyped);
-        }
+        int now = rgb() & 0xFFFFFF;
+        if (now == shown) return;
+        shown = now;
+        String text = hexOf(now);
+        if (text.equalsIgnoreCase(hex.getText())) return;
+        hex.setChangedListener(s -> { });
+        hex.setText(text);
+        hex.setChangedListener(this::hexTyped);
     }
 
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
@@ -110,7 +114,7 @@ public final class ColorPick {
         Ui.input(ctx, sx, fy, 74, ROW, hex.isFocused());
         hex.setX(sx + 6);
         hex.setY(fy + (ROW - 8) / 2);
-        hex.setWidth(62);
+        Ui.width(hex, 62);
         hex.render(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, hex);
         Ui.swatch(ctx, sx + 78, fy, SV_W - 78, ROW, rgb(), true, false);

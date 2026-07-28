@@ -76,6 +76,10 @@ public final class McText {
         return MINI.equals(parsing) ? "<#" + h + ">" : "&#" + h;
     }
 
+    public static String hexClose(String parsing) {
+        return MINI.equals(parsing) ? "</color>" : "&r";
+    }
+
     public static String normaliseHex(String s) {
         if (s == null) return null;
         String h = s.trim();
@@ -127,10 +131,10 @@ public final class McText {
         if (h < 0) h += 1f;
         int i = (int) (h * 6) % 6;
         float f = h * 6 - (int) (h * 6);
-        int p = (int) (v * 255 * (1 - s));
-        int q = (int) (v * 255 * (1 - f * s));
-        int t = (int) (v * 255 * (1 - (1 - f) * s));
-        int val = (int) (v * 255);
+        int p = Math.round(v * 255 * (1 - s));
+        int q = Math.round(v * 255 * (1 - f * s));
+        int t = Math.round(v * 255 * (1 - (1 - f) * s));
+        int val = Math.round(v * 255);
         return switch (i) {
             case 0 -> (val << 16) | (t << 8) | p;
             case 1 -> (q << 16) | (val << 8) | p;
@@ -386,7 +390,8 @@ public final class McText {
             return hex == null ? null : style.withColor(TextColor.fromRgb(hexRgb(hex)));
         }
         if ("color".equals(name) || "colour".equals(name) || "c".equals(name)) {
-            Integer rgb = body.contains(":") ? colourOf(body.substring(body.indexOf(':') + 1)) : null;
+            if (!body.contains(":")) return style;
+            Integer rgb = colourOf(body.substring(body.indexOf(':') + 1));
             return rgb == null ? null : style.withColor(TextColor.fromRgb(rgb));
         }
         for (Colour c : COLOURS)

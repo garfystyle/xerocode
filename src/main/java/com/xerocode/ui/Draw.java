@@ -354,10 +354,10 @@ public final class Draw {
     public static final String[] LOAD = {
             "   #   ",
             "   #   ",
-            "   #   ",
             " ##### ",
             "  ###  ",
             "   #   ",
+            "       ",
             "#######"};
     public static final String[] UPLOAD = {
             "   #   ",

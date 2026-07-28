@@ -17,15 +17,22 @@ import java.util.Set;
 
 public final class Importer {
     public static final class Result {
-        public int lines, blocks, values, markers;
-        public int skippedValues, skippedItems;
+        public int lines, blocks;
         public int brokenLines;
-        public int items;
         public final Set<String> unknown = new LinkedHashSet<>();
         public int unknownCount;
     }
 
     private static final int GAP = 40, COLUMN_MAX_H = 1600, COLUMN_GAP = 60;
+
+    public static final String PRIVATE = "__";
+    public static final String TRANSLATIONS = PRIVATE + "tr_";
+    public static final String KEPT_ID = PRIVATE + "id";
+
+    public static String translationsKey(int arg) {
+        String field = Catalog.localizedField(arg);
+        return field == null ? null : TRANSLATIONS + field;
+    }
 
     private static final Set<String> OWN_FIELDS = Set.of("action", "type", "event", "name",
             "position", "values", "operations", "selection", "is_inverted");
@@ -35,7 +42,6 @@ public final class Importer {
                 && op.get("is_inverted").getAsBoolean()) {
             if (node.settingIndex(Catalog.INVERT) >= 0) {
                 node.setSetting(Catalog.INVERT, Catalog.INVERT_ON);
-                result.markers++;
             } else {
                 keepFields(op, node);
             }
@@ -48,7 +54,6 @@ public final class Importer {
             raw(node).add("selection", op.get("selection"));
         } else {
             node.setSetting(Catalog.TARGET, name);
-            result.markers++;
         }
     }
 
@@ -116,7 +121,6 @@ public final class Importer {
     public static List<Script.Node> chainOf(JsonObject handler, Result result, int line) {
         List<Script.Node> chain = new ArrayList<>();
         String type = str(handler, "type");
-        String where = "строка " + line;
         if ("event".equals(type)) {
             Catalog.Action hat = Mapping.event(str(handler, "event"));
             if (hat != null) { chain.add(new Script.Node(hat)); result.blocks++; }
@@ -124,18 +128,18 @@ public final class Importer {
                 unknown(result, "событие " + str(handler, "event"));
             }
         } else if ("function".equals(type)) {
-            chain.add(declarationHat(handler, Catalog.FUNCTION, result, where));
+            chain.add(declarationHat(handler, Catalog.FUNCTION, result));
         } else if ("process".equals(type)) {
-            chain.add(declarationHat(handler, Catalog.PROCESS, result, where));
+            chain.add(declarationHat(handler, Catalog.PROCESS, result));
         } else if (!type.isEmpty()) {
             unknown(result, type);
         }
-        readOperations(handler, chain, result, where);
+        readOperations(handler, chain, result);
         return chain;
     }
 
     private static Script.Node declarationHat(JsonObject handler, Catalog.Action action,
-                                              Result result, String where) {
+                                              Result result) {
         Script.Node node = new Script.Node(action);
         Value name = new Value(Value.TEXT);
         name.text = str(handler, "name");
@@ -153,43 +157,34 @@ public final class Importer {
             switch (str(entry, "name")) {
                 case "parameters" -> {
                     for (JsonObject cell : cells(value)) {
-                        Value p = read(cell, result);
-                        if (p == null || !Value.PARAMETER.equals(p.type)) {
-                            result.skippedValues++;
-                            continue;
-                        }
+                        Value p = read(cell);
+                        if (p == null || !Value.PARAMETER.equals(p.type)) continue;
                         node.valuesOf(Catalog.FN_PARAMS).add(p);
-                        result.values++;
                     }
                 }
-                case "display_name" -> {
-                    Value text = localized(value, node, "display_name");
-                    if (text != null) { node.valuesOf(Catalog.FN_DISPLAY).add(text); result.values++; }
+                case Catalog.DISPLAY_NAME -> {
+                    Value text = localized(value, node, Catalog.DISPLAY_NAME);
+                    if (text != null) node.valuesOf(Catalog.FN_DISPLAY).add(text);
                 }
-                case "display_description" -> {
-                    Value text = localized(value, node, "display_description");
+                case Catalog.DISPLAY_DESC -> {
+                    Value text = localized(value, node, Catalog.DISPLAY_DESC);
                     if (text == null) break;
-                    for (Value line : descLines(text)) {
-                        node.valuesOf(Catalog.FN_DESC).add(line);
-                        result.values++;
-                    }
+                    for (Value line : descLines(text)) node.valuesOf(Catalog.FN_DESC).add(line);
                 }
                 case "description" -> {
                     for (JsonObject cell : cells(value)) {
-                        Value line = read(cell, result);
-                        if (line == null) { result.skippedValues++; continue; }
+                        Value line = read(cell);
+                        if (line == null) continue;
                         node.valuesOf(Catalog.FN_DESC).add(line);
-                        result.values++;
                     }
                 }
                 case "icon" -> {
-                    Value icon = item(value, result, where, "значок");
-                    if (icon != null) { node.valuesOf(Catalog.FN_ICON).add(icon); result.values++; }
+                    Value icon = item(value);
+                    if (icon != null) node.valuesOf(Catalog.FN_ICON).add(icon);
                 }
                 case "is_hidden" -> {
                     boolean hidden = "TRUE".equalsIgnoreCase(str(value, "enum"));
                     node.markers.put(0, hidden ? "Скрыть" : "Отображать");
-                    result.markers++;
                 }
                 default -> {
                     unknown(result, "настройка " + str(entry, "name"));
@@ -200,8 +195,7 @@ public final class Importer {
         return node;
     }
 
-    private static Script.Node invokeNode(JsonObject op, Catalog.Action action, Result result,
-                                          String where) {
+    private static Script.Node invokeNode(JsonObject op, Catalog.Action action) {
         Script.Node node = new Script.Node(action);
         List<String> keys = new ArrayList<>();
         keys.add("");
@@ -210,20 +204,15 @@ public final class Importer {
             String name = slot.name();
             JsonObject value = slot.value();
             if ("function_name".equals(name) || "process_name".equals(name)) {
-                Value v = read(value, result);
-                if (v != null) { node.valuesOf(Catalog.CALL_NAME).add(v); result.values++; }
+                Value v = read(value);
+                if (v != null) node.valuesOf(Catalog.CALL_NAME).add(v);
                 continue;
             }
             if ("local_variables_mode".equals(name) || "target_mode".equals(name)) {
                 int index = "local_variables_mode".equals(name) ? 0 : 1;
                 String option = staticOption(action, index, str(value, "enum"));
-                if (option == null) {
-                    result.skippedValues++;
-                    keepValue(entry, node);
-                } else {
-                    node.markers.put(index, option);
-                    result.markers++;
-                }
+                if (option == null) keepValue(entry, node);
+                else node.markers.put(index, option);
                 continue;
             }
             if (!"args".equals(name) || !value.has("values")
@@ -234,23 +223,21 @@ public final class Importer {
             JsonObject args = value.getAsJsonObject("values");
             for (String key : args.keySet()) {
                 String param = paramName(key);
-                if (param.isEmpty() || !args.get(key).isJsonObject()) { result.skippedValues++; continue; }
+                if (param.isEmpty() || !args.get(key).isJsonObject()) continue;
                 JsonObject passed = args.getAsJsonObject(key);
                 keys.add(param);
                 int index = keys.size() - 1;
                 if (Value.ARRAY.equals(str(passed, "type")) && passed.has("values")
                         && passed.get("values").isJsonArray()) {
                     for (JsonObject cell : cells(passed)) {
-                        Value v = read(cell, result);
-                        if (v == null) { result.skippedValues++; continue; }
+                        Value v = read(cell);
+                        if (v == null) continue;
                         node.valuesOf(index).add(v);
-                        result.values++;
                     }
                 } else {
-                    Value v = read(passed, result);
-                    if (v == null) { result.skippedValues++; continue; }
+                    Value v = read(passed);
+                    if (v == null) continue;
                     node.valuesOf(index).add(v);
-                    result.values++;
                 }
             }
         }
@@ -283,8 +270,7 @@ public final class Importer {
         }
     }
 
-    private static void readOperations(JsonObject owner, List<Script.Node> into, Result result,
-                                       String where) {
+    private static void readOperations(JsonObject owner, List<Script.Node> into, Result result) {
         if (!owner.has("operations") || !owner.get("operations").isJsonArray()) return;
         for (JsonElement oe : owner.getAsJsonArray("operations")) {
             if (!oe.isJsonObject()) continue;
@@ -293,10 +279,9 @@ public final class Importer {
 
             if ("call_function".equals(id) || "start_process".equals(id)) {
                 Script.Node call = invokeNode(op,
-                        "call_function".equals(id) ? Catalog.CALL : Catalog.START_PROCESS,
-                        result, where);
+                        "call_function".equals(id) ? Catalog.CALL : Catalog.START_PROCESS);
                 keepFields(op, call);
-                readOperations(op, call.body, result, where);
+                readOperations(op, call.body, result);
                 into.add(call);
                 result.blocks++;
                 continue;
@@ -306,7 +291,7 @@ public final class Importer {
             if ("else".equals(id)) {
                 Script.Node node = new Script.Node(Catalog.ELSE);
                 keepFields(op, node);
-                readOperations(op, node.body, result, where);
+                readOperations(op, node.body, result);
                 into.add(node);
                 result.blocks++;
                 continue;
@@ -316,7 +301,7 @@ public final class Importer {
             Catalog.Action action = act == null ? null : Catalog.byKey(act.key);
             if (action == null) {
                 unknown(result, id);
-                readOperations(op, into, result, where);
+                readOperations(op, into, result);
                 continue;
             }
             Script.Node node = new Script.Node(action);
@@ -339,8 +324,8 @@ public final class Importer {
                     valueAction = cond.action();
                 }
             }
-            readValues(op, holder, valueAct, valueAction, result, where);
-            readOperations(op, node.body, result, where);
+            readValues(op, holder, valueAct, valueAction);
+            readOperations(op, node.body, result);
             into.add(node);
             result.blocks++;
         }
@@ -381,7 +366,7 @@ public final class Importer {
         if (cond == null) return false;
         JsonObject op = new JsonObject();
         if (node.raw.has("values")) op.add("values", node.raw.get("values"));
-        readValues(op, cond.node(), cond.act(), cond.action(), new Result(), "перенос");
+        readValues(op, cond.node(), cond.act(), cond.action());
         node.cond = cond.node();
         node.raw.remove("conditional");
         node.raw.remove("values");
@@ -399,9 +384,6 @@ public final class Importer {
         text.parsing = Localized.parsing(data);
         return text;
     }
-
-    public static final String TRANSLATIONS = "__tr_";
-    public static final String KEPT_ID = "__id";
 
     private static List<Value> descLines(Value text) {
         List<Value> out = new ArrayList<>();
@@ -431,8 +413,7 @@ public final class Importer {
     }
 
     private static void readValues(JsonObject op, Script.Node node, Mapping.Act act,
-                                   Catalog.Action action, Result result, String where) {
-        String id = str(op, "action");
+                                   Catalog.Action action) {
         for (Slot slot : slots(op)) {
             JsonObject entry = slot.entry();
             String name = slot.name();
@@ -443,50 +424,38 @@ public final class Importer {
                 Mapping.Setting setting = act.settings.get(name);
                 String option = setting == null ? null : setting.option(str(value, "enum"));
                 if (setting == null || option == null || setting.index >= action.settings.size()) {
-                    result.skippedValues++;
                     keepValue(entry, node);
                 } else {
                     node.markers.put(setting.index, option);
                     bindMarker(node, setting.index, value);
-                    result.markers++;
                 }
                 continue;
             }
 
             Integer index = act.args.get(name);
             if (index == null || index >= action.args.size()) {
-                result.skippedValues++;
                 keepValue(entry, node);
                 continue;
             }
 
             Value v;
             if (Value.ITEM.equals(type)) {
-                v = item(value, result, where, id + " → " + name);
+                v = item(value);
                 if (v == null) continue;
             } else if (!KNOWN.contains(type)) {
-                result.skippedValues++;
                 keepValue(entry, node);
                 continue;
             } else {
-                v = read(value, result);
-                if (v == null) { result.skippedValues++; keepValue(entry, node); continue; }
+                v = read(value);
+                if (v == null) { keepValue(entry, node); continue; }
             }
             node.valuesOf(index).add(v);
-            result.values++;
         }
     }
 
-    private static Value item(JsonObject value, Result result, String where, String what) {
+    private static Value item(JsonObject value) {
         String encoded = str(value, "item");
-        if (empty(encoded)) return null;
-        Value v = Stacks.valueFromServer(encoded);
-        if (v == null) {
-            result.skippedItems++;
-            return null;
-        }
-        result.items++;
-        return v;
+        return empty(encoded) ? null : Stacks.valueFromServer(encoded);
     }
 
     private static final Set<String> KNOWN = Set.of(
@@ -502,36 +471,30 @@ public final class Importer {
         return out;
     }
 
-    private static Value read(JsonObject value, Result result) {
+    private static Value read(JsonObject value) {
         try {
             Value v = Value.fromJson(value);
-            scrub(v, result);
+            scrub(v);
             return v;
         } catch (RuntimeException e) {
             return null;
         }
     }
 
-    private static void scrub(Value v, Result result) {
-        scrub(v.items, result);
-        scrub(v.keys, result);
+    private static void scrub(Value v) {
+        scrub(v.items);
+        scrub(v.keys);
     }
 
-    private static void scrub(List<Value> cells, Result result) {
+    private static void scrub(List<Value> cells) {
         for (int i = 0; i < cells.size(); i++) {
             Value cell = cells.get(i);
-            if (Value.ITEM.equals(cell.type)) {
-                Value real = empty(cell.itemId) ? null : Stacks.valueFromServer(cell.itemId);
-                if (real == null) {
-                    if (!empty(cell.itemId)) result.skippedItems++;
-                    cells.set(i, Value.blank());
-                } else {
-                    cells.set(i, real);
-                    result.items++;
-                }
-            } else {
-                scrub(cell, result);
+            if (!Value.ITEM.equals(cell.type)) {
+                scrub(cell);
+                continue;
             }
+            Value real = empty(cell.itemId) ? null : Stacks.valueFromServer(cell.itemId);
+            cells.set(i, real == null ? Value.blank() : real);
         }
     }
 

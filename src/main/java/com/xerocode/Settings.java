@@ -1,8 +1,10 @@
 package com.xerocode;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.xerocode.ui.Theme;
 import com.google.gson.JsonParser;
+import com.xerocode.ui.Theme;
 import com.xerocode.ui.Ui;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.util.InputUtil;
@@ -13,8 +15,10 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 public final class Settings {
@@ -74,6 +78,8 @@ public final class Settings {
     public boolean smoothText = true;
 
     public final Map<String, Integer> colors = new LinkedHashMap<>();
+    public final List<String> symbols = new ArrayList<>();
+    public boolean drawableOnly = true;
 
     private final Map<Hot, int[]> keys = new EnumMap<>(Hot.class);
 
@@ -202,6 +208,7 @@ public final class Settings {
         look.addProperty("shadows", shadows);
         look.addProperty("gradient", gradient);
         look.addProperty("smoothText", smoothText);
+        look.addProperty("drawableOnly", drawableOnly);
 
         JsonObject hot = new JsonObject();
         for (Hot h : Hot.values()) {
@@ -212,12 +219,16 @@ public final class Settings {
         JsonObject palette = new JsonObject();
         colors.forEach((name, rgb) -> palette.addProperty(name, String.format("#%06X", rgb)));
 
+        JsonArray marks = new JsonArray();
+        for (String s : symbols) marks.add(s);
+
         JsonObject root = new JsonObject();
         root.addProperty("version", 2);
         root.addProperty("mode", mode == Mode.ORIGINAL ? "original" : "canvas");
         root.add("look", look);
         root.add("keys", hot);
         root.add("colors", palette);
+        root.add("symbols", marks);
         return root;
     }
 
@@ -250,6 +261,7 @@ public final class Settings {
                     s.shadows = flag(look, "shadows", s.shadows);
                     s.gradient = flag(look, "gradient", s.gradient);
                     s.smoothText = flag(look, "smoothText", s.smoothText);
+                    s.drawableOnly = flag(look, "drawableOnly", s.drawableOnly);
                 }
                 if (root.has("keys")) {
                     JsonObject hot = root.getAsJsonObject("keys");
@@ -271,6 +283,9 @@ public final class Settings {
                         }
                     }
                 }
+                if (root.has("symbols"))
+                    for (JsonElement el : root.getAsJsonArray("symbols"))
+                        s.symbols.add(el.getAsString());
             }
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] не удалось прочитать настройки", e);

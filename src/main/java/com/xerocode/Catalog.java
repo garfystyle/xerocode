@@ -203,8 +203,6 @@ public final class Catalog {
             }
             addHandBuiltBlocks();
             ACTIONS.removeIf(a -> a.category == null);
-            XeroCode.LOG.info("[xerocode] catalog: {} categories, {} actions",
-                    CATEGORIES.size(), ACTIONS.size());
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] failed to read catalog.json", e);
         }
@@ -222,10 +220,13 @@ public final class Catalog {
     public static final int MAX_PARAMS = 45;
     public static final int MAX_DESC = 14;
 
+    public static final String DISPLAY_NAME = "display_name",
+            DISPLAY_DESC = "display_description";
+
     public static String localizedField(int arg) {
         return switch (arg) {
-            case FN_DISPLAY -> "display_name";
-            case FN_DESC -> "display_description";
+            case FN_DISPLAY -> DISPLAY_NAME;
+            case FN_DESC -> DISPLAY_DESC;
             default -> null;
         };
     }

@@ -99,6 +99,7 @@ public final class ValueEditor {
     private ParticleStage stage;
 
     private Menu menu;
+    private final Complete complete = new Complete();
     private TextStudio studio;
     private ColorPick colors;
     private CatalogPicker picker;
@@ -269,6 +270,7 @@ public final class ValueEditor {
         if (sw == screenW && sh == screenH) return;
         screenW = sw;
         screenH = sh;
+        complete.reset();
         w = Ui.fitW(screenW, WIDTH);
         compact = false;
         placed = false;
@@ -392,6 +394,7 @@ public final class ValueEditor {
     private void buildForm() {
         Catalog.Slots grid = slots();
         if (grid != null) padSlots(grid);
+        complete.reset();
         fields.clear();
         parts.clear();
         fieldRows.clear();
@@ -656,7 +659,7 @@ public final class ValueEditor {
     }
 
     private boolean inHotbar(Catalog.Slots s, int i) {
-        return s.hotbar() > 0 && i < s.hotbar();
+        return s.hotbar() > 0 && i >= s.size() - s.hotbar();
     }
 
     private int slotX(Catalog.Slots s, int i) {
@@ -664,8 +667,7 @@ public final class ValueEditor {
     }
 
     private int slotY(Catalog.Slots s, int i, int top) {
-        return top + (i / s.cols()) * (SLOT + 2)
-                + (s.hotbar() > 0 && !inHotbar(s, i) ? SLOT_GAP : 0);
+        return top + (i / s.cols()) * (SLOT + 2) + (inHotbar(s, i) ? SLOT_GAP : 0);
     }
 
     private static int cellCount(Value v) {
@@ -847,6 +849,7 @@ public final class ValueEditor {
 
     private void focus(int i) {
         if (fields.isEmpty()) return;
+        complete.reset();
         focus = Math.max(0, Math.min(fields.size() - 1, i));
         for (int k = 0; k < fields.size(); k++) fields.get(k).setFocused(k == focus);
         fields.get(focus).setCursorToStart(false);
@@ -885,6 +888,10 @@ public final class ValueEditor {
         if (menu != null) {
             ctx.createNewRootLayer();
             menu.render(ctx, tr, mouseX, mouseY);
+        }
+        if (complete.active()) {
+            ctx.createNewRootLayer();
+            complete.render(ctx, tr, mouseX, mouseY);
         }
         drawDraggedSlot(ctx);
     }
@@ -1292,12 +1299,15 @@ public final class ValueEditor {
         int top = listY() + CAP;
         int filled = 0;
         for (Value it : values) if (!it.isBlank()) filled++;
-        String note = (sel >= 0 && sel < s.size() ? "слот " + (sel + 1) + "  ·  " : "")
+        int at = slotAt(s, mouseX, mouseY);
+        int show = at >= 0 ? at : sel;
+        String note = (show >= 0 && show < s.size()
+                ? "слот " + (show + 1) + (inHotbar(s, show) ? " · хотбар" : "") + "  ·  " : "")
                 + filled + "/" + s.size();
         Ui.caption(ctx, tr, s.title(), x + PAD, listY(), inner(), note);
         for (int i = 0; i < s.size(); i++) {
             int cx = slotX(s, i), cy = slotY(s, i, top);
-            boolean hov = Ui.hit(mouseX, mouseY, cx, cy, SLOT, SLOT);
+            boolean hov = i == at;
             Value it = values.get(i);
             Draw.round(ctx, cx, cy, SLOT, SLOT, Ui.R_SM,
                     Draw.opaque(i == sel ? 0x22405F : hov ? 0x2C3441 : Ui.WELL));
@@ -1684,6 +1694,7 @@ public final class ValueEditor {
             if (menu.isClosed()) menu = null;
             return true;
         }
+        if (complete.mouseClicked(mx, my)) return true;
         if (!contains(mx, my)) { commit(); closed = true; return true; }
 
         if (Ui.hit(mx, my, x + w - PAD - 14, y + 6, 14, 14)) { commit(); closed = true; return true; }
@@ -2134,6 +2145,7 @@ public final class ValueEditor {
         if (itemPicker != null) return itemPicker.mouseScrolled(mx, my, amount);
         if (itemStudio != null) return itemStudio.mouseScrolled(mx, my, amount);
         if (menu != null) return menu.mouseScrolled(mx, my, amount);
+        if (complete.mouseScrolled(mx, my, amount)) return true;
         if (has("cells")) {
             Value v = current();
             if (maxCellScroll(v) > 0 && Ui.hit(mx, my, x + PAD, py("cells"), inner(),
@@ -2198,6 +2210,7 @@ public final class ValueEditor {
             if (key == GLFW.GLFW_KEY_ESCAPE) menu = null;
             return true;
         }
+        if (complete.keyPressed(input)) return true;
         if (key == GLFW.GLFW_KEY_SPACE && (input.modifiers() & GLFW.GLFW_MOD_CONTROL) != 0
                 && has("player")) {
             Audio.toggle();
@@ -2243,17 +2256,30 @@ public final class ValueEditor {
 
     private void afterTyping() {
         Value v = current();
-        if (!Value.VARIABLE.equals(v.type) && !Value.PARAMETER.equals(v.type)) return;
-        boolean had = has("sugg");
-        refreshSuggestions();
-        if (had == !suggestions.isEmpty()) return;
-        String text = fields.get(0).getText();
-        int cursor = fields.get(0).getCursor();
-        v.name = text.trim();
-        buildForm();
-        focus(0);
-        fields.get(0).setText(text);
-        fields.get(0).setCursor(cursor, false);
+        if (Value.VARIABLE.equals(v.type) || Value.PARAMETER.equals(v.type)) {
+            boolean had = has("sugg");
+            refreshSuggestions();
+            if (had != !suggestions.isEmpty()) {
+                String text = fields.get(0).getText();
+                int cursor = fields.get(0).getCursor();
+                v.name = text.trim();
+                buildForm();
+                focus(0);
+                fields.get(0).setText(text);
+                fields.get(0).setCursor(cursor, false);
+            }
+        }
+        syncComplete();
+    }
+
+    private boolean completable() {
+        if (fields.isEmpty() || focus != 0) return false;
+        String type = current().type;
+        return Value.TEXT.equals(type) || Value.VARIABLE.equals(type);
+    }
+
+    private void syncComplete() {
+        complete.update(completable() ? fields.get(focus) : null, tr, screenW, screenH);
     }
 
     private static double parse(String s) {

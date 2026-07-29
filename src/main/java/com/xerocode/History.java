@@ -28,6 +28,11 @@ public final class History {
         redo.clear();
     }
 
+    public static void restore(Script script, String state) {
+        if (state == null) return;
+        script.replaceWith(Script.fromJson(JsonParser.parseString(state).getAsJsonObject()));
+    }
+
     public static boolean undo(Script script) { return step(script, undo, redo); }
 
     public static boolean redo(Script script) { return step(script, redo, undo); }
@@ -35,8 +40,7 @@ public final class History {
     private static boolean step(Script script, Deque<String> from, Deque<String> to) {
         if (from.isEmpty()) return false;
         to.push(snapshot(script));
-        script.replaceWith(Script.fromJson(
-                JsonParser.parseString(from.pop()).getAsJsonObject()));
+        restore(script, from.pop());
         return true;
     }
 

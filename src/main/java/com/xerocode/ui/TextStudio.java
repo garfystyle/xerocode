@@ -53,6 +53,7 @@ public final class TextStudio {
     private int gradA = 0xFF5555, gradB = 0x5555FF;
     private int tab, cat, gridScroll, dragging;
     private Menu menu;
+    private final Complete complete = new Complete();
     private String flash = "";
     private long flashAt, lastTyped;
 
@@ -109,6 +110,7 @@ public final class TextStudio {
         screenH = sh;
         compact = false;
         menu = null;
+        complete.reset();
         layout();
     }
 
@@ -427,6 +429,10 @@ public final class TextStudio {
         if (menu != null) {
             ctx.createNewRootLayer();
             menu.render(ctx, tr, mouseX, mouseY);
+        }
+        if (complete.active()) {
+            ctx.createNewRootLayer();
+            complete.render(ctx, tr, mouseX, mouseY);
         }
     }
 
@@ -811,6 +817,7 @@ public final class TextStudio {
             if (menu.isClosed()) menu = null;
             return true;
         }
+        if (complete.mouseClicked(mx, my)) { syncPreview(); return true; }
         if (Ui.hit(mx, my, x + w - PAD - 14, headY(14), 14, 14)) { closed = true; return true; }
         if (headMode) {
             int mi = modeChips.indexAt(mx, my, headChipsX(), headY(TAB_H));
@@ -1041,6 +1048,7 @@ public final class TextStudio {
             if (key == GLFW.GLFW_KEY_ESCAPE) menu = null;
             return true;
         }
+        if (complete.keyPressed(in)) { syncPreview(); return true; }
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             if (search.isFocused() && !search.getText().isEmpty()) {
                 search.setText("");
@@ -1072,7 +1080,9 @@ public final class TextStudio {
         if (hex.isFocused()) return hex.keyPressed(in);
         if (search.isFocused()) return search.keyPressed(in);
         if (key == GLFW.GLFW_KEY_BACKSPACE || key == GLFW.GLFW_KEY_DELETE) typedSnapshot();
-        return input.keyPressed(in);
+        boolean used = input.keyPressed(in);
+        syncComplete();
+        return used;
     }
 
     public boolean charTyped(CharInput in) {
@@ -1080,6 +1090,12 @@ public final class TextStudio {
         if (hex.isFocused()) return hex.charTyped(in);
         if (search.isFocused()) return search.charTyped(in);
         typedSnapshot();
-        return input.charTyped(in);
+        boolean used = input.charTyped(in);
+        syncComplete();
+        return used;
+    }
+
+    private void syncComplete() {
+        complete.update(input.isFocused() ? input : null, tr, screenW, screenH);
     }
 }

@@ -221,8 +221,6 @@ public final class Exporter {
 
     private static JsonElement slot(List<Value> list, boolean plural, boolean slotted) {
         if (!plural) return value(list.get(0));
-        if (list.size() == 1 && Value.ARRAY.equals(list.get(0).type))
-            return value(list.get(0));
         return array(cells(list, slotted));
     }
 

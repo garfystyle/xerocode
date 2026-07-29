@@ -79,6 +79,7 @@ public final class Settings {
 
     public final Map<String, Integer> colors = new LinkedHashMap<>();
     public final List<String> symbols = new ArrayList<>();
+    public final List<String> collapsed = new ArrayList<>();
     public boolean drawableOnly = true;
 
     private final Map<Hot, int[]> keys = new EnumMap<>(Hot.class);
@@ -219,17 +220,26 @@ public final class Settings {
         JsonObject palette = new JsonObject();
         colors.forEach((name, rgb) -> palette.addProperty(name, String.format("#%06X", rgb)));
 
-        JsonArray marks = new JsonArray();
-        for (String s : symbols) marks.add(s);
-
         JsonObject root = new JsonObject();
         root.addProperty("version", 2);
         root.addProperty("mode", mode == Mode.ORIGINAL ? "original" : "canvas");
         root.add("look", look);
         root.add("keys", hot);
         root.add("colors", palette);
-        root.add("symbols", marks);
+        root.add("symbols", strings(symbols));
+        root.add("collapsed", strings(collapsed));
         return root;
+    }
+
+    private static JsonArray strings(List<String> list) {
+        JsonArray out = new JsonArray();
+        for (String s : list) out.add(s);
+        return out;
+    }
+
+    private static void readStrings(JsonObject root, String key, List<String> into) {
+        if (!root.has(key)) return;
+        for (JsonElement el : root.getAsJsonArray(key)) into.add(el.getAsString());
     }
 
     public void save() {
@@ -283,9 +293,8 @@ public final class Settings {
                         }
                     }
                 }
-                if (root.has("symbols"))
-                    for (JsonElement el : root.getAsJsonArray("symbols"))
-                        s.symbols.add(el.getAsString());
+                readStrings(root, "symbols", s.symbols);
+                readStrings(root, "collapsed", s.collapsed);
             }
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] не удалось прочитать настройки", e);

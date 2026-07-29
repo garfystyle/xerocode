@@ -60,6 +60,13 @@ public final class EditorScreen extends Screen {
     private String dragSnapshot;
     private Snap snap;
 
+    private List<Value> carry;
+    private boolean carryHeld;
+    private String carrySnapshot;
+    private Layout.Box pressBox;
+    private Layout.Chip pressChip;
+    private double pressX, pressY;
+
     private Menu menu;
     private CatalogPicker condPicker;
     private ValueEditor editor;
@@ -191,6 +198,8 @@ public final class EditorScreen extends Screen {
         if (settings != null) { settings.dispose(); settings = null; }
         finishEditor();
         menu = null;
+        pressChip = null;
+        pressBox = null;
     }
 
     private void finishEditor() {
@@ -344,7 +353,9 @@ public final class EditorScreen extends Screen {
         drawToast(ctx);
         if (editor != null) editor.render(ctx, mouseX, mouseY, delta);
         if (menu != null) menu.render(ctx, textRenderer, mouseX, mouseY);
-        else if (!exitPrompt && settings == null) drawTooltips(ctx, mouseX, mouseY);
+        else if (!exitPrompt && settings == null && carry == null)
+            drawTooltips(ctx, mouseX, mouseY);
+        drawCarry(ctx, mouseX, mouseY);
         if (exitPrompt) drawExitPrompt(ctx, mouseX, mouseY);
         if (condPicker != null) {
             ctx.createNewRootLayer();
@@ -522,6 +533,16 @@ public final class EditorScreen extends Screen {
         else if (chip.isCondition()) drawConditionChip(ctx, box, chip);
         else if (chip.isArg() || chip.isCell()) drawArgChip(ctx, box, chip);
         else drawMarkerChip(ctx, box, chip);
+        if (carry != null) {
+            if (!acceptsCarry(box, chip)) return;
+            boolean under = hoverChip == chip;
+            if (under) Draw.roundOutline(ctx, chip.x - 3, chip.y - 3, chip.w + 6, Layout.CHIP_H + 6,
+                    (Layout.CHIP_H + 6) / 2, Draw.argb(0x3A, Theme.ACCENT));
+            Draw.roundOutline(ctx, chip.x - 1, chip.y - 1, chip.w + 2, Layout.CHIP_H + 2,
+                    (Layout.CHIP_H + 2) / 2,
+                    Draw.argb(under ? 0xFF : 0x55, Theme.ACCENT));
+            return;
+        }
         if (hoverChip == chip) Draw.roundOutline(ctx, chip.x, chip.y, chip.w, Layout.CHIP_H,
                 Layout.CHIP_H / 2, Draw.argb(0xAA, 0xFFFFFF));
     }
@@ -610,29 +631,43 @@ public final class EditorScreen extends Screen {
                 chip.y + 4, chip.ink, false);
     }
 
-    private static void chipBadge(DrawContext ctx, Layout.Chip chip, ItemStack icon, int dot) {
+    private static void badge(DrawContext ctx, int x, int y, ItemStack icon, int dot) {
         if (icon == null || icon.isEmpty()) {
-            Draw.dot(ctx, chip.x + 5, chip.y + 5, dot);
+            Draw.dot(ctx, x + 5, y + 5, dot);
             return;
         }
         Matrix3x2fStack m = ctx.getMatrices();
         m.pushMatrix();
-        m.translate(chip.x + 2f, chip.y + 2f);
+        m.translate(x + 2f, y + 2f);
         m.scale(11 / 16f, 11 / 16f);
         ctx.drawItem(icon, 0, 0);
         m.popMatrix();
     }
 
-    private static int chipPill(DrawContext ctx, Layout.Chip chip, int face, boolean tinted) {
+    private static void chipBadge(DrawContext ctx, Layout.Chip chip, ItemStack icon, int dot) {
+        badge(ctx, chip.x, chip.y, icon, dot);
+    }
+
+    private static ItemStack itemIcon(Value v) {
+        return Value.ITEM.equals(v.type) && !v.itemId.isEmpty() ? Stacks.preview(v)
+                : ItemStack.EMPTY;
+    }
+
+    private static int pill(DrawContext ctx, int x, int y, int w, int face,
+                            boolean tinted, int alpha) {
         boolean grad = Settings.gradient();
         int top = tinted ? Draw.shade(face, grad ? 0.12f : 0.02f) : Theme.MARKER_TOP;
         int bottom = tinted ? Draw.shade(face, grad ? -0.10f : 0.02f)
                 : grad ? Theme.MARKER_BOTTOM : Theme.MARKER_TOP;
-        Draw.pill(ctx, chip.x, chip.y, chip.w, Layout.CHIP_H,
-                Draw.opaque(tinted ? Draw.shade(face, -0.5f) : Theme.MARKER_BORDER));
-        Draw.pillGrad(ctx, chip.x + 1, chip.y + 1, chip.w - 2, Layout.CHIP_H - 2,
-                Draw.opaque(top), Draw.opaque(bottom));
+        Draw.pill(ctx, x, y, w, Layout.CHIP_H,
+                Draw.argb(alpha, tinted ? Draw.shade(face, -0.5f) : Theme.MARKER_BORDER));
+        Draw.pillGrad(ctx, x + 1, y + 1, w - 2, Layout.CHIP_H - 2,
+                Draw.argb(alpha, top), Draw.argb(alpha, bottom));
         return top;
+    }
+
+    private static int chipPill(DrawContext ctx, Layout.Chip chip, int face, boolean tinted) {
+        return pill(ctx, chip.x, chip.y, chip.w, face, tinted, 0xFF);
     }
 
     private void drawConditionChip(DrawContext ctx, Layout.Box box, Layout.Chip chip) {
@@ -1285,6 +1320,8 @@ public final class EditorScreen extends Screen {
                 }
             }
             lines.add(Text.literal("§8ЛКМ — правка, ПКМ — удалить"));
+            if (!chipValues(hoverBox, hoverChip).isEmpty())
+                lines.add(Text.literal("§8" + copyHint()));
         } else if (hoverChip.isCondition()) {
             Script.Node cond = hoverBox.node.cond;
             lines.add(Text.literal(cond == null ? "Условие не выбрано" : cond.action.name));
@@ -1318,6 +1355,8 @@ public final class EditorScreen extends Screen {
                 }
             }
             lines.add(Text.literal("§8ЛКМ — значение, ПКМ — очистить"));
+            if (!chipValues(hoverBox, hoverChip).isEmpty())
+                lines.add(Text.literal("§8" + copyHint()));
         } else {
             Script.Node owner = Layout.chipNode(hoverBox.node);
             Catalog.Setting s = owner.settings().get(hoverChip.settingIndex);
@@ -1495,7 +1534,10 @@ public final class EditorScreen extends Screen {
                 }
             return true;
         }
-        if (mx < canvasLeft()) return paletteClicked(click, doubled);
+        if (mx < canvasLeft()) {
+            if (carry != null) { cancelCarry(); return true; }
+            return paletteClicked(click, doubled);
+        }
         return canvasClicked(mx, my, button);
     }
 
@@ -1523,6 +1565,10 @@ public final class EditorScreen extends Screen {
         }
         Palette.Entry e = palette.entryAt(mx, my, height);
         if (e == null) return true;
+        if (e.isSection()) {
+            palette.toggle(e);
+            return true;
+        }
         if (e.category != null) {
             palette.openCategory(Catalog.CATEGORIES.indexOf(e.category));
             return true;
@@ -1542,12 +1588,26 @@ public final class EditorScreen extends Screen {
 
     private boolean canvasClicked(double mx, double my, int button) {
         search.setFocused(false);
+        if (carry != null) {
+            if (button == 0) dropCarry(); else cancelCarry();
+            return true;
+        }
         Layout l = layout();
         for (int i = l.boxes.size() - 1; i >= 0; i--) {
             Layout.Box box = l.boxes.get(i);
             if (!box.contains(mouseCanvasX, mouseCanvasY)) continue;
             Layout.Chip chip = button <= 1 ? box.chipAt(mouseCanvasX, mouseCanvasY) : null;
-            if (chip != null) { chipClicked(box, chip, button); return true; }
+            if (chip != null) {
+                if (button == 0 && !chipValues(box, chip).isEmpty()) {
+                    pressBox = box;
+                    pressChip = chip;
+                    pressX = mx;
+                    pressY = my;
+                    return true;
+                }
+                chipClicked(box, chip, button);
+                return true;
+            }
             if (!box.hitGrab(mouseCanvasX, mouseCanvasY)) continue;
             if (button == 1) { openBlockMenu(box, (int) mx, (int) my); return true; }
             if (button == 0 && box.hitTarget(mouseCanvasX, mouseCanvasY)) {
@@ -1843,8 +1903,240 @@ public final class EditorScreen extends Screen {
     }
 
     private void duplicateHovered() {
-        if (hoverBox == null || drag != null) return;
-        duplicate(hoverBox, true);
+        if (drag != null || (carry != null && carryHeld)) return;
+        if (hoverBox != null && hoverChip != null && grabFromChip(hoverBox, hoverChip, false)) return;
+        if (carry == null && hoverBox != null) duplicate(hoverBox, true);
+    }
+
+    private static final int GRAB_SLOP = 3;
+
+    private static List<Value> chipValues(Layout.Box box, Layout.Chip chip) {
+        if (box == null || chip == null || (!chip.isArg() && !chip.isCell())) return List.of();
+        Script.Node n = Layout.chipNode(box.node);
+        if (chip.argIndex < 0 || chip.argIndex >= n.args().size()) return List.of();
+        List<Value> all = n.values.get(chip.argIndex);
+        if (all == null || all.isEmpty()) return List.of();
+        if (chip.isCell())
+            return chip.cell < all.size() && !all.get(chip.cell).isBlank()
+                    ? List.of(all.get(chip.cell)) : List.of();
+        List<Value> out = new ArrayList<>(all.size());
+        for (Value v : all) if (!v.isBlank()) out.add(v);
+        return out;
+    }
+
+    private boolean grabFromChip(Layout.Box box, Layout.Chip chip, boolean move) {
+        List<Value> have = chipValues(box, chip);
+        if (have.isEmpty()) return false;
+        if (move) { take(box, chip, have, true); return true; }
+        boolean nested = false;
+        for (Value v : have) nested |= !inner(v).isEmpty();
+        if (have.size() == 1 && !nested) { take(box, chip, have, false); return true; }
+        chooseValues(box, chip, have);
+        return true;
+    }
+
+    private static List<Value> inner(Value v) {
+        if (!Value.ARRAY.equals(v.type)) return List.of();
+        List<Value> out = new ArrayList<>();
+        for (Value it : v.items) if (!it.isBlank()) out.add(it);
+        return out.size() >= 2 ? out : List.of();
+    }
+
+    private void chooseValues(Layout.Box box, Layout.Chip chip, List<Value> have) {
+        record Pick(Value value, boolean top, Menu.Item item) {}
+        List<Pick> picks = new ArrayList<>();
+        for (Value v : have) {
+            picks.add(new Pick(v, true, Menu.Item.rich(v.label(), icon(v), v.note(), List.of())));
+            for (Value in : inner(v))
+                picks.add(new Pick(in, false,
+                        Menu.Item.rich("· " + in.label(), icon(in), in.note(), List.of())));
+        }
+        List<Menu.Item> items = new ArrayList<>(picks.size());
+        boolean[] on = new boolean[picks.size()];
+        for (int i = 0; i < picks.size(); i++) {
+            items.add(picks.get(i).item());
+            on[i] = picks.get(i).top();
+        }
+        int sx = toScreenX(chip.x), sy = toScreenY(chip.y + Layout.CHIP_H) + 3;
+        menu = Menu.multi(width, height, sx, sy, textRenderer, "ЧТО СКОПИРОВАТЬ", items, on,
+                "Копировать", picked -> {
+                    if (picked.isEmpty()) return;
+                    List<Value> out = new ArrayList<>(picked.size());
+                    for (int i : picked) out.add(picks.get(i).value());
+                    take(box, chip, out, false);
+                });
+    }
+
+    private static ItemStack icon(Value v) {
+        ItemStack own = itemIcon(v);
+        if (!own.isEmpty()) return own;
+        Values.Kind k = Values.kind(v.type);
+        return k == null ? ItemStack.EMPTY : Catalog.stackOf(k.item());
+    }
+
+    private void take(Layout.Box box, Layout.Chip chip, List<Value> picked, boolean move) {
+        if (!move && carry != null && !carryHeld) {
+            for (Value v : picked) carry.add(v.copy());
+            toast("на курсоре значений: " + carry.size());
+            return;
+        }
+        carrySnapshot = snapshot();
+        carry = new ArrayList<>(picked.size());
+        for (Value v : picked) carry.add(v.copy());
+        carryHeld = move;
+        if (move) {
+            List<Value> src = Layout.chipNode(box.node).values.get(chip.argIndex);
+            if (src != null) {
+                if (chip.isCell()) { if (chip.cell < src.size()) src.remove(chip.cell); }
+                else src.clear();
+            }
+            revision++;
+            return;
+        }
+        toast(carry.size() == 1
+                ? "значение скопировано — клик по слоту"
+                : "скопировано значений: " + carry.size() + " — клик по слоту");
+    }
+
+    private String copyHint() {
+        return Settings.get().label(Settings.Hot.DUPLICATE) + " — копировать, тянуть — перенести";
+    }
+
+    private void cancelCarry() {
+        if (carry == null) return;
+        boolean moved = carryHeld;
+        carry = null;
+        carryHeld = false;
+        if (moved && carrySnapshot != null) {
+            History.restore(script, carrySnapshot);
+            revision++;
+        }
+        carrySnapshot = null;
+        toast("отменено");
+    }
+
+    private static boolean fits(Script.Node n, int argIndex, Value v) {
+        if ("Параметр".equals(n.args().get(argIndex).type))
+            return Value.PARAMETER.equals(v.type);
+        if (n.declares()) {
+            if (argIndex == Catalog.FN_NAME || argIndex == Catalog.FN_DESC
+                    || argIndex == Catalog.FN_DISPLAY) return Value.TEXT.equals(v.type);
+            if (argIndex == Catalog.FN_ICON) return Value.ITEM.equals(v.type);
+        }
+        return Values.EDITABLE.contains(v.type);
+    }
+
+    private boolean acceptsCarry(Layout.Box box, Layout.Chip chip) {
+        if (carry == null || box == null || chip == null) return false;
+        if (!chip.isArg() && !chip.isCell()) return false;
+        Script.Node n = Layout.chipNode(box.node);
+        if (chip.argIndex < 0 || chip.argIndex >= n.args().size()) return false;
+        for (Value v : carry) if (!fits(n, chip.argIndex, v)) return false;
+        return true;
+    }
+
+    private void dropCarry() {
+        Layout l = layout();
+        for (int i = l.boxes.size() - 1; i >= 0; i--) {
+            Layout.Box b = l.boxes.get(i);
+            if (!b.contains(mouseCanvasX, mouseCanvasY)) continue;
+            Layout.Chip c = b.chipAt(mouseCanvasX, mouseCanvasY);
+            if (c != null && acceptsCarry(b, c)) { placeCarry(b, c); return; }
+            break;
+        }
+        cancelCarry();
+    }
+
+    private void placeCarry(Layout.Box box, Layout.Chip chip) {
+        Script.Node n = Layout.chipNode(box.node);
+        pushUndo(carrySnapshot);
+        List<Value> dst = n.valuesOf(chip.argIndex);
+        Catalog.Arg a = n.args().get(chip.argIndex);
+        int put = 0;
+        if (chip.isCell()) {
+            while (dst.size() <= chip.cell) dst.add(Value.blank());
+            dst.set(chip.cell, carry.get(0).copy());
+            put = 1;
+        } else if (a.list) {
+            for (Value v : carry) {
+                if (dst.size() >= a.capacity) break;
+                dst.add(v.copy());
+                put++;
+            }
+        } else {
+            dst.clear();
+            dst.add(carry.get(0).copy());
+            put = 1;
+        }
+        int left = carry.size() - put;
+        carry = null;
+        carryHeld = false;
+        carrySnapshot = null;
+        toast(left > 0 ? "вставлено " + put + ", не влезло " + left : "вставлено");
+    }
+
+    private static final int CARRY_MAX = 4;
+    private static final int CARRY_MAX_W = 190, CARRY_GAP = 2, CARRY_MORE_H = 11;
+
+    private void drawCarry(DrawContext ctx, int mouseX, int mouseY) {
+        if (carry == null) return;
+        ctx.createNewRootLayer();
+        int shown = Math.min(carry.size(), CARRY_MAX);
+        String more = carry.size() > shown ? "и ещё " + (carry.size() - shown) : null;
+
+        int w = 0;
+        for (int i = 0; i < shown; i++) {
+            Value v = carry.get(i);
+            String note = v.note();
+            w = Math.max(w, Layout.CHIP_INK_X + textRenderer.getWidth(v.label()) + 7
+                    + (note.isEmpty() ? 0 : textRenderer.getWidth(note) + 6));
+        }
+        if (more != null) w = Math.max(w, textRenderer.getWidth(more) + 22);
+        w = Math.max(Layout.CHIP_MIN_W, Math.min(CARRY_MAX_W, w));
+
+        int step = Layout.CHIP_H + CARRY_GAP;
+        int h = shown * step - CARRY_GAP + (more == null ? 0 : CARRY_MORE_H);
+        int edge = carryHeld ? 2 : 10;
+        int x = carryHeld ? mouseX - w / 2 : mouseX + 11;
+        int y = carryHeld ? mouseY - h / 2 : mouseY + 13;
+        x = Math.max(edge, Math.min(x, width - w - 2));
+        y = Math.max(Theme.TOPBAR_H + edge, Math.min(y, height - h - 3));
+
+        for (int i = 0; i < shown; i++) carryPill(ctx, carry.get(i), x, y + i * step, w);
+        if (more != null)
+            Draw.textFit(ctx, textRenderer, more, x + Layout.CHIP_INK_X,
+                    y + shown * step + 1, w - Layout.CHIP_INK_X - 4, Theme.TEXT_DIM, true);
+        if (!carryHeld) carryBadge(ctx, x - 8, y - 8);
+    }
+
+    private void carryPill(DrawContext ctx, Value v, int x, int y, int w) {
+        int tc = v.color();
+        int ink = Draw.isLight(tc) ? 0x141821 : 0xFFFFFF;
+
+        Draw.shadow(ctx, x, y, w, Layout.CHIP_H, 7);
+        pill(ctx, x, y, w, tc, true, carryHeld ? 0xE0 : 0xFF);
+
+        ItemStack stack = itemIcon(v);
+        badge(ctx, x, y, stack, Draw.opaque(Draw.shade(tc, -0.55f)));
+        int textX = x + (stack.isEmpty() ? Layout.CHIP_INK_X : Layout.CHIP_ITEM_INK_X);
+
+        int right = x + w - 6;
+        String note = v.note();
+        if (!note.isEmpty()) {
+            int nw = textRenderer.getWidth(note);
+            if (right - nw - textX > 24) {
+                Draw.text(ctx, textRenderer, note, right - nw, y + 4,
+                        Draw.shade(tc, -0.42f), false);
+                right -= nw + 4;
+            }
+        }
+        Draw.textFit(ctx, textRenderer, v.label(), textX, y + 4, right - textX, ink, false);
+    }
+
+    private void carryBadge(DrawContext ctx, int x, int y) {
+        Draw.round(ctx, x, y, 11, 11, 3, Draw.opaque(Theme.ACCENT));
+        Draw.roundOutline(ctx, x, y, 11, 11, 3, Draw.opaque(Draw.shade(Theme.ACCENT, -0.45f)));
+        Draw.glyph(ctx, Draw.PLUS, x + 3, y + 3, Theme.ON_ACCENT);
     }
 
     @Override
@@ -1860,6 +2152,14 @@ public final class EditorScreen extends Screen {
         }
         if (editor != null) return editor.mouseDragged(click, dx, dy);
         if (draggingSearch) return search.mouseDragged(click, dx, dy);
+        if (pressChip != null) {
+            if (Math.abs(click.x() - pressX) < GRAB_SLOP
+                    && Math.abs(click.y() - pressY) < GRAB_SLOP) return true;
+            grabFromChip(pressBox, pressChip, true);
+            pressChip = null;
+            pressBox = null;
+            return true;
+        }
         if (drag != null) { dragMoved = true; return true; }
         if (panning) { panX += dx; panY += dy; return true; }
         return super.mouseDragged(click, dx, dy);
@@ -1874,6 +2174,18 @@ public final class EditorScreen extends Screen {
         draggingSearch = false;
         resizingPalette = false;
         if (editor != null) editor.mouseReleased();
+        if (pressChip != null) {
+            Layout.Box box = pressBox;
+            Layout.Chip chip = pressChip;
+            pressChip = null;
+            pressBox = null;
+            chipClicked(box, chip, 0);
+            return true;
+        }
+        if (carry != null && carryHeld) {
+            dropCarry();
+            return true;
+        }
         if (drag == null) return super.mouseReleased(click);
 
         if (click.x() < canvasLeft()) {
@@ -2024,6 +2336,7 @@ public final class EditorScreen extends Screen {
         }
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             if (exitPrompt) { exitPrompt = false; return true; }
+            if (carry != null) { cancelCarry(); return true; }
             if (drag != null) { drag = null; snap = null; toast("отменено"); return true; }
             if (palette.hasCrumb()) {
                 if (!search.getText().isEmpty()) search.setText("");

@@ -1,6 +1,7 @@
 package com.xerocode.ui;
 
 import com.xerocode.Catalog;
+import com.xerocode.Settings;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.ScreenRect;
@@ -22,12 +23,19 @@ public final class Palette {
     public static final int HEADER_H = 32;
     public static final int CRUMB_H = 21;
 
+    private static final int CAPTION_X = 9, SECTION_X = 20, CARET_BOX = 5;
+
     public static final class Entry {
         public final Catalog.Category category;
         public final Catalog.Action action;
         public final String caption;
         public final int h;
         int y;
+
+        String key;
+        boolean folded;
+        int inside;
+        int labelW;
 
         net.minecraft.text.OrderedText label;
         int labelFor = -1;
@@ -37,6 +45,7 @@ public final class Palette {
             this.category = c; this.action = a; this.caption = caption; this.h = h;
         }
         public boolean isRow() { return category != null || action != null; }
+        public boolean isSection() { return key != null; }
     }
 
     private final List<Entry> entries = new ArrayList<>();
@@ -94,20 +103,19 @@ public final class Palette {
                         if (c.name.equals(group[i])) { found.add(c); left.remove(c); }
                 }
                 if (found.isEmpty()) continue;
-                add(new Entry(null, null, group[0], Theme.ROW_HEAD_H));
+                if (addSection(group[0], found.size())) continue;
                 for (Catalog.Category c : found) add(row(c));
             }
-            if (!left.isEmpty()) {
-                add(new Entry(null, null, "Прочее", Theme.ROW_HEAD_H));
+            if (!left.isEmpty() && !addSection("Прочее", left.size()))
                 for (Catalog.Category c : left) add(row(c));
-            }
         } else {
             Catalog.Category c = category();
             if (c != null) {
                 for (int si = 0; si < c.subNames.size(); si++) {
                     String sn = c.subNames.get(si);
-                    if (sn != null) add(new Entry(null, null, sn, Theme.ROW_HEAD_H));
-                    for (Catalog.Action a : c.subActions.get(si))
+                    List<Catalog.Action> acts = c.subActions.get(si);
+                    if (sn != null && addSection(sn, acts.size())) continue;
+                    for (Catalog.Action a : acts)
                         add(new Entry(null, a, null, Theme.ROW_ACTION_H));
                 }
             }
@@ -122,6 +130,24 @@ public final class Palette {
             first = false;
         }
         contentH = y + 4;
+    }
+
+    private boolean addSection(String caption, int inside) {
+        Entry e = new Entry(null, null, caption, Theme.ROW_HEAD_H);
+        Catalog.Category c = category();
+        e.key = (c == null ? "@" : c.name) + "|" + caption;
+        e.inside = inside;
+        e.folded = Settings.get().collapsed.contains(e.key);
+        add(e);
+        return e.folded;
+    }
+
+    public void toggle(Entry e) {
+        if (e == null || e.key == null) return;
+        List<String> folded = Settings.get().collapsed;
+        if (!folded.remove(e.key)) folded.add(e.key);
+        Settings.get().save();
+        dirty = true;
     }
 
     private Entry row(Catalog.Category c) {
@@ -182,7 +208,7 @@ public final class Palette {
             if (ey + e.h < top - 4 || ey > screenH) continue;
             if (e.action != null) drawAction(ctx, tr, e, ey, e == hovered);
             else if (e.category != null) drawCategory(ctx, tr, e, ey, e == hovered);
-            else drawCaption(ctx, tr, e, ey);
+            else drawCaption(ctx, tr, e, ey, e == hovered);
         }
         Draw.batch(null);
         ctx.disableScissor();
@@ -233,16 +259,39 @@ public final class Palette {
         Draw.textFit(ctx, tr, label, 20, HEADER_H + 7, w - 34, hov ? Theme.TEXT : color, false);
     }
 
-    private void drawCaption(DrawContext ctx, TextRenderer tr, Entry e, int y) {
-        int textW = tr.getWidth(e.caption);
-        if (e.labelFor != Theme.PALETTE_W) {
-            e.label = Draw.ordered(Draw.fit(tr, e.caption, Theme.PALETTE_W - 24));
-            e.labelFor = Theme.PALETTE_W;
-        }
-        Draw.text(ctx, tr, e.label, 9, y + 5, Theme.TEXT_FAINT, false);
-        int lineX = 9 + Math.min(textW, Theme.PALETTE_W - 24) + 6;
-        Draw.rect(ctx, lineX, y + 8, Math.max(0, Theme.PALETTE_W - 14 - lineX), 1,
-                Draw.argb(0x60, Ui.BORDER));
+    private void drawCaption(DrawContext ctx, TextRenderer tr, Entry e, int y, boolean hover) {
+        boolean head = e.isSection();
+        if (head) drawFoldMark(ctx, e, y, hover);
+        int textX = head ? SECTION_X : CAPTION_X;
+        if (e.labelFor != Theme.PALETTE_W) measureCaption(tr, e, textX);
+        Draw.text(ctx, tr, e.label, textX, y + 5, hover ? Theme.TEXT : Theme.TEXT_FAINT, false);
+        int lineX = textX + e.labelW + 6;
+        int lineR = Theme.PALETTE_W - 14 - (e.extra == null ? 0 : e.extraW + 6);
+        Draw.rect(ctx, lineX, y + 8, Math.max(0, lineR - lineX), 1, Draw.argb(0x60, Ui.BORDER));
+        if (e.extra != null)
+            Draw.text(ctx, tr, e.extra, Theme.PALETTE_W - 14 - e.extraW, y + 5,
+                    hover ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
+    }
+
+    private void drawFoldMark(DrawContext ctx, Entry e, int y, boolean hover) {
+        if (hover)
+            Draw.round(ctx, 7, y + 2, Theme.PALETTE_W - 14, e.h - 4, 4,
+                    Draw.opaque(Theme.SURFACE_HOVER));
+        String[] caret = e.folded ? Draw.CARET_RIGHT : Draw.CARET_DOWN;
+        Draw.glyph(ctx, caret, 10 + (CARET_BOX - Draw.glyphW(caret)) / 2,
+                y + 6 + (CARET_BOX - Draw.glyphH(caret)) / 2,
+                hover ? Theme.TEXT : Theme.TEXT_DIM);
+    }
+
+    private static void measureCaption(TextRenderer tr, Entry e, int textX) {
+        String count = e.isSection() && e.folded ? String.valueOf(e.inside) : null;
+        e.extra = count == null ? null : Draw.ordered(count);
+        e.extraW = count == null ? 0 : tr.getWidth(count);
+        String fitted = Draw.fit(tr, e.caption,
+                Theme.PALETTE_W - 14 - textX - (count == null ? 0 : e.extraW + 8));
+        e.labelW = tr.getWidth(fitted);
+        e.label = Draw.ordered(fitted);
+        e.labelFor = Theme.PALETTE_W;
     }
 
     private void drawCategory(DrawContext ctx, TextRenderer tr, Entry e, int y, boolean hover) {
@@ -314,7 +363,7 @@ public final class Palette {
         if (mx < 0 || mx >= Theme.PALETTE_W - 1 || my < top || my > screenH) return null;
         double ly = my - top + scroll;
         for (Entry e : entries) {
-            if (!e.isRow()) continue;
+            if (!e.isRow() && !e.isSection()) continue;
             if (ly >= e.y && ly < e.y + e.h) return e;
         }
         return null;

@@ -449,8 +449,27 @@ public final class Importer {
                 v = read(value);
                 if (v == null) { keepValue(entry, node); continue; }
             }
+            if (Value.ARRAY.equals(v.type) && act.isPlural(name) && hasCells(value)) {
+                spread(v, node.valuesOf(index), Catalog.slots(action, index) != null);
+                continue;
+            }
             node.valuesOf(index).add(v);
         }
+    }
+
+    private static void spread(Value array, List<Value> into, boolean slotted) {
+        int last = -1;
+        for (int i = 0; i < array.items.size(); i++)
+            if (!array.items.get(i).isBlank()) last = i;
+        for (int i = 0; i <= last; i++) {
+            Value cell = array.items.get(i);
+            if (!cell.isBlank()) into.add(cell);
+            else if (slotted) into.add(Value.of(Value.ITEM));
+        }
+    }
+
+    private static boolean hasCells(JsonObject array) {
+        return array.has("values") && array.get("values").isJsonArray();
     }
 
     private static Value item(JsonObject value) {
@@ -465,7 +484,7 @@ public final class Importer {
 
     private static List<JsonObject> cells(JsonObject array) {
         List<JsonObject> out = new ArrayList<>();
-        if (!array.has("values") || !array.get("values").isJsonArray()) return out;
+        if (!hasCells(array)) return out;
         for (JsonElement ce : array.getAsJsonArray("values"))
             if (ce.isJsonObject() && !ce.getAsJsonObject().isEmpty()) out.add(ce.getAsJsonObject());
         return out;

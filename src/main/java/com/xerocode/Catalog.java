@@ -231,6 +231,43 @@ public final class Catalog {
         };
     }
 
+    private record Blank(String name, String description) {}
+
+    private static final Blank EVENT = new Blank("Пустое событие",
+            "Не запускается никогда: это место, куда паркуют код. Строка живёт в мире, но "
+                    + "вызвать её нечем. Сервер подписывает её «...», а компилятор JMCC "
+                    + "вешает на неё код, не привязанный ни к одному событию.");
+    private static final Blank CONDITION = new Blank("Пустое условие",
+            "Условие-заглушка: сервер подписывает его «...». Тело у него есть, а проверять "
+                    + "ему нечего.");
+    private static final Blank DOING = new Blank("Пустое действие",
+            "Блок без действия: так выглядит только что поставленный блок этой категории, "
+                    + "пока действие не выбрано. Сервер подписывает его «...» и при работе "
+                    + "строки проходит его насквозь.");
+    private static final Blank REPEAT = new Blank("Пустое повторение",
+            "Повторение без действия: так выглядит только что поставленный блок, пока "
+                    + "действие не выбрано. Тело у него есть, а повторять его нечем.");
+    private static final Blank CONTROLLER = new Blank("Пустой контроллер",
+            "Контроллер без действия: так выглядит только что поставленный блок, пока "
+                    + "действие не выбрано. Тело у него есть, а управлять им нечем.");
+
+    private static final Map<String, Blank> BLANKS = Map.ofEntries(
+            Map.entry("Событие игрока",          EVENT),
+            Map.entry("Событие мира",            EVENT),
+            Map.entry("Событие сущности",        EVENT),
+            Map.entry("Если игрок",              CONDITION),
+            Map.entry("Если сущность",           CONDITION),
+            Map.entry("Если переменная",         CONDITION),
+            Map.entry("Если в мире",             CONDITION),
+            Map.entry("Действие над игроком",    DOING),
+            Map.entry("Действие над сущностью",  DOING),
+            Map.entry("Действие над миром",      DOING),
+            Map.entry("Действие с переменной",   DOING),
+            Map.entry("Выбрать цель",            DOING),
+            Map.entry("Контроль действий",       DOING),
+            Map.entry("Повторение",              REPEAT),
+            Map.entry("Контроллер",              CONTROLLER));
+
     private static void addHandBuiltBlocks() {
         Category fn = new Category("Функция", "event", "minecraft:lapis_block",
                 COLORS.getOrDefault("Функция", 0x64A1FB));
@@ -278,18 +315,9 @@ public final class Catalog {
                 false);
         register(start, START_PROCESS);
 
-        offstage("Событие игрока", new Action(ACTIONS.size(), "Пустое событие",
-                "minecraft:structure_void",
-                "Не запускается никогда: это место, куда паркуют код. Строка живёт в мире, но "
-                        + "вызвать её нечем. Сервер подписывает её «...», а компилятор JMCC вешает "
-                        + "на неё код, не привязанный ни к одному событию.",
-                List.of(), List.of(), false));
-
-        offstage("Если игрок", new Action(ACTIONS.size(), "Пустое условие",
-                "minecraft:structure_void",
-                "Условие-заглушка: сервер подписывает его «...». Тело у него есть, а проверять "
-                        + "ему нечего.",
-                List.of(), List.of(), false));
+        BLANKS.forEach((category, blank) -> offstage(category,
+                new Action(ACTIONS.size(), blank.name(), "minecraft:structure_void",
+                        blank.description(), List.of(), List.of(), false)));
 
         ELSE = new Action(ACTIONS.size(), "Иначе", "minecraft:end_stone",
                 "Выполняет код внутри себя, если условие предыдущего блока не выполнилось. "

@@ -168,6 +168,7 @@ public final class XeroCode implements ClientModInitializer {
         Values.load();
         Pickers.load();
         Mapping.load();
+        Placeholders.load();
 
         WorldRenderEvents.START_MAIN.register(ctx -> {
             MinecraftClient mc = MinecraftClient.getInstance();
@@ -514,6 +515,7 @@ public final class XeroCode implements ClientModInitializer {
         if (!Values.loaded()) Values.load();
         if (!Pickers.loaded()) Pickers.load();
         if (!Mapping.loaded()) Mapping.load();
+        if (!Placeholders.loaded()) Placeholders.load();
     }
 
     private static void open(MinecraftClient client) {

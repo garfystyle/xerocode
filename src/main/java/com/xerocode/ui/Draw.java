@@ -301,6 +301,12 @@ public final class Draw {
             "#####",
             " ### ",
             "  #  "};
+    public static final String[] CARET_RIGHT = {
+            "#  ",
+            "## ",
+            "###",
+            "## ",
+            "#  "};
     public static final String[] PLUS = {
             "  #  ",
             "  #  ",

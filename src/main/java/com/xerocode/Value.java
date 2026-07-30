@@ -12,7 +12,7 @@ public final class Value {
     public static final String TEXT = "text", NUMBER = "number", LOCATION = "location",
             VECTOR = "vector", SOUND = "sound", PARTICLE = "particle", POTION = "potion",
             GAME_VALUE = "game_value", VARIABLE = "variable", PARAMETER = "parameter",
-            ARRAY = "array", MAP = "map", ITEM = "item";
+            ARRAY = "array", MAP = "map", ITEM = "item", BLOCK = "block";
 
     public static final String SINGULAR = "singular", PLURAL = "plural", ENUM = "enum";
 
@@ -85,6 +85,8 @@ public final class Value {
     public String itemRaw = "";
     public int itemRawHash;
 
+    public String block = "";
+
     public JsonObject unknownRaw;
 
     public static final class Ench {
@@ -132,6 +134,7 @@ public final class Value {
         v.modelData = modelData; v.glint = glint; v.hideTooltip = hideTooltip;
         v.components = components;
         v.itemRaw = itemRaw; v.itemRawHash = itemRawHash;
+        v.block = block;
         if (unknownRaw != null) v.unknownRaw = unknownRaw.deepCopy();
         v.lore.addAll(lore);
         v.hidden.addAll(hidden);
@@ -192,6 +195,7 @@ public final class Value {
         h = h * 31 + modelData;
         h = h * 31 + hidden.hashCode();
         h = h * 31 + components.hashCode();
+        h = h * 31 + block.hashCode();
         for (Value it : items) h = h * 31 + it.hash();
         for (Value k : keys) h = h * 31 + k.hash();
         return h;
@@ -206,10 +210,15 @@ public final class Value {
             case PARTICLE -> particle.isEmpty();
             case POTION -> potion.isEmpty();
             case ITEM -> itemId.isEmpty();
+            case BLOCK -> block.isEmpty();
             case ARRAY -> filled() == 0;
             case MAP -> filled() == 0 && keys.stream().noneMatch(k -> !k.isBlank());
             default -> false;
         };
+    }
+
+    public boolean hasIcon() {
+        return (ITEM.equals(type) && !itemId.isEmpty()) || (BLOCK.equals(type) && !block.isEmpty());
     }
 
     public int filled() {
@@ -238,6 +247,7 @@ public final class Value {
             case PARTICLE -> particle.isEmpty() ? "частица не выбрана" : Pickers.particleName(particle);
             case POTION -> potion.isEmpty() ? "эффект не выбран" : Pickers.potionName(potion);
             case ITEM -> itemId.isEmpty() ? "предмет не выбран" : Stacks.plainName(this);
+            case BLOCK -> block.isEmpty() ? "блок не выбран" : Blocks.name(block);
             case ARRAY -> "список";
             case MAP -> "словарь";
             default -> Values.kindName(type);
@@ -435,6 +445,7 @@ public final class Value {
                 }
                 if (!components.isEmpty()) o.addProperty("components", components);
             }
+            case BLOCK -> { if (!block.isEmpty()) o.addProperty("block", block); }
             case ARRAY -> {
                 JsonArray arr = new JsonArray();
                 int last = -1;
@@ -461,7 +472,7 @@ public final class Value {
     }
 
     private static final List<String> KINDS = List.of(TEXT, NUMBER, LOCATION, VECTOR, SOUND,
-            PARTICLE, POTION, GAME_VALUE, VARIABLE, PARAMETER, ARRAY, MAP, ITEM);
+            PARTICLE, POTION, GAME_VALUE, VARIABLE, PARAMETER, ARRAY, MAP, ITEM, BLOCK);
 
     public static Value fromJson(JsonObject o) {
         Value v = new Value(o.has("type") ? o.get("type").getAsString() : TEXT);
@@ -535,6 +546,8 @@ public final class Value {
         if (o.has("components")) v.components = o.get("components").getAsString();
         if (o.has("item_raw")) v.itemRaw = o.get("item_raw").getAsString();
         if (o.has("item_raw_hash")) v.itemRawHash = o.get("item_raw_hash").getAsInt();
+        if (o.has("block") && o.get("block").isJsonPrimitive())
+            v.block = o.get("block").getAsString();
         if (o.has("pitch")) {
             if (SOUND.equals(v.type)) v.pitch2 = o.get("pitch").getAsDouble();
             else v.pitch = o.get("pitch").getAsDouble();

@@ -528,6 +528,7 @@ public final class Stacks {
     }
 
     public static ItemStack preview(Value v) {
+        if (Value.BLOCK.equals(v.type)) return Blocks.stack(v.block);
         int hash = v.hash();
         ItemStack cached = PREVIEW.get(hash);
         if (cached != null) return cached;

@@ -2,6 +2,7 @@ package com.xerocode.ui;
 
 import com.google.gson.JsonObject;
 import com.xerocode.Audio;
+import com.xerocode.Blocks;
 import com.xerocode.Catalog;
 import com.xerocode.Importer;
 import com.xerocode.Localized;
@@ -561,6 +562,15 @@ public final class ValueEditor {
                 gap();
                 inputs("nums", new String[]{"КОЛИЧЕСТВО"}, String.valueOf(v.itemCount));
             }
+            case Value.BLOCK -> {
+                cap("БЛОК");
+                Blocks.Entry be = Blocks.entry(v.block);
+                part("card", cardH(be == null ? "" : be.name(), ""));
+                gap();
+                part("choose", BTN_H);
+                gap();
+                part("tools", BTN_H);
+            }
             case Value.GAME_VALUE -> {
                 cap("ЗНАЧЕНИЕ");
                 Values.GameValue gv = Values.gameValue(v.gameValue);
@@ -1028,7 +1038,7 @@ public final class ValueEditor {
             Draw.round(ctx, cx, cy, cw, chh, Ui.R_SM, Draw.opaque(on
                     ? Draw.shade(color, -0.56f) : (hov && ok ? Ui.BTN_HOVER : Ui.BTN)));
             if (on) Draw.roundOutline(ctx, cx, cy, cw, chh, Ui.R_SM, Draw.opaque(color));
-            ItemStack icon = on && Value.ITEM.equals(k.id()) && !current().itemId.isEmpty()
+            ItemStack icon = on && current().hasIcon()
                     ? Stacks.preview(current()) : ItemStack.EMPTY;
             if (icon.isEmpty()) icon = Catalog.stackOf(k.item());
             ctx.drawItem(icon, cx + (cw - 16) / 2, cy + (chh - 16) / 2);
@@ -1189,6 +1199,16 @@ public final class ValueEditor {
                         full - half - GAP, BTN_H, Draw.WINDOW, "Редактор предмета", Ui.GHOST,
                         !v.itemId.isEmpty());
                 drawFieldRow(ctx, mouseX, mouseY, delta, rowOf("nums"));
+            }
+            case Value.BLOCK -> {
+                Blocks.Entry be = Blocks.entry(v.block);
+                if (be == null)
+                    drawEntryCard(ctx, (ItemStack) null, v.block.isEmpty() ? "блок не выбран"
+                            : "нет такого блока: " + v.block, "", "", "");
+                else drawEntryCard(ctx, be.icon(), be.name(), be.id(), "", "");
+                drawChoose(ctx, mouseX, mouseY, !v.block.isEmpty(), "Выбрать блок", "Другой блок");
+                Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, py("tools"), full, BTN_H,
+                        Draw.LOAD, "Взять из руки", Ui.GHOST, Blocks.of(held()) != null);
             }
             case Value.POTION -> {
                 Pickers.Entry e = Pickers.potion(v.potion);
@@ -1593,6 +1613,17 @@ public final class ValueEditor {
                     Values.color(Value.POTION),
                     items(Pickers.POTIONS, e -> Pickers.potionStack(e.id)),
                     Pickers.POTION_CATEGORIES, v.potion, null, id -> v.potion = id);
+            case Value.BLOCK -> {
+                List<CatalogPicker.Item> items = new ArrayList<>();
+                for (Blocks.Entry b : Blocks.all())
+                    items.add(new CatalogPicker.Item(b.id(), b.name(), b.category(), "", "", "",
+                            b.id(), b.icon()));
+                picker = new CatalogPicker(tr, screenW, screenH, "Блок",
+                        Values.color(Value.BLOCK), items, null, v.block, null, id -> {
+                            v.block = id;
+                            rebuild = true;
+                        });
+            }
             default -> { }
         }
     }
@@ -1974,6 +2005,18 @@ public final class ValueEditor {
                     return true;
                 }
                 if (rowFieldClicked(click, doubled, mx, my)) return true;
+            }
+            case Value.BLOCK -> {
+                if (rowHit("choose", mx, my) || rowHit("card", mx, my)) { openPicker(); return true; }
+                if (rowHit("tools", mx, my)) {
+                    String id = Blocks.of(held());
+                    if (id != null) {
+                        readForm();
+                        v.block = id;
+                        buildForm();
+                    }
+                    return true;
+                }
             }
             case Value.GAME_VALUE -> {
                 if (rowHit("choose", mx, my) || rowHit("card", mx, my)) { openPicker(); return true; }

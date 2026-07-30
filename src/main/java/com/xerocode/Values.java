@@ -44,9 +44,10 @@ public final class Values {
             Value.TEXT, Value.NUMBER, Value.VARIABLE, Value.GAME_VALUE,
             Value.LOCATION, Value.VECTOR, Value.PARAMETER,
             Value.SOUND, Value.PARTICLE, Value.POTION,
-            Value.ARRAY, Value.MAP, Value.ITEM);
+            Value.ARRAY, Value.MAP, Value.ITEM, Value.BLOCK);
 
     private static final Kind ITEM_KIND = new Kind(Value.ITEM, "Предмет", "minecraft:item_frame");
+    private static final Kind BLOCK_KIND = new Kind(Value.BLOCK, "Блок", "minecraft:grass_block");
 
     private static final Map<String, Integer> KIND_COLORS = Map.ofEntries(
             Map.entry(Value.TEXT,       0x3AB3DA),
@@ -61,7 +62,8 @@ public final class Values {
             Map.entry(Value.PARAMETER,  0x63C9E0),
             Map.entry(Value.ARRAY,      0xE8D33A),
             Map.entry(Value.MAP,        0x8B5A2B),
-            Map.entry(Value.ITEM,       0xE08A1E));
+            Map.entry(Value.ITEM,       0xE08A1E),
+            Map.entry(Value.BLOCK,      0xC97C1B));
 
     public static int color(String kindId) { return KIND_COLORS.getOrDefault(kindId, 0xAAAAAA); }
 
@@ -120,6 +122,8 @@ public final class Values {
             }
             KINDS.add(ITEM_KIND);
             KIND_BY_ID.put(ITEM_KIND.id(), ITEM_KIND);
+            KINDS.add(BLOCK_KIND);
+            KIND_BY_ID.put(BLOCK_KIND.id(), BLOCK_KIND);
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] failed to read values.json", e);
         }
@@ -176,7 +180,8 @@ public final class Values {
             case "Список" -> Value.ARRAY;
             case "Словарь" -> Value.MAP;
             case "Параметр" -> Value.PARAMETER;
-            case "Предмет", "Блок" -> Value.ITEM;
+            case "Предмет" -> Value.ITEM;
+            case "Блок" -> Value.BLOCK;
             default -> Value.TEXT;
         };
     }

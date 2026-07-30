@@ -312,7 +312,7 @@ public final class Layout {
             for (int i = 0; i < n.args().size(); i++) {
                 if (box.card != null && i == Catalog.CALL_NAME) continue;
                 Value cv = chipValue(n, i);
-                boolean withItem = cv != null && Value.ITEM.equals(cv.type) && !cv.itemId.isEmpty();
+                boolean withItem = cv != null && cv.hasIcon();
                 Chip c = new Chip(i, -1, argChipWidth(n, i, tr, withItem));
                 c.value = cv;
                 label(c, n, tr);
@@ -624,15 +624,14 @@ public final class Layout {
         if (count != null) right -= c.countW + 5;
         if (!note.isEmpty()) right -= c.noteW + 4;
         Value v = c.value;
-        boolean withItem = v != null && Value.ITEM.equals(v.type) && !v.itemId.isEmpty();
+        boolean withItem = v != null && v.hasIcon();
         int room = right - (withItem ? CHIP_ITEM_INK_X : CHIP_INK_X);
 
         if (v != null && Value.TEXT.equals(v.type))
             c.fitted = McText.fit(tr, McText.runs(v.text, v.parsing), room).asOrderedText();
         else
             c.fitted = Draw.ordered(Draw.fit(tr, argText(n, c.argIndex), room));
-        if (v != null && Value.ITEM.equals(v.type) && !v.itemId.isEmpty())
-            c.icon = Stacks.preview(v);
+        if (withItem) c.icon = Stacks.preview(v);
 
         int tc = v != null ? v.color()
                 : Catalog.TYPE_COLORS.getOrDefault(n.args().get(c.argIndex).type, 0xAAAAAA);

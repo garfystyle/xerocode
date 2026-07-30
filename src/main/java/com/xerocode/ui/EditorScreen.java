@@ -649,8 +649,7 @@ public final class EditorScreen extends Screen {
     }
 
     private static ItemStack itemIcon(Value v) {
-        return Value.ITEM.equals(v.type) && !v.itemId.isEmpty() ? Stacks.preview(v)
-                : ItemStack.EMPTY;
+        return v.hasIcon() ? Stacks.preview(v) : ItemStack.EMPTY;
     }
 
     private static int pill(DrawContext ctx, int x, int y, int w, int face,

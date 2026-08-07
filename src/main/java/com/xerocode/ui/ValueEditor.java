@@ -43,6 +43,8 @@ public final class ValueEditor {
     private static final int GAP = 5;
     private static final int BTN_H = 18;
     private static final int KIND_H = 20;
+    private static final int KIND_GAP = 3;
+    private static final int KIND_W = 20;
     private static final int WIDTH = 280;
     private static final int LIST_MAX = 5, LIST_MAX_COMPACT = 3;
 
@@ -90,6 +92,7 @@ public final class ValueEditor {
     private Ui.Chips paramChips, targetChips, scopeChips, modeChips, sourceChips;
     private Ui.Chips kindChips, elemChips;
     private final Ui.Bar bodyBar = new Ui.Bar(), listBar = new Ui.Bar(), cellBar = new Ui.Bar();
+    private final Ui.Grab grab = new Ui.Grab();
     private int lastMx, lastMy;
     private int dragSlot = -1;
     private boolean slotMoved;
@@ -103,7 +106,7 @@ public final class ValueEditor {
     private final Complete complete = new Complete();
     private TextStudio studio;
     private ColorPick colors;
-    private CatalogPicker picker;
+    private PickerPanel picker;
     private ItemPicker itemPicker;
     private ItemStudio itemStudio;
     private ValueEditor nested;
@@ -457,7 +460,6 @@ public final class ValueEditor {
                     if (!v.elements.isEmpty()) {
                         elemChips = new Ui.Chips(tr, elementNames(v), inner(), CTRL_H - 2, 3);
                         part("elems", elemChips.height());
-                        part("elemhint", 12);
                     }
                     inputs("newelem", new String[]{"ДОБАВИТЬ ВАРИАНТ"}, "");
                     part("addelem", CTRL_H);
@@ -632,10 +634,17 @@ public final class ValueEditor {
     private Ui.Grid grid() {
         int n = kinds().size();
         int inner = inner();
-        int cell = Math.max(16, ((inner - (n - 1)) / n) & ~1);
-        int gap = n > 1 ? Math.max(1, (inner - n * cell) / (n - 1)) : 0;
-        int row = n * cell + (n - 1) * gap;
-        return new Ui.Grid(x + PAD + (inner - row) / 2, railY(), n, cell, KIND_H, gap);
+        int cols = n, cell = kindCell(inner, cols);
+        for (int rows = 2; rows <= n && cell < KIND_W; rows++) {
+            cols = (n + rows - 1) / rows;
+            cell = kindCell(inner, cols);
+        }
+        int row = cols * cell + (cols - 1) * KIND_GAP;
+        return new Ui.Grid(x + PAD + (inner - row) / 2, railY(), cols, cell, KIND_H, KIND_GAP);
+    }
+
+    private static int kindCell(int inner, int cols) {
+        return Math.max(16, ((inner - (cols - 1) * KIND_GAP) / cols) & ~1);
     }
 
     private int listMax() { return compact ? LIST_MAX_COMPACT : LIST_MAX; }
@@ -1041,7 +1050,8 @@ public final class ValueEditor {
             ItemStack icon = on && current().hasIcon()
                     ? Stacks.preview(current()) : ItemStack.EMPTY;
             if (icon.isEmpty()) icon = Catalog.stackOf(k.item());
-            ctx.drawItem(icon, cx + (cw - 16) / 2, cy + (chh - 16) / 2);
+            int is = Math.max(8, Math.min(16, Math.min(cw, chh) - 4));
+            Draw.item(ctx, icon, cx + (cw - is) / 2, cy + (chh - is) / 2, is);
             if (!ok) {
                 Draw.round(ctx, cx + 1, cy + 1, cw - 2, chh - 2, Ui.R_SM - 1,
                         Draw.argb(0xB4, Ui.WELL));
@@ -1108,9 +1118,6 @@ public final class ValueEditor {
                     if (elemChips != null)
                         elemChips.render(ctx, tr, mouseX, mouseY, x + PAD, py("elems"),
                                 defaultElementIndex(v), accent);
-                    if (has("elemhint"))
-                        Draw.textFit(ctx, tr, "клик — вариант по умолчанию, правый — удалить",
-                                x + PAD + 2, py("elemhint") + 2, full - 4, Theme.TEXT_FAINT, false);
                     drawFieldRow(ctx, mouseX, mouseY, delta, rowOf("newelem"));
                     Ui.button(ctx, tr, mouseX, mouseY, x + PAD, py("addelem"), full, CTRL_H,
                             "добавить вариант", Ui.GHOST, canAddElement(v));
@@ -1206,7 +1213,8 @@ public final class ValueEditor {
                     drawEntryCard(ctx, (ItemStack) null, v.block.isEmpty() ? "блок не выбран"
                             : "нет такого блока: " + v.block, "", "", "");
                 else drawEntryCard(ctx, be.icon(), be.name(), be.id(), "", "");
-                drawChoose(ctx, mouseX, mouseY, !v.block.isEmpty(), "Выбрать блок", "Другой блок");
+                drawChoose(ctx, mouseX, mouseY, !v.block.isEmpty(),
+                        "Редактор блока", "Редактор блока");
                 Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, py("tools"), full, BTN_H,
                         Draw.LOAD, "Взять из руки", Ui.GHOST, Blocks.of(held()) != null);
             }
@@ -1613,17 +1621,11 @@ public final class ValueEditor {
                     Values.color(Value.POTION),
                     items(Pickers.POTIONS, e -> Pickers.potionStack(e.id)),
                     Pickers.POTION_CATEGORIES, v.potion, null, id -> v.potion = id);
-            case Value.BLOCK -> {
-                List<CatalogPicker.Item> items = new ArrayList<>();
-                for (Blocks.Entry b : Blocks.all())
-                    items.add(new CatalogPicker.Item(b.id(), b.name(), b.category(), "", "", "",
-                            b.id(), b.icon()));
-                picker = new CatalogPicker(tr, screenW, screenH, "Блок",
-                        Values.color(Value.BLOCK), items, null, v.block, null, id -> {
-                            v.block = id;
-                            rebuild = true;
-                        });
-            }
+            case Value.BLOCK -> picker = new BlockStudio(tr, screenW, screenH,
+                    Values.color(Value.BLOCK), v.block, id -> {
+                        v.block = id;
+                        rebuild = true;
+                    });
             default -> { }
         }
     }

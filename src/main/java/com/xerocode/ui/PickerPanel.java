@@ -12,6 +12,7 @@ import org.lwjgl.glfw.GLFW;
 import java.util.List;
 
 abstract class PickerPanel {
+    private final Ui.Grab grab = new Ui.Grab();
     protected static final int PAD = 10;
     protected static final int HEAD_H = 28;
     protected static final int FOOT_H = 28;
@@ -83,12 +84,15 @@ abstract class PickerPanel {
 
         Ui.headerStrip(ctx, x, y, w, HEAD_H, accent);
         Draw.round(ctx, x + PAD, y + 9, 3, 10, 1, Draw.opaque(accent));
-        Draw.textFit(ctx, tr, title(), x + PAD + 9, y + 10, searchX() - x - PAD - 14,
+        int titleRight = searchShown() ? searchX() : x + w - PAD - 20;
+        Draw.textFit(ctx, tr, title(), x + PAD + 9, y + 10, titleRight - x - PAD - 14,
                 Theme.TEXT, false);
-        Ui.input(ctx, searchX(), y + 6, searchW(), 16, search.isFocused());
-        Draw.glyph(ctx, Draw.SEARCH, searchX() + 6, y + 10, Theme.TEXT_FAINT);
-        search.render(ctx, mouseX, mouseY, delta);
-        Ui.placeholder(ctx, tr, search);
+        if (searchShown()) {
+            Ui.input(ctx, searchX(), y + 6, searchW(), 16, search.isFocused());
+            Draw.glyph(ctx, Draw.SEARCH, searchX() + 6, y + 10, Theme.TEXT_FAINT);
+            search.render(ctx, mouseX, mouseY, delta);
+            Ui.placeholder(ctx, tr, search);
+        }
         Ui.closeButton(ctx, mouseX, mouseY, x + w - PAD - 16, y + 6, 16);
         Ui.hairline(ctx, x + 1, y + HEAD_H, w - 2);
 
@@ -104,6 +108,8 @@ abstract class PickerPanel {
     }
 
     protected abstract String title();
+
+    protected boolean searchShown() { return true; }
 
     protected abstract void drawBody(DrawContext ctx, int mouseX, int mouseY, float delta);
 
@@ -194,13 +200,22 @@ abstract class PickerPanel {
 
     protected int detailsBottom() { return bodyY() + bodyH() - 6; }
 
+    protected String finishLabel() { return "Выбрать"; }
+
+    protected int finishW() { return Math.max(72, Ui.buttonW(tr, finishLabel())); }
+
+    protected int footY2() { return footY() + (FOOT_H - 16) / 2; }
+
+    protected void drawFooterLeft(DrawContext ctx, int mouseX, int mouseY, int room) {
+        Draw.textFit(ctx, tr, footerHint(), x + PAD, footY2() + 4, room, Theme.TEXT_FAINT, false);
+    }
+
     private void drawFooter(DrawContext ctx, int mouseX, int mouseY) {
-        int fy = footY() + (FOOT_H - 16) / 2;
-        Draw.textFit(ctx, tr, footerHint(), x + PAD, fy + 4, w - 2 * PAD - 146,
-                Theme.TEXT_FAINT, false);
-        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - 72, fy, 72, 16, "Выбрать", Ui.ACCENT,
+        int fy = footY2(), fw = finishW();
+        drawFooterLeft(ctx, mouseX, mouseY, w - 2 * PAD - fw - 74);
+        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - fw, fy, fw, 16, finishLabel(), Ui.ACCENT,
                 canFinish());
-        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - 134, fy, 56, 16, "Отмена", Ui.GHOST);
+        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - fw - 62, fy, 56, 16, "Отмена", Ui.GHOST);
     }
 
     protected abstract String footerHint();
@@ -214,28 +229,31 @@ abstract class PickerPanel {
     public boolean mouseClicked(Click click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
         if (Ui.hit(mx, my, x + w - PAD - 16, y + 6, 16, 16)) { closed = true; return true; }
-        if (Ui.hit(mx, my, searchX(), y + 6, searchW(), 16)) {
+        if (searchShown() && Ui.hit(mx, my, searchX(), y + 6, searchW(), 16)) {
             search.setFocused(true);
             if (!search.mouseClicked(click, doubled)) search.onClick(click, doubled);
+            grab.take(search);
             return true;
         }
         int rail = railIndexAt(mx, my);
         if (rail >= 0) { railChosen(rail); return true; }
         if (bodyClicked(click, doubled, mx, my)) return true;
 
-        int fy = footY() + (FOOT_H - 16) / 2;
-        if (Ui.hit(mx, my, x + w - PAD - 72, fy, 72, 16)) { finish(); return true; }
-        if (Ui.hit(mx, my, x + w - PAD - 134, fy, 56, 16)) { closed = true; return true; }
+        int fy = footY2(), fw = finishW();
+        if (Ui.hit(mx, my, x + w - PAD - fw, fy, fw, 16)) { finish(); return true; }
+        if (Ui.hit(mx, my, x + w - PAD - fw - 62, fy, 56, 16)) { closed = true; return true; }
         return true;
     }
 
     protected abstract boolean bodyClicked(Click click, boolean doubled, int mx, int my);
 
     public boolean mouseDragged(Click click, double dx, double dy) {
-        return search.mouseDragged(click, dx, dy);
+        return grab.drag(click, dx, dy);
     }
 
-    public void mouseReleased() { }
+    public void mouseReleased() { grab.release(); }
+
+    public boolean mouseScrolled(double mx, double my, double amount) { return false; }
 
     public boolean keyPressed(KeyInput in) {
         if (bodyKey(in)) return true;
@@ -250,6 +268,7 @@ abstract class PickerPanel {
     protected abstract boolean bodyKey(KeyInput in);
 
     public boolean charTyped(CharInput in) {
+        if (!searchShown()) return false;
         search.setFocused(true);
         return search.charTyped(in);
     }

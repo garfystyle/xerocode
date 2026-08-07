@@ -62,6 +62,7 @@ public final class TextStudio {
     private int x, y, w, h, lw, rw;
     private final Ui.Pane pane = new Ui.Pane();
     private final Ui.Bar bar = new Ui.Bar();
+    private final Ui.Grab grab = new Ui.Grab();
     private boolean one, compact, closed, syncing, headMode, toolRow2;
     private int modeY, inputY, toolY, hintY, bodyY, bodyH, tabsY;
     private int swY, pickY, hexY, recentY, svW;
@@ -835,6 +836,7 @@ public final class TextStudio {
         if (Ui.hit(mx, my, x + PAD, absY(inputY), inner(), INPUT_H)) {
             focus(input);
             if (!input.mouseClicked(click, doubled)) input.onClick(click, doubled);
+            grab.take(input);
             return true;
         }
 
@@ -921,6 +923,7 @@ public final class TextStudio {
         if (Ui.hit(mx, my, lx, absY(hexY), HEX_W, ROW)) {
             focus(hex);
             if (!hex.mouseClicked(click, doubled)) hex.onClick(click, doubled);
+            grab.take(hex);
             return true;
         }
         if (Ui.hit(mx, my, lx + HEX_W + 32, absY(hexY), lw - HEX_W - 32, ROW)) {
@@ -948,6 +951,7 @@ public final class TextStudio {
         if (Ui.hit(mx, my, lx, absY(searchY), lw, SEARCH_H)) {
             focus(search);
             if (!search.mouseClicked(click, doubled)) search.onClick(click, doubled);
+            grab.take(search);
             return true;
         }
         int ci = catChips.indexAt(mx, my, lx, absY(catsY));
@@ -1014,14 +1018,13 @@ public final class TextStudio {
         if (bar.dragged(click.y(), 1, pane.max(), v -> { pane.scroll = v; placeFields(); }))
             return true;
         if (dragging != 0) { dragPicker(click.x(), click.y()); return true; }
-        if (hex.isFocused()) return hex.mouseDragged(click, dx, dy);
-        if (search.isFocused()) return search.mouseDragged(click, dx, dy);
-        return input.mouseDragged(click, dx, dy);
+        return grab.drag(click, dx, dy);
     }
 
     public boolean mouseReleased() {
         dragging = 0;
         bar.release();
+        grab.release();
         if (menu != null) menu.mouseReleased();
         return true;
     }

@@ -26,11 +26,17 @@ import java.util.List;
 import java.util.Locale;
 
 public final class Publish {
-    private static final String HOST = "http://31.59.39.212:8791/jcode/";
-    private static final String UPLOAD = HOST + "upload.php?key=jcode-garf";
-    private static final String BASE = HOST + "code/";
+    private static final String KEY = "xc-0d0e58158f364a5719205d2b652b2651b9d5";
+    private static final String SAFE_HOST = "https://109-120-178-103.sslip.io/xerocode/";
+    private static final String PLAIN_HOST = "http://109.120.178.103:8791/xerocode/";
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(30);
+    private static final String[] UPLOADS = {
+            PLAIN_HOST + "upload.php?key=" + KEY,
+            SAFE_HOST + "upload.php?key=" + KEY
+    };
+    private static final String BASE = PLAIN_HOST + "code/";
+
+    private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
     public enum State { UPLOADING, SENT, FAILED }
 
@@ -95,7 +101,7 @@ public final class Publish {
         }
 
         public synchronized void tick() {
-            if (state != State.UPLOADING || url.isEmpty()) return;
+            if (dropped || state != State.UPLOADING || url.isEmpty()) return;
             ClientPlayNetworkHandler net = client.getNetworkHandler();
             if (net == null) {
                 error = "нет соединения с сервером";
@@ -109,7 +115,10 @@ public final class Publish {
             state = State.SENT;
         }
 
+        public volatile boolean dropped;
+
         public void cancel() {
+            dropped = true;
             if (worker != null) worker.interrupt();
         }
     }
@@ -131,16 +140,16 @@ public final class Publish {
     private static String upload(String body) throws IOException {
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
         IOException last = null;
-        for (String way : new String[]{"HTTP/2", "HTTP/1.1", "HttpURLConnection"}) {
-            try {
-                String answer = switch (way) {
-                    case "HTTP/2" -> viaHttpClient(payload, null);
-                    case "HTTP/1.1" -> viaHttpClient(payload, HttpClient.Version.HTTP_1_1);
-                    default -> viaUrlConnection(payload);
-                };
-                return BASE + idOf(answer) + ".json";
-            } catch (Exception e) {
-                last = e instanceof IOException io ? io : new IOException(e);
+        for (String where : UPLOADS) {
+            for (String way : new String[]{"HTTP/1.1", "HttpURLConnection"}) {
+                try {
+                    String answer = way.equals("HTTP/1.1")
+                            ? viaHttpClient(where, payload, HttpClient.Version.HTTP_1_1)
+                            : viaUrlConnection(where, payload);
+                    return BASE + idOf(answer) + ".json";
+                } catch (Exception e) {
+                    last = e instanceof IOException io ? io : new IOException(e);
+                }
             }
         }
         throw last == null ? new IOException("загрузка не удалась") : last;
@@ -152,14 +161,14 @@ public final class Publish {
         return json.get("id").getAsString();
     }
 
-    private static String viaHttpClient(byte[] payload, HttpClient.Version version)
+    private static String viaHttpClient(String where, byte[] payload, HttpClient.Version version)
             throws IOException, InterruptedException {
         HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NORMAL);
         if (version != null) builder.version(version);
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(UPLOAD))
+                .uri(URI.create(where))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
                 .timeout(TIMEOUT)
@@ -171,8 +180,8 @@ public final class Publish {
         return response.body();
     }
 
-    private static String viaUrlConnection(byte[] payload) throws IOException {
-        HttpURLConnection c = (HttpURLConnection) URI.create(UPLOAD).toURL().openConnection();
+    private static String viaUrlConnection(String where, byte[] payload) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) URI.create(where).toURL().openConnection();
         try {
             c.setRequestMethod("POST");
             c.setDoOutput(true);
@@ -217,10 +226,20 @@ public final class Publish {
         }
     }
 
+    private static volatile Job current;
+
     public static Job start(JsonObject code, String worldId, boolean replace) {
         Job job = new Job(code, replace, write(code, worldId));
+        current = job;
         job.start();
         return job;
+    }
+
+    public static void tick() {
+        Job job = current;
+        if (job == null) return;
+        job.tick();
+        if (job.state != State.UPLOADING) current = null;
     }
 
     private Publish() {}

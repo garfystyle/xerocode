@@ -205,6 +205,7 @@ public final class XeroCode implements ClientModInitializer {
             Codespace.serverSaid(text);
             if (overlay) return;
             Publish.noteChat(text);
+            restartHeard(text);
             if (text.contains("режиме строительства")) worldModeNow = "build";
             else if (text.contains("режиме игры")) worldModeNow = "play";
             else if (text.contains(ENTERED)) worldModeNow = "dev";
@@ -224,6 +225,7 @@ public final class XeroCode implements ClientModInitializer {
         });
 
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+            Collab.stop();
             if (script == null) return;
             if (client.currentScreen instanceof EditorScreen editor) editor.rememberView();
             script.save();
@@ -250,7 +252,11 @@ public final class XeroCode implements ClientModInitializer {
         ClientTickEvents.START_CLIENT_TICK.register(this::stealHotkeys);
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            com.xerocode.ui.Audit.tick();
             Codespace.watch();
+            Collab.tick();
+            Market.tick();
+            Publish.tick();
             if (cover != null) {
                 if (client.currentScreen == null) client.setScreen(cover);
                 var now = client.interactionManager == null ? null
@@ -269,6 +275,10 @@ public final class XeroCode implements ClientModInitializer {
             boolean buildRaw = keyDown(client, Settings.Hot.BUILD);
             if (buildRaw && !buildWasDown && client.currentScreen == null) worldMode(client, "build");
             buildWasDown = buildRaw;
+            boolean againRaw = keyDown(client, Settings.Hot.RESTART);
+            if (againRaw && !againWasDown && client.currentScreen == null) restartWorld(client);
+            againWasDown = againRaw;
+            restartTick(client);
             boolean inDev = inDev(client);
             if (inDev) worldModeNow = "dev";
             if (inDev && !wasInDev) entered(client);
@@ -289,6 +299,7 @@ public final class XeroCode implements ClientModInitializer {
     private void stealHotkeys(MinecraftClient client) {
         steal(client, Settings.Hot.PLAY);
         steal(client, Settings.Hot.BUILD);
+        steal(client, Settings.Hot.RESTART);
         stealNarrator(client);
     }
 
@@ -322,6 +333,109 @@ public final class XeroCode implements ClientModInitializer {
 
     private static boolean usesCtrlB(Settings settings, Settings.Hot hot) {
         return settings.code(hot) == GLFW.GLFW_KEY_B && settings.mods(hot) == Settings.CTRL;
+    }
+
+    private int restartStage, restartWait, restartTries;
+    private String restartMode = "", restartWorldKey = "";
+    private boolean againWasDown;
+
+    public static final String RESTART = "restart";
+
+    public static void restart() {
+        if (INSTANCE != null) INSTANCE.restartWorld(MinecraftClient.getInstance());
+    }
+
+    private void restartWorld(MinecraftClient client) {
+        if (client.getNetworkHandler() == null) return;
+        if (!ownWorld(client)) {
+            client.inGameHud.setTitleTicks(3, 40, 8);
+            client.inGameHud.setTitle(Text.literal("Вы не в своём мире").formatted(Formatting.RED));
+            client.inGameHud.setSubtitle(Text.literal("мир перезапускается только в своём"));
+            return;
+        }
+        if (script != null) script.save();
+        restartWait = 0;
+        restartTries = 0;
+        restartMode = modeOf(client);
+        restartWorldKey = worldOf(client);
+        if ("build".equals(worldModeNow)) {
+            sendPlay(client);
+            return;
+        }
+        restartStage = 1;
+        client.getNetworkHandler().sendChatCommand("build");
+        cover("Перезапуск мира…", null);
+    }
+
+    private static String modeOf(MinecraftClient client) {
+        return client.interactionManager == null ? ""
+                : String.valueOf(client.interactionManager.getCurrentGameMode());
+    }
+
+    private static String worldOf(MinecraftClient client) {
+        return client.world == null ? "" : client.world.getRegistryKey().getValue().toString();
+    }
+
+    private boolean stepDone(MinecraftClient client, String want) {
+        if (want.equals(worldModeNow)) return true;
+        if (!modeOf(client).equals(restartMode)) return true;
+        if (!worldOf(client).equals(restartWorldKey)) return true;
+        return restartWait > RESTART_WAIT;
+    }
+
+    private static final int RESTART_WAIT = 40, RESTART_PAUSE = 30, RESTART_TRIES = 3;
+    private static final String TOO_FAST = "Подождите перед повторной";
+
+    private void restartHeard(String text) {
+        if (restartStage == 0 || !text.contains(TOO_FAST)) return;
+        restartStage = 3;
+        restartWait = 0;
+    }
+
+    private void sendPlay(MinecraftClient client) {
+        restartStage = 2;
+        restartWait = 0;
+        restartTries++;
+        restartMode = modeOf(client);
+        restartWorldKey = worldOf(client);
+        client.getNetworkHandler().sendChatCommand("play");
+        cover("Запуск мира…", null);
+    }
+
+    private void restartTick(MinecraftClient client) {
+        if (restartStage == 0) return;
+        if (client.getNetworkHandler() == null) {
+            restartStage = 0;
+            return;
+        }
+        restartWait++;
+        if (restartStage == 1) {
+            if (!stepDone(client, "build")) return;
+            restartStage = 3;
+            restartWait = 0;
+            return;
+        }
+        if (restartStage == 3) {
+            if (restartWait < RESTART_PAUSE) return;
+            if (restartTries >= RESTART_TRIES) {
+                restartStage = 0;
+                return;
+            }
+            sendPlay(client);
+            return;
+        }
+        if ("play".equals(worldModeNow) || !modeOf(client).equals(restartMode)) {
+            restartStage = 0;
+            return;
+        }
+        if (restartWait > RESTART_WAIT * 2) {
+            if (restartTries >= RESTART_TRIES) {
+                restartStage = 0;
+                return;
+            }
+            restartStage = 3;
+            restartWait = 0;
+        }
     }
 
     private void worldMode(MinecraftClient client, String command) {

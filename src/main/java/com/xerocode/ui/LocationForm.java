@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class LocationForm extends Screen {
+    private final Ui.Grab grab = new Ui.Grab();
     private static final int WANT_W = 300;
     private static final int PAD = 10, FIELD_H = 16, BTN_H = 20, GAP = 4;
 
@@ -180,6 +181,7 @@ public final class LocationForm extends Screen {
     public boolean mouseReleased(Click click) {
         scrubField = -1;
         scrubbing = false;
+        grab.release();
         return super.mouseReleased(click);
     }
 

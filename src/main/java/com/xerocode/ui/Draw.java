@@ -2,6 +2,7 @@ package com.xerocode.ui;
 
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.item.ItemStack;
 import net.minecraft.text.OrderedText;
 
 public final class Draw {
@@ -55,7 +56,9 @@ public final class Draw {
     }
 
     public static void rect(DrawContext ctx, int x, int y, int w, int h, int argb) {
-        if (w > 0 && h > 0) quad(ctx, x, y, x + w, y + h, argb, argb);
+        if (w <= 0 || h <= 0) return;
+        if (Audit.on()) Audit.note(Audit.FILL, x, y, w, h, "");
+        quad(ctx, x, y, x + w, y + h, argb, argb);
     }
 
     static int arcInset(int r, int d) {
@@ -89,6 +92,7 @@ public final class Draw {
 
     public static void roundRectGrad(DrawContext ctx, int x, int y, int w, int h,
                                      int tl, int tr, int br, int bl, int top, int bottom) {
+        if (Audit.on()) Audit.note(Audit.FILL, x, y, w, h, "");
         rows(ctx, x, y, w, h, tl, tr, br, bl, 0, h, top, bottom);
     }
 
@@ -131,11 +135,37 @@ public final class Draw {
         }
     }
 
+    public static void notch(DrawContext ctx, int x, int y, int w, int h,
+                             int tl, int tr, int br, int bl, int argb) {
+        if (w <= 0 || h <= 0) return;
+        for (int dy = 0; dy < h; dy++) {
+            int li = insetLeft(tl, bl, h, dy), ri = insetRight(tr, br, h, dy);
+            if (li > 0) rect(ctx, x, y + dy, li, 1, argb);
+            if (ri > 0) rect(ctx, x + w - ri, y + dy, ri, 1, argb);
+        }
+    }
+
     public static void hgrad(DrawContext ctx, int x, int y, int w, int h, int left, int right) {
         if (w <= 0 || h <= 0) return;
         for (int i = 0; i < w; i++) {
             int c = w == 1 ? left : mixArgb(left, right, i / (float) (w - 1));
             quad(ctx, x + i, y, x + i + 1, y + h, c, c);
+        }
+    }
+
+    public static void roundVeil(DrawContext ctx, int x, int y, int w, int h, int r,
+                                 int hx0, int hy0, int hx1, int hy1, int argb) {
+        if (w <= 0 || h <= 0) return;
+        for (int dy = 0; dy < h; dy++) {
+            int left = x + insetLeft(r, r, h, dy), right = x + w - insetRight(r, r, h, dy);
+            if (right <= left) continue;
+            int yy = y + dy;
+            if (yy < hy0 || yy >= hy1 || hx1 <= hx0) {
+                rect(ctx, left, yy, right - left, 1, argb);
+                continue;
+            }
+            if (hx0 > left) rect(ctx, left, yy, hx0 - left, 1, argb);
+            if (right > hx1) rect(ctx, hx1, yy, right - hx1, 1, argb);
         }
     }
 
@@ -230,12 +260,15 @@ public final class Draw {
     public static void text(DrawContext ctx, TextRenderer tr, String s, int x, int y,
                             int rgb, boolean shadow) {
         int argb = opaque(rgb);
+        if (Audit.on() && !s.isEmpty())
+            Audit.note(Audit.TEXT, x, y, tr.getWidth(s), Ui.TEXT_H, s);
         if (!SmoothText.draw(ctx, tr, s, x, y, argb, shadow)) ctx.drawText(tr, s, x, y, argb, shadow);
     }
 
     public static void text(DrawContext ctx, TextRenderer tr, OrderedText s, int x, int y,
                             int rgb, boolean shadow) {
         int argb = opaque(rgb);
+        if (Audit.on()) Audit.note(Audit.TEXT, x, y, tr.getWidth(s), Ui.TEXT_H, "");
         if (!SmoothText.draw(ctx, tr, s, x, y, argb, shadow)) ctx.drawText(tr, s, x, y, argb, shadow);
     }
 
@@ -247,6 +280,18 @@ public final class Draw {
         m.translate(x, y);
         m.scale(scale, scale);
         text(ctx, tr, s, 0, 0, rgb, shadow);
+        m.popMatrix();
+    }
+
+    public static void item(DrawContext ctx, ItemStack stack, int x, int y, int size) {
+        if (stack.isEmpty()) return;
+        if (Audit.on()) Audit.note(Audit.ITEM, x, y, size, size, "");
+        if (size == 16) { ctx.drawItem(stack, x, y); return; }
+        var m = ctx.getMatrices();
+        m.pushMatrix();
+        m.translate(x, y);
+        m.scale(size / 16f, size / 16f);
+        ctx.drawItem(stack, 0, 0);
         m.popMatrix();
     }
 
@@ -269,6 +314,7 @@ public final class Draw {
                             int fill, int rgb) {
         int w = tr.getWidth(s) + 8;
         round(ctx, x, y, w, 11, 3, fill);
+        if (Audit.on()) Audit.note(Audit.TEXT, x + 4, y + 2, tr.getWidth(s), Ui.TEXT_H, s);
         ctx.drawText(tr, s, x + 4, y + 2, opaque(rgb), false);
         return w;
     }
@@ -277,6 +323,7 @@ public final class Draw {
 
     public static void glyph(DrawContext ctx, String[] rows, int x, int y, int rgb) {
         int c = opaque(rgb);
+        if (Audit.on()) Audit.note(Audit.GLYPH, x, y, glyphW(rows), glyphH(rows), "");
         for (int r = 0; r < rows.length; r++) {
             String row = rows[r];
             int run = 0;
@@ -301,6 +348,10 @@ public final class Draw {
             "#####",
             " ### ",
             "  #  "};
+    public static final String[] CARET_UP = {
+            "  #  ",
+            " ### ",
+            "#####"};
     public static final String[] CARET_RIGHT = {
             "#  ",
             "## ",
@@ -333,6 +384,31 @@ public final class Draw {
             "## ## ",
             " #### ",
             "  ##  "};
+    public static final String[] HEART = {
+            " ## ## ",
+            "#######",
+            "#######",
+            " ##### ",
+            "  ###  ",
+            "   #   "};
+    public static final String[] SHOP = {
+            "  #####  ",
+            " #     # ",
+            " #     # ",
+            "#########",
+            "#       #",
+            "#       #",
+            "#       #",
+            "#       #",
+            "#########"};
+    public static final String[] GRAB = {
+            "  ###  ",
+            "  ###  ",
+            "  ###  ",
+            "#######",
+            " ##### ",
+            "  ###  ",
+            "   #   "};
     public static final String[] SEARCH = {
             " ###  ",
             "#   # ",
@@ -349,14 +425,6 @@ public final class Draw {
             " # # # ",
             " # # # ",
             " ##### "};
-    public static final String[] SAVE = {
-            "#######",
-            "## # ##",
-            "## # ##",
-            "#     #",
-            "# ### #",
-            "# ### #",
-            "#######"};
     public static final String[] LOAD = {
             "   #   ",
             "   #   ",
@@ -435,13 +503,82 @@ public final class Draw {
             " ##   ## ",
             "  #####  "};
     public static final String[] COPY = {
-            " ##### ",
+            "  #####",
+            "  #   #",
+            "##### #",
+            "#   # #",
+            "#   ###",
+            "#   #  ",
+            "#####  "};
+    public static final String[] CUT = {
+            "#     #",
             " #   # ",
-            "###  # ",
-            "# #### ",
-            "# #    ",
-            "# #    ",
-            "###    "};
+            "  # #  ",
+            "   #   ",
+            "  # #  ",
+            " #   # ",
+            "### ###",
+            "# # # #",
+            "### ###"};
+    public static final String[] SELECT = {
+            "##   ##",
+            "#     #",
+            "       ",
+            "       ",
+            "       ",
+            "#     #",
+            "##   ##"};
+    public static final String[] PASTE = {
+            "  ###  ",
+            "#######",
+            "#     #",
+            "# ### #",
+            "#     #",
+            "# ### #",
+            "#######"};
+    public static final String[] DUPLICATE = {
+            "#####    ",
+            "#   #    ",
+            "#   #  # ",
+            "#   # ###",
+            "#   #  # ",
+            "#####    "};
+    public static final String[] TARGET = {
+            "  ###  ",
+            " #   # ",
+            "#     #",
+            "#  #  #",
+            "#     #",
+            " #   # ",
+            "  ###  "};
+    public static final String[] NOT = {
+            "  ###  ",
+            " #   # ",
+            "#   # #",
+            "#  #  #",
+            "# #   #",
+            " #   # ",
+            "  ###  "};
+    public static final String[] NAME = {
+            "  ###  ",
+            " #   # ",
+            "#     #",
+            "#######",
+            "#     #",
+            "#     #"};
+    public static final String[] LINES = {
+            "#######",
+            "       ",
+            "#######",
+            "       ",
+            "#####  "};
+    public static final String[] IMAGE = {
+            "#######",
+            "#     #",
+            "# #   #",
+            "#   # #",
+            "# ### #",
+            "#######"};
     public static final String[] LOCK = {
             " ###  ",
             "#   # ",
@@ -457,13 +594,6 @@ public final class Draw {
             " ###  ",
             "  #   ",
             "  #   "};
-    public static final String[] LOOK = {
-            "  ##   ",
-            " #  #  ",
-            "#  # # ",
-            "#  # # ",
-            " #  #  ",
-            "  ##   "};
     public static final String[] ARROW_RIGHT = {
             "     ",
             "  #  ",
@@ -516,6 +646,15 @@ public final class Draw {
             "# ### #",
             "#     #",
             "# ##  #",
+            "#     #",
+            "#######"};
+    public static final String[] PACK = {
+            "  ###  ",
+            " #   # ",
+            "#######",
+            "#######",
+            "#     #",
+            "# ### #",
             "#     #",
             "#######"};
     public static final String[] LOOP = {

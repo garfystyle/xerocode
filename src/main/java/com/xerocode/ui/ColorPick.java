@@ -163,7 +163,8 @@ public final class ColorPick {
         }
         if (Ui.hit(mx, my, sx, y + hexY, 74, ROW)) {
             hex.setFocused(true);
-            hex.mouseClicked(click, doubled);
+            if (!hex.mouseClicked(click, doubled)) hex.onClick(click, doubled);
+            grab.take(hex);
             return true;
         }
         for (int i = 0; i < McText.COLOURS.size(); i++) {
@@ -181,12 +182,17 @@ public final class ColorPick {
         return true;
     }
 
+    private final Ui.Grab grab = new Ui.Grab();
+
     public boolean mouseDragged(Click click, double dx, double dy) {
         if (dragging != 0) { drag(click.x(), click.y()); return true; }
-        return hex.isFocused() && hex.mouseDragged(click, dx, dy);
+        return grab.drag(click, dx, dy);
     }
 
-    public void mouseReleased() { dragging = 0; }
+    public void mouseReleased() {
+        dragging = 0;
+        grab.release();
+    }
 
     private void drag(double mx, double my) {
         int sx = x + PAD;

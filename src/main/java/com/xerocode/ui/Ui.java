@@ -2,6 +2,7 @@ package com.xerocode.ui;
 
 import com.xerocode.Settings;
 import net.minecraft.client.font.TextRenderer;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
@@ -141,8 +142,10 @@ public final class Ui {
     }
 
     public static void input(DrawContext ctx, int x, int y, int w, int h, boolean focused) {
+        Audit.role("input");
         Draw.card(ctx, x, y, w, h, R_SM, Draw.opaque(INPUT),
                 Draw.opaque(focused ? Theme.ACCENT : LINE_IN));
+        Audit.clearRole();
     }
 
     private static int face(int kind, boolean hov, boolean enabled) {
@@ -180,9 +183,11 @@ public final class Ui {
                                  int x, int y, int w, int h, String label, int kind,
                                  boolean enabled) {
         boolean hov = enabled && hit(mx, my, x, y, w, h);
+        Audit.role("button");
         controlFace(ctx, x, y, w, h, face(kind, hov, enabled), hov, kind != GHOST);
         Draw.textCenter(ctx, tr, label, x, y + (h - TEXT_H) / 2, w, w - 6,
                 ink(kind, hov, enabled), false);
+        Audit.clearRole();
         return hov;
     }
 
@@ -195,6 +200,7 @@ public final class Ui {
                                       int x, int y, int w, int h, String[] glyph, String label,
                                       int kind, boolean enabled) {
         boolean hov = enabled && hit(mx, my, x, y, w, h);
+        Audit.role("button");
         controlFace(ctx, x, y, w, h, face(kind, hov, enabled), hov, kind != GHOST);
         int gw = Draw.glyphW(glyph);
         String text = Draw.fit(tr, label, w - 12 - gw);
@@ -203,34 +209,41 @@ public final class Ui {
         int color = ink(kind, hov, enabled);
         Draw.glyph(ctx, glyph, at, y + (h - Draw.glyphH(glyph)) / 2, color);
         Draw.text(ctx, tr, text, at + gw + 3, y + (h - TEXT_H) / 2, color, false);
+        Audit.clearRole();
         return hov;
     }
 
     public static boolean iconButton(DrawContext ctx, int mx, int my, int x, int y, int size,
                                      String[] glyph, int kind, boolean enabled) {
         boolean hov = enabled && hit(mx, my, x, y, size, size);
+        Audit.role("icon");
         controlFace(ctx, x, y, size, size, face(kind, hov, enabled), hov, kind != GHOST);
         Draw.glyph(ctx, glyph, x + (size - Draw.glyphW(glyph)) / 2,
                 y + (size - Draw.glyphH(glyph)) / 2, ink(kind, hov, enabled));
+        Audit.clearRole();
         return hov;
     }
 
     public static boolean closeButton(DrawContext ctx, int mx, int my, int x, int y, int size) {
         boolean hov = hit(mx, my, x, y, size, size);
+        Audit.role("icon");
         controlFace(ctx, x, y, size, size, hov ? DANGER_BG : Theme.SURFACE, hov, hov);
         Draw.glyph(ctx, Draw.CROSS, x + (size - Draw.glyphW(Draw.CROSS)) / 2,
                 y + (size - Draw.glyphH(Draw.CROSS)) / 2, hov ? Theme.DANGER : Theme.TEXT_DIM);
+        Audit.clearRole();
         return hov;
     }
 
     public static void chip(DrawContext ctx, TextRenderer tr, int x, int y, int w, int h,
                             String label, boolean on, boolean hov, int accent) {
+        Audit.role("chip");
         controlFace(ctx, x, y, w, h,
                 on ? Draw.mix(BTN_ON, accent, 0.25f) : (hov ? BTN_HOVER : BTN), hov, on);
         if (on) Draw.rect(ctx, x + 4, y + h - 2, w - 8, 1, Draw.opaque(accent));
         Draw.textCenter(ctx, tr, label, x, y + (h - TEXT_H) / 2, w, w - 6,
                 on ? (Settings.outlined() ? Theme.TEXT : Theme.ON_ACCENT)
                         : hov ? Theme.TEXT : Theme.TEXT_DIM, false);
+        Audit.clearRole();
     }
 
     public static int segmented(DrawContext ctx, TextRenderer tr, int mx, int my,
@@ -314,6 +327,22 @@ public final class Ui {
             bar.draw(ctx, barX, panelY + top + 2, viewH() - 4, contentH - top,
                     viewH() - 4, scroll, mx, my);
         }
+    }
+
+    public static final class Grab {
+        private net.minecraft.client.gui.widget.ClickableWidget held;
+
+        public void take(net.minecraft.client.gui.widget.ClickableWidget field) {
+            held = field;
+        }
+
+        public boolean drag(Click click, double dx, double dy) {
+            return held != null && held.mouseDragged(click, dx, dy);
+        }
+
+        public boolean has() { return held != null; }
+
+        public void release() { held = null; }
     }
 
     private static final int BAR_GRAB = 4, BAR_W = 3, THUMB_MIN = 14;

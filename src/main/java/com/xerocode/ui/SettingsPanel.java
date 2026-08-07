@@ -1,6 +1,7 @@
 package com.xerocode.ui;
 
 import com.xerocode.Catalog;
+import com.xerocode.Collab;
 import com.xerocode.Settings;
 import com.xerocode.Settings.Hot;
 import net.minecraft.client.MinecraftClient;
@@ -35,8 +36,12 @@ public final class SettingsPanel {
     private static final int SV_H = 56, HUE_H = 8;
     private static final String WAITING = "жду клавишу…";
 
-    private static final List<String> TABS = List.of("Клавиши", "Внешний вид", "Цвета");
-    private static final int TAB_KEYS = 0, TAB_LOOK = 1, TAB_COLORS = 2;
+    private static final List<String> TABS = List.of("Клавиши", "Внешний вид", "Цвета", "Вместе");
+    private static final int TAB_KEYS = 0, TAB_LOOK = 1, TAB_COLORS = 2, TAB_COLLAB = 3;
+
+    private static final int CAP_H = 10;
+    private static final int GAP = 10;
+    private static final int MEMBER_H = 14;
 
     private static final class Row {
         final String label, hint;
@@ -71,6 +76,7 @@ public final class SettingsPanel {
     private int openColor = -1;
     private float pickH, pickS, pickV;
     private TextFieldWidget hexField;
+    private TextFieldWidget nameField, codeField;
     private boolean syncing;
     private int dragging;
     private boolean hexDrag;
@@ -114,6 +120,8 @@ public final class SettingsPanel {
                 Settings.GRID_NAMES, () -> s.grid, v -> s.grid = v, tr, chipsW));
         rows.add(new Row("Мелкий текст", "сглаживать подписи, когда полотно отдалено и буква мельче пикселя",
                 Settings.YES_NO, () -> s.smoothText ? 0 : 1, v -> s.smoothText = v == 0, tr, chipsW));
+        rows.add(new Row("Мини-карта", "весь код уголком справа внизу: клик — прыжок, ПКМ — убрать",
+                Settings.YES_NO, () -> s.minimap ? 0 : 1, v -> s.minimap = v == 0, tr, chipsW));
 
         int dy = 0;
         for (Row r : rows) {
@@ -124,6 +132,13 @@ public final class SettingsPanel {
         this.x = Ui.midX(screenW, W);
         this.h = Ui.fitH(screenH, 392);
         this.y = Ui.midY(screenH, h);
+
+        String hadName = nameField == null ? s.collabName : nameField.getText();
+        String hadCode = codeField == null ? s.collabCode : codeField.getText();
+        nameField = Ui.field(tr, hadName, Collab.myName(), 16);
+        nameField.setChangedListener(t -> s.collabName = t);
+        codeField = Ui.field(tr, hadCode, "код приглашения", 40);
+        codeField.setChangedListener(t -> s.collabCode = t.trim());
     }
 
     public boolean isClosed() { return closed; }
@@ -148,8 +163,9 @@ public final class SettingsPanel {
                 Row last = rows.get(rows.size() - 1);
                 yield PREVIEW_H + 10 + last.dy + last.height();
             }
-            default -> BTN_H + 10 + categories.size() * (COLOR_H + ROW_GAP) - ROW_GAP
+            case TAB_COLORS -> BTN_H + 10 + categories.size() * (COLOR_H + ROW_GAP) - ROW_GAP
                     + (openColor >= 0 ? SV_H + HUE_H + 12 + ROW_H + 8 : 0);
+            default -> collab(null, 0, 0, 0, null, false, 0, 0);
         };
     }
 
@@ -182,7 +198,8 @@ public final class SettingsPanel {
         switch (tab) {
             case TAB_KEYS -> drawKeys(ctx, mouseX, mouseY, top);
             case TAB_LOOK -> drawLook(ctx, mouseX, mouseY, top);
-            default -> drawColors(ctx, mouseX, mouseY, delta, top);
+            case TAB_COLORS -> drawColors(ctx, mouseX, mouseY, delta, top);
+            default -> collab(ctx, mouseX, mouseY, top, null, false, 0, 0);
         }
         ctx.disableScissor();
         bar.draw(ctx, x + W - 5, cy, ch, contentNeed(), ch, scroll(), lastMx, lastMy);
@@ -289,6 +306,168 @@ public final class SettingsPanel {
         int chipBottom = grad ? Draw.opaque(Draw.shade(chipBase, -0.10f)) : chipTop;
         Draw.pill(ctx, bx + 7, by + 19, 60, 11, Draw.opaque(Draw.shade(chipBase, -0.5f)));
         Draw.pillGrad(ctx, bx + 8, by + 20, 58, 9, chipTop, chipBottom);
+    }
+
+    private int collab(DrawContext ctx, int mouseX, int mouseY, int top,
+                       Click click, boolean doubled, double cx, double cy) {
+        boolean act = click != null;
+        int inner = W - PAD * 2;
+        int lx = x + PAD;
+        int at = 0;
+
+        Collab.Stage stage = Collab.stage();
+        boolean on = Collab.on();
+        boolean live = Collab.live();
+
+        String said = Collab.note().isEmpty()
+                ? "полотно этого мира станет общим для всех, кто войдёт по коду"
+                : Collab.note();
+        List<String> lines = Ui.wrap(tr, said, inner - 27, 3);
+        int statusH = 25 + Math.max(1, lines.size()) * 10 + 9;
+
+        if (ctx != null) {
+            Ui.well(ctx, lx, top + at, inner, statusH);
+            int lamp = switch (stage) {
+                case LIVE -> Collab.paused() ? Theme.TEXT_FAINT : Theme.OK;
+                case CONNECTING, WAITING -> Theme.ACCENT;
+                case BROKEN -> Theme.DANGER;
+                default -> Theme.TEXT_FAINT;
+            };
+            Draw.dot(ctx, lx + 9, top + at + 12, Draw.opaque(lamp));
+            String head = switch (stage) {
+                case OFF -> "Совместная работа выключена";
+                case CONNECTING -> "Подключаюсь…";
+                case WAITING -> "Забираю полотно комнаты…";
+                case BROKEN -> "Не получилось";
+                default -> Collab.paused() ? "На паузе: вы в другом мире" : "В комнате";
+            };
+            String count = live ? Ui.plural(Collab.members(), "участник", "участника", "участников") : "";
+            int countW = count.isEmpty() ? 0 : tr.getWidth(count) + 8;
+            Draw.textFit(ctx, tr, head, lx + 18, top + at + 10, inner - 26 - countW, Theme.TEXT, false);
+            if (!count.isEmpty())
+                Draw.textRight(ctx, tr, count, lx + inner - 9, top + at + 10, Theme.TEXT_DIM, false);
+            for (int i = 0; i < lines.size(); i++)
+                Draw.text(ctx, tr, lines.get(i), lx + 18, top + at + 25 + i * 10,
+                        Theme.TEXT_FAINT, false);
+        }
+        at += statusH + GAP;
+
+        String code = Collab.code();
+        if (on && !code.isEmpty()) {
+            int copyW = Ui.buttonW(tr, "Копировать");
+            int wellW = inner - copyW - 6;
+            int rowY = top + at + CAP_H + 2;
+            if (ctx != null) {
+                Ui.caption(ctx, tr, "КОД ПРИГЛАШЕНИЯ", lx, top + at, inner);
+                Ui.well(ctx, lx, rowY, wellW, ROW_H + 3);
+                Draw.textFit(ctx, tr, code, lx + 7, rowY + (ROW_H + 3 - Ui.TEXT_H) / 2,
+                        wellW - 14, Theme.TEXT, false);
+                Ui.button(ctx, tr, mouseX, mouseY, lx + wellW + 6, rowY, copyW, ROW_H + 3,
+                        "Копировать", Ui.GHOST);
+                boolean fresh = System.currentTimeMillis() - copied < 1500;
+                Draw.textFit(ctx, tr, fresh ? "код скопирован — отправьте его тому, кого зовёте"
+                                : "кто знает код — тот правит код этого мира; чужим не давайте",
+                        lx, rowY + ROW_H + 7, inner, fresh ? Theme.OK : Theme.TEXT_FAINT, false);
+            } else if (act && Ui.hit(cx, cy, lx + wellW + 6, rowY, copyW, ROW_H + 3)) {
+                MinecraftClient client = MinecraftClient.getInstance();
+                if (client != null && client.keyboard != null) client.keyboard.setClipboard(code);
+                copied = System.currentTimeMillis();
+            }
+            at += CAP_H + 2 + ROW_H + 3 + 4 + CAP_H + GAP;
+        }
+
+        if (on) {
+            if (ctx != null)
+                Ui.button(ctx, tr, mouseX, mouseY, lx, top + at, inner, BTN_H, "Отключиться",
+                        Ui.DANGER);
+            else if (act && Ui.hit(cx, cy, lx, top + at, inner, BTN_H)) Collab.stop();
+            at += BTN_H + GAP;
+        } else {
+            if (ctx != null)
+                Ui.button(ctx, tr, mouseX, mouseY, lx, top + at, inner, BTN_H,
+                        "Открыть общий доступ", Ui.ACCENT);
+            else if (act && Ui.hit(cx, cy, lx, top + at, inner, BTN_H)) Collab.host();
+            at += BTN_H + GAP;
+
+            int goW = Ui.buttonW(tr, "Войти");
+            int fieldW = inner - goW - 6;
+            int rowY = top + at + CAP_H + 2;
+            boolean full = codeField != null && !codeField.getText().isBlank();
+            if (ctx != null) {
+                Ui.caption(ctx, tr, "ВОЙТИ ПО ЧУЖОМУ КОДУ", lx, top + at, inner);
+                Ui.input(ctx, lx, rowY, fieldW, ROW_H, codeField != null && codeField.isFocused());
+                if (codeField != null) {
+                    codeField.setX(lx + 7);
+                    codeField.setY(rowY + (ROW_H - Ui.TEXT_H) / 2);
+                    Ui.width(codeField, fieldW - 12);
+                }
+                Ui.button(ctx, tr, mouseX, mouseY, lx + fieldW + 6, rowY, goW, ROW_H, "Войти",
+                        Ui.GHOST, full);
+                if (codeField != null) {
+                    codeField.render(ctx, mouseX, mouseY, 0);
+                    Ui.placeholder(ctx, tr, codeField);
+                }
+                Draw.textFit(ctx, tr, "ваше полотно заменится кодом комнаты, копия останется в файле",
+                        lx, rowY + ROW_H + 4, inner, Theme.TEXT_FAINT, false);
+            } else if (act) {
+                if (full && Ui.hit(cx, cy, lx + fieldW + 6, rowY, goW, ROW_H))
+                    Collab.guest(codeField.getText());
+                else if (Ui.hit(cx, cy, lx, rowY, fieldW, ROW_H)) grab(codeField, click, doubled);
+            }
+            at += CAP_H + 2 + ROW_H + 4 + CAP_H + GAP;
+        }
+
+        int nameY = top + at + CAP_H + 2;
+        if (ctx != null) {
+            Ui.caption(ctx, tr, "ИМЯ В КОМНАТЕ", lx, top + at, inner);
+            Ui.input(ctx, lx, nameY, inner, ROW_H, nameField != null && nameField.isFocused());
+            if (nameField != null) {
+                nameField.setX(lx + 7);
+                nameField.setY(nameY + (ROW_H - Ui.TEXT_H) / 2);
+                Ui.width(nameField, inner - 12);
+                nameField.render(ctx, mouseX, mouseY, 0);
+                Ui.placeholder(ctx, tr, nameField);
+            }
+        } else if (act && Ui.hit(cx, cy, lx, nameY, inner, ROW_H)) {
+            grab(nameField, click, doubled);
+        }
+        at += CAP_H + 2 + ROW_H + GAP;
+
+        if (ctx != null)
+            Ui.toggle(ctx, tr, mouseX, mouseY, lx, top + at, inner, BTN_H,
+                    "Показывать чужие курсоры", s.collabCursors);
+        else if (act && Ui.hit(cx, cy, lx, top + at, inner, BTN_H))
+            s.collabCursors = !s.collabCursors;
+        at += BTN_H + GAP;
+
+        if (live) {
+            if (ctx != null) {
+                Ui.caption(ctx, tr, "УЧАСТНИКИ", lx, top + at, inner);
+                int my = top + at + CAP_H + 2;
+                Draw.dot(ctx, lx + 2, my + 3, Draw.opaque(Theme.ACCENT));
+                Draw.textFit(ctx, tr, Collab.myName() + " · вы", lx + 11, my, inner - 11,
+                        Theme.TEXT, false);
+                my += MEMBER_H;
+                for (Collab.Peer p : Collab.peers()) {
+                    Draw.dot(ctx, lx + 2, my + 3, Draw.opaque(p.ink));
+                    Draw.textFit(ctx, tr, p.name.isEmpty() ? "…" : p.name, lx + 11, my,
+                            inner - 11, Theme.TEXT_DIM, false);
+                    my += MEMBER_H;
+                }
+            }
+            at += CAP_H + 2 + MEMBER_H * (1 + Collab.peers().size());
+        }
+        return at + 6;
+    }
+
+    private long copied;
+    private TextFieldWidget dragField;
+
+    private void grab(TextFieldWidget field, Click click, boolean doubled) {
+        if (field == null) return;
+        field.setFocused(true);
+        field.onClick(click, doubled);
+        dragField = field;
     }
 
     private int colorsTop() { return BTN_H + 10; }
@@ -404,7 +583,13 @@ public final class SettingsPanel {
         switch (tab) {
             case TAB_KEYS -> keysClicked(mx, dy, button);
             case TAB_LOOK -> lookClicked(mx, dy);
-            default -> colorsClicked(mx, my, dy, button);
+            case TAB_COLORS -> colorsClicked(mx, my, dy, button);
+            default -> {
+                if (nameField != null) nameField.setFocused(false);
+                if (codeField != null) codeField.setFocused(false);
+                dragField = null;
+                collab(null, 0, 0, 0, click, doubled, mx, dy);
+            }
         }
         return true;
     }
@@ -554,24 +739,29 @@ public final class SettingsPanel {
 
     private static float clamp01(float v) { return v < 0 ? 0 : Math.min(v, 1); }
 
-    public boolean mouseDragged(double mx, double my) {
+    public boolean mouseDragged(Click click, double dx, double dy) {
+        double mx = click.x(), my = click.y();
         if (bar.dragged(my, 1, maxScroll(), v -> scroll[tab] = v)) return true;
+        if (dragField != null) {
+            dragField.mouseDragged(click, dx, dy);
+            return true;
+        }
         if (hexDrag && hexField != null) {
             hexField.setCursor(hexIndexAt(mx), true);
             return true;
         }
         if (dragging == 0) return false;
-        double dy = my + scroll() - contentY();
+        double inside = my + scroll() - contentY();
         if (dragging == 1) {
             int ry = rowY(openColor) + COLOR_H + 4;
-            dragSv(mx, dy - ry);
+            dragSv(mx, inside - ry);
         } else {
             dragHue(mx);
         }
         return true;
     }
 
-    public void mouseReleased() { dragging = 0; hexDrag = false; bar.release(); }
+    public void mouseReleased() { dragging = 0; hexDrag = false; dragField = null; bar.release(); }
 
     public boolean mouseScrolled(double mx, double my, double amount) {
         if (!contains(mx, my)) return false;
@@ -599,13 +789,32 @@ public final class SettingsPanel {
             hexField.keyPressed(input);
             return true;
         }
+        TextFieldWidget typing = focusedField();
+        if (typing != null) {
+            boolean done = key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER;
+            if (key == GLFW.GLFW_KEY_ESCAPE || done) {
+                typing.setFocused(false);
+                if (done && typing == codeField && !codeField.getText().isBlank())
+                    Collab.guest(codeField.getText());
+                return true;
+            }
+            typing.keyPressed(input);
+            return true;
+        }
         if (key == GLFW.GLFW_KEY_ESCAPE) { close(); return true; }
         return true;
     }
 
+    private TextFieldWidget focusedField() {
+        if (nameField != null && nameField.isFocused()) return nameField;
+        if (codeField != null && codeField.isFocused()) return codeField;
+        return null;
+    }
+
     public boolean charTyped(CharInput input) {
-        if (hexField == null || !hexField.isFocused()) return false;
-        return hexField.charTyped(input);
+        if (hexField != null && hexField.isFocused()) return hexField.charTyped(input);
+        TextFieldWidget typing = focusedField();
+        return typing != null && typing.charTyped(input);
     }
 
     private static boolean isModifier(int key) {

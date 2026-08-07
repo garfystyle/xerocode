@@ -4,8 +4,12 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.xerocode.Audio;
+import com.xerocode.Backpack;
 import com.xerocode.Catalog;
+import com.xerocode.Clip;
 import com.xerocode.Codespace;
+import com.xerocode.Collab;
+import com.xerocode.Finder;
 import com.xerocode.Functions;
 import com.xerocode.History;
 import com.xerocode.Importer;
@@ -24,14 +28,10 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.client.input.CharInput;
 import net.minecraft.client.input.KeyInput;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
-import org.joml.Matrix3x2fStack;
 import org.lwjgl.glfw.GLFW;
-
-import org.lwjgl.PointerBuffer;
-import org.lwjgl.system.MemoryStack;
-import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
 import java.io.File;
 import java.io.Reader;
@@ -39,13 +39,17 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
-public final class EditorScreen extends Screen {
+public final class EditorScreen extends Screen implements TopBar.Host {
     private final Script script;
     private final Palette palette = new Palette();
+    private TopBar top;
     private TextFieldWidget search;
 
     private double panX = 60, panY = 50, zoom = 1.0;
@@ -56,18 +60,47 @@ public final class EditorScreen extends Screen {
 
     private List<Script.Node> drag;
     private double dragOffX, dragOffY;
-    private boolean dragFromPalette, dragMoved;
+    private boolean dragFromPalette, dragMoved, dragAwaitsClick;
     private String dragSnapshot;
     private Snap snap;
+
+    private final Set<Script.Node> picked = Collections.newSetFromMap(new IdentityHashMap<>());
+    private Set<Script.Node> coveredCache = Set.of();
+    private int pickedStamp = Integer.MIN_VALUE;
+    private boolean banding;
+    private int bandMode, bandCount;
+    private double bandX0, bandY0, bandX1, bandY1;
+    private boolean panHinted;
+    private boolean moving, moveShifted;
+    private double moveDX, moveDY;
+    private String moveSnapshot;
+    private ModulePick moduleDone;
+    private Screen moduleBack;
+
+    private BackpackPanel backpack;
+    private FindPanel finder;
+    private final MiniMap map = new MiniMap();
+    private final List<Layout.Box> found = new ArrayList<>();
+    private int foundStamp = Integer.MIN_VALUE;
+    private Script.Node focusNode;
+    private long focusAt;
+    private boolean mapDragging;
+    private double panFromX, panFromY, panToX, panToY;
+    private long panStart;
+    private boolean panAnim;
+    private final BlockView.Look look = new BlockView.Look();
+    private final BlockView.Accepts accepts = this::acceptsCarry;
 
     private List<Value> carry;
     private boolean carryHeld;
     private String carrySnapshot;
+    private Script.Root heldRoot;
     private Layout.Box pressBox;
     private Layout.Chip pressChip;
     private double pressX, pressY;
 
     private Menu menu;
+    private BlockMenu blockMenu;
     private CatalogPicker condPicker;
     private ValueEditor editor;
     private SettingsPanel settings;
@@ -103,7 +136,26 @@ public final class EditorScreen extends Screen {
         History.clear();
     }
 
+    @Override
+    public int left() { return canvasLeft(); }
+
+    @Override
+    public int width() { return width; }
+
+    @Override
+    public int blocks() { return countNodes(); }
+
+    @Override
+    public double zoom() { return zoom; }
+
+    @Override
+    public boolean empty() { return script.roots.isEmpty(); }
+
+    @Override
+    public boolean finding() { return finder != null; }
+
     private int canvasLeft() { return Theme.PALETTE_W; }
+    private int canvasRight() { return finder == null ? width : Math.max(canvasLeft() + 40, finder.x()); }
     private double toCanvasX(double sx) { return (sx - canvasLeft() - panX) / zoom; }
     private double toCanvasY(double sy) { return (sy - Theme.TOPBAR_H - panY) / zoom; }
     private int toScreenX(double cx) { return (int) Math.round(canvasLeft() + panX + cx * zoom); }
@@ -119,6 +171,7 @@ public final class EditorScreen extends Screen {
         script.paletteW = Theme.PALETTE_W;
         Ui.width(search, Palette.searchTextW());
         search.setX(Palette.searchTextX());
+        if (finder != null) finder.resize(width, height);
         palette.invalidate();
     }
 
@@ -135,6 +188,7 @@ public final class EditorScreen extends Screen {
 
     @Override
     protected void init() {
+        if (top == null) top = new TopBar(textRenderer, this);
         String text = search == null ? palette.query() : search.getText();
         if (!viewRestored) {
             viewRestored = true;
@@ -160,10 +214,13 @@ public final class EditorScreen extends Screen {
             status = "";
         }
         if (editor != null) editor.resize(width, height);
+        if (finder != null) finder.resize(width, height);
         if (settings != null) settings.resize(width, height);
         if (condPicker != null) condPicker.resize(width, height);
+        if (backpack != null) backpack.resize(width, height);
         menu = null;
-        topStamp = Integer.MIN_VALUE;
+        blockMenu = null;
+        top.invalidate();
         reopenPending();
     }
 
@@ -186,18 +243,214 @@ public final class EditorScreen extends Screen {
 
     private void undo() {
         closeOverlays();
-        if (History.undo(script)) { revision++; toast("отменено"); }
+        if (History.undo(script)) { Collab.afterHistory(script); revision++; toast("отменено"); }
     }
 
     private void redo() {
         closeOverlays();
-        if (History.redo(script)) { revision++; toast("возвращено"); }
+        if (History.redo(script)) { Collab.afterHistory(script); revision++; toast("возвращено"); }
+    }
+
+    private void openFinder(String query) {
+        closeOverlays();
+        if (finder == null) {
+            finder = new FindPanel(textRenderer, script, width, height, this::jumpTo);
+            top.invalidate();
+        }
+        if (query != null) finder.setQuery(query);
+        finder.refocus();
+        search.setFocused(false);
+    }
+
+    private void closeFinder() {
+        finder = null;
+        found.clear();
+        foundStamp = Integer.MIN_VALUE;
+        focusNode = null;
+        top.invalidate();
+    }
+
+    private void toggleFinder() {
+        if (finder == null) openFinder(null); else closeFinder();
+    }
+
+    private void jumpTo(Finder.Hit hit) {
+        focusNode = hit.node;
+        focusAt = System.currentTimeMillis();
+        Layout.Box box = boxOf(hit.node);
+        if (box == null) return;
+        if (zoom < 0.7)
+            applyZoom(snapZoom(0.75), (canvasLeft() + canvasRight()) / 2.0,
+                    (Theme.TOPBAR_H + height) / 2.0);
+        centerOn(box.x + Math.min(box.w, 260) / 2.0,
+                box.y + Math.min(box.totalH, 170) / 2.0, true);
+    }
+
+    private Layout.Box boxOf(Script.Node node) {
+        for (Layout.Box b : layout().boxes) if (b.node == node) return b;
+        return null;
+    }
+
+    private void centerOn(double cx, double cy, boolean glide) {
+        double tx = (canvasLeft() + canvasRight()) / 2.0 - canvasLeft() - cx * zoom;
+        double ty = (Theme.TOPBAR_H + height) / 2.0 - Theme.TOPBAR_H - cy * zoom;
+        if (glide) glideTo(tx, ty);
+        else { panX = tx; panY = ty; panAnim = false; }
+    }
+
+    private void glideTo(double tx, double ty) {
+        if (Math.abs(tx - panX) < 1 && Math.abs(ty - panY) < 1) { panX = tx; panY = ty; return; }
+        panFromX = panX;
+        panFromY = panY;
+        panToX = tx;
+        panToY = ty;
+        panStart = System.currentTimeMillis();
+        panAnim = true;
+    }
+
+    private void advancePan() {
+        if (!panAnim) return;
+        double t = (System.currentTimeMillis() - panStart) / 220.0;
+        if (t >= 1) { panX = panToX; panY = panToY; panAnim = false; return; }
+        double k = t * t * (3 - 2 * t);
+        panX = panFromX + (panToX - panFromX) * k;
+        panY = panFromY + (panToY - panFromY) * k;
+    }
+
+    private void syncFound() {
+        if (finder == null) return;
+        int stamp = layoutStamp * 31 + System.identityHashCode(finder.hits())
+                + (finder.listing() ? 1 : 0);
+        if (stamp == foundStamp) return;
+        foundStamp = stamp;
+        found.clear();
+        if (finder.listing()) return;
+        Set<Script.Node> want = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Finder.Hit hit : finder.hits()) want.add(hit.node);
+        for (Layout.Box b : layout.boxes) if (want.contains(b.node)) found.add(b);
+    }
+
+    private int focusInk() {
+        if (focusNode == null) return 0;
+        long age = System.currentTimeMillis() - focusAt;
+        if (finder != null)
+            return age < 900 ? 0x80 + (int) (0x7F * Math.abs(Math.cos(age / 130.0))) : 0xFF;
+        if (age > 1800) { focusNode = null; return 0; }
+        return (int) (255 * (1 - age / 1800.0));
+    }
+
+    private void drawFound(DrawContext ctx, double vx0, double vy0, double vx1, double vy1) {
+        int ink = focusInk();
+        if (found.isEmpty() && (focusNode == null || ink == 0)) return;
+        ScreenRect area = new ScreenRect(canvasLeft(), Theme.TOPBAR_H,
+                width - canvasLeft(), height - Theme.TOPBAR_H);
+        Draw.batch(Batch.open(ctx, area, area, 512));
+        int soft = Draw.mix(Theme.ACCENT, Theme.CANVAS, 0.3f);
+        for (Layout.Box b : found) {
+            if (b.node == focusNode || !visible(b, vx0, vy0, vx1, vy1)) continue;
+            Draw.roundOutline(ctx, b.x - 2, b.y - 2, b.w + 4, b.totalH + 4, 5,
+                    Draw.argb(0xC0, soft));
+        }
+        Layout.Box focus = focusNode == null || ink == 0 ? null : boxOf(focusNode);
+        if (focus != null && visible(focus, vx0, vy0, vx1, vy1)) {
+            Draw.roundOutline(ctx, focus.x - 2, focus.y - 2, focus.w + 4, focus.totalH + 4, 5,
+                    Draw.argb(ink, Theme.ACCENT));
+            Draw.roundOutline(ctx, focus.x - 3, focus.y - 3, focus.w + 6, focus.totalH + 6, 6,
+                    Draw.argb(ink / 3, Theme.ACCENT));
+        }
+        Draw.batch(null);
+    }
+
+    private boolean rides(Layout.Box box) {
+        return moving && coveredCache.contains(box.node);
+    }
+
+    private void drawMoving(DrawContext ctx, ScreenRect area,
+                            double vx0, double vy0, double vx1, double vy1) {
+        if (!moving) return;
+        int dx = (int) Math.round(moveDX), dy = (int) Math.round(moveDY);
+        var m = ctx.getMatrices();
+        m.pushMatrix();
+        m.translate(dx, dy);
+        double sx0 = vx0 - dx, sy0 = vy0 - dy, sx1 = vx1 - dx, sy1 = vy1 - dy;
+        Draw.batch(Batch.open(ctx, area, area, 512));
+        for (Piece p : pieces())
+            for (Layout.Box box : p.boxes())
+                if (visible(box, sx0, sy0, sx1, sy1)) BlockView.shadow(ctx, box);
+        Draw.batch(null);
+        for (Piece p : pieces()) {
+            Draw.batch(Batch.open(ctx, area, area, 512));
+            for (Layout.Box box : p.boxes())
+                if (visible(box, sx0, sy0, sx1, sy1)) BlockView.block(ctx, textRenderer, box, look);
+            Draw.batch(null);
+        }
+        m.popMatrix();
+    }
+
+    private void edges(DrawContext ctx, List<int[]> segments, double dx, double dy, int argb,
+                       double vx0, double vy0, double vx1, double vy1) {
+        for (int[] s : segments) {
+            double a = s[0] + dx, b = s[1] + dy, c = s[2] + dx, d = s[3] + dy;
+            if (c < vx0 || a > vx1 || d < vy0 || b > vy1) continue;
+            int x0 = toScreenX(a), y0 = toScreenY(b);
+            if (s[1] == s[3]) Draw.rect(ctx, x0, y0, Math.max(1, toScreenX(c) - x0) + 1, 1, argb);
+            else Draw.rect(ctx, x0, y0, 1, Math.max(1, toScreenY(d) - y0) + 1, argb);
+        }
+    }
+
+    private void drawOutlines(DrawContext ctx, List<Piece> list, double dx, double dy,
+                              ScreenRect area, double vx0, double vy0, double vx1, double vy1) {
+        List<Piece> shown = null;
+        int cap = 0;
+        for (Piece p : list) {
+            if (p.x() + dx + p.w() < vx0 || p.x() + dx > vx1
+                    || p.y() + dy + p.h() < vy0 || p.y() + dy > vy1) continue;
+            if (shown == null) shown = new ArrayList<>(list.size());
+            shown.add(p);
+            cap += p.edge().size() + p.halo().size();
+        }
+        if (shown == null) return;
+        Draw.batch(Batch.open(ctx, area, area, Math.min(cap, 2048)));
+        int ink = modulePick() ? Theme.ACCENT : Theme.OK;
+        for (Piece p : shown) {
+            edges(ctx, p.halo(), dx, dy, Draw.argb(0x40, ink), vx0, vy0, vx1, vy1);
+            edges(ctx, p.edge(), dx, dy, Draw.argb(0xF0, ink), vx0, vy0, vx1, vy1);
+        }
+        Draw.batch(null);
+    }
+
+    private void drawBand(DrawContext ctx) {
+        if (!banding) return;
+        ScreenRect area = new ScreenRect(canvasLeft(), Theme.TOPBAR_H,
+                width - canvasLeft(), height - Theme.TOPBAR_H);
+        Draw.batch(Batch.open(ctx, area, area, 16));
+        int bx = toScreenX(Math.min(bandX0, bandX1)), by = toScreenY(Math.min(bandY0, bandY1));
+        int bw = toScreenX(Math.max(bandX0, bandX1)) - bx;
+        int bh = toScreenY(Math.max(bandY0, bandY1)) - by;
+        int band = bandMode == BAND_SUB ? Theme.DANGER : Theme.ACCENT;
+        Draw.rect(ctx, bx, by, bw, bh, Draw.argb(0x26, band));
+        Draw.roundOutline(ctx, bx, by, bw, bh, 2, Draw.argb(0xC0, band));
+        Draw.batch(null);
+    }
+
+    private void drawMap(DrawContext ctx, int mouseX, int mouseY) {
+        if (!Settings.minimap() || drag != null || script.roots.isEmpty()) { map.hide(); return; }
+        map.frame(layout, layoutStamp, canvasLeft(), Theme.TOPBAR_H, canvasRight(), height);
+        if (!map.shown()) return;
+        map.draw(ctx, toCanvasX(canvasLeft()), toCanvasY(Theme.TOPBAR_H),
+                toCanvasX(canvasRight()), toCanvasY(height),
+                mapDragging || map.hit(mouseX, mouseY));
+        if (!found.isEmpty()) map.marks(ctx, found, Theme.ACCENT);
+        Layout.Box focus = focusNode == null ? null : boxOf(focusNode);
+        if (focus != null) map.marks(ctx, List.of(focus), Theme.OK);
     }
 
     private void closeOverlays() {
         if (settings != null) { settings.dispose(); settings = null; }
         finishEditor();
         menu = null;
+        blockMenu = null;
+        backpack = null;
         pressChip = null;
         pressBox = null;
     }
@@ -280,16 +533,32 @@ public final class EditorScreen extends Screen {
         SmoothText.clip(null);
         if (settings != null && settings.consumeChanged()) {
             revision++;
-            topStamp = Integer.MIN_VALUE;
+            top.invalidate();
             search.setEditableColor(Draw.opaque(Theme.TEXT));
         }
         Draw.rect(ctx, 0, 0, width, height, Draw.opaque(Theme.CANVAS));
+        advancePan();
         mouseCanvasX = toCanvasX(mouseX);
         mouseCanvasY = toCanvasY(mouseY);
+        Collab.frame(drag != null || editor != null ? heldRoot : null,
+                mouseCanvasX, mouseCanvasY, zoom);
 
         layout = layout();
+        prunePicked();
+        if (moving) covered();
+        syncBand();
+        if (finder != null) finder.sync(layoutStamp);
+        syncFound();
         updateHover(mouseX, mouseY);
         snap = drag == null ? null : findSnap(layout);
+
+        look.hover = hoverBox;
+        look.chip = hoverChip;
+        look.dragging = drag != null;
+        look.carrying = carry != null;
+        look.accepts = accepts;
+        look.mx = mouseCanvasX;
+        look.my = mouseCanvasY;
 
         ctx.enableScissor(canvasLeft(), Theme.TOPBAR_H, width, height);
         drawGrid(ctx);
@@ -317,7 +586,7 @@ public final class EditorScreen extends Screen {
             if (!chunk.visible(vx0, vy0, vx1, vy1)) continue;
             for (int i = chunk.from; i < chunk.to; i++) {
                 Layout.Box box = layout.boxes.get(i);
-                if (visible(box, vx0, vy0, vx1, vy1)) drawBlockShadow(ctx, box);
+                if (!rides(box) && visible(box, vx0, vy0, vx1, vy1)) BlockView.shadow(ctx, box);
             }
         }
         Draw.batch(null);
@@ -327,10 +596,22 @@ public final class EditorScreen extends Screen {
             Draw.batch(Batch.open(ctx, canvasArea, canvasArea, 512));
             for (int i = chunk.from; i < chunk.to; i++) {
                 Layout.Box box = layout.boxes.get(i);
-                if (visible(box, vx0, vy0, vx1, vy1)) drawBlock(ctx, box);
+                if (!rides(box) && visible(box, vx0, vy0, vx1, vy1))
+                    BlockView.block(ctx, textRenderer, box, look);
             }
             Draw.batch(null);
+            if (moving || picked.isEmpty()) continue;
+            List<Piece> mine = byRoot().get(layout.boxes.get(chunk.from).root);
+            if (mine == null) continue;
+            m.popMatrix();
+            drawOutlines(ctx, mine, 0, 0, canvasArea, vx0, vy0, vx1, vy1);
+            m.pushMatrix();
+            m.translate((float) (canvasLeft() + snapX), (float) (Theme.TOPBAR_H + snapY));
+            m.scale((float) zoom, (float) zoom);
         }
+
+        drawFound(ctx, vx0, vy0, vx1, vy1);
+        drawMoving(ctx, canvasArea, vx0, vy0, vx1, vy1);
 
         if (snap != null || drag != null) {
             Draw.batch(Batch.open(ctx, canvasArea, canvasArea, 512));
@@ -340,26 +621,40 @@ public final class EditorScreen extends Screen {
         }
 
         m.popMatrix();
+        if (moving) drawOutlines(ctx, pieces(), Math.round(moveDX), Math.round(moveDY),
+                canvasArea, vx0, vy0, vx1, vy1);
+        drawBand(ctx);
+        Peers.render(ctx, textRenderer, script, layout, canvasArea, canvasLeft(), Theme.TOPBAR_H,
+                panX, panY, zoom, width, height);
         ctx.disableScissor();
         SmoothText.clip(null);
 
+        drawMap(ctx, mouseX, mouseY);
+        if (finder != null) finder.render(ctx, mouseX, mouseY, delta);
         palette.render(ctx, textRenderer, mouseX, mouseY, height);
         search.render(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, textRenderer, search);
-        drawTopBar(ctx, mouseX, mouseY);
+        top.draw(ctx, mouseX, mouseY);
         drawSplitter(ctx, mouseX);
 
         ctx.createNewRootLayer();
+        drawPocket(ctx, mouseX, mouseY);
+        drawBar(ctx, mouseX, mouseY);
         drawToast(ctx);
         if (editor != null) editor.render(ctx, mouseX, mouseY, delta);
         if (menu != null) menu.render(ctx, textRenderer, mouseX, mouseY);
-        else if (!exitPrompt && settings == null && carry == null)
+        else if (blockMenu != null) blockMenu.render(ctx, mouseX, mouseY);
+        else if (!exitPrompt && settings == null && backpack == null && carry == null)
             drawTooltips(ctx, mouseX, mouseY);
         drawCarry(ctx, mouseX, mouseY);
         if (exitPrompt) drawExitPrompt(ctx, mouseX, mouseY);
         if (condPicker != null) {
             ctx.createNewRootLayer();
             condPicker.render(ctx, mouseX, mouseY, delta);
+        }
+        if (backpack != null) {
+            ctx.createNewRootLayer();
+            backpack.render(ctx, mouseX, mouseY, delta);
         }
         if (settings != null) settings.render(ctx, mouseX, mouseY, delta);
     }
@@ -371,8 +666,12 @@ public final class EditorScreen extends Screen {
     private void updateHover(int mouseX, int mouseY) {
         hoverBox = null;
         hoverChip = null;
-        if (drag != null || menu != null || mouseX < canvasLeft() || mouseY < Theme.TOPBAR_H) return;
+        if (drag != null || moving || banding || menu != null || blockMenu != null
+                || mouseX < canvasLeft() || mouseY < Theme.TOPBAR_H) return;
         if (editor != null && editor.contains(mouseX, mouseY)) return;
+        if (finder != null && finder.contains(mouseX, mouseY)) return;
+        if (map.hit(mouseX, mouseY)) return;
+        if (barShown() && Ui.hit(mouseX, mouseY, barX(), barY(), barW(), BAR_H)) return;
         for (int ci = layout.chunks.size() - 1; ci >= 0; ci--) {
             Layout.Chunk chunk = layout.chunks.get(ci);
             if (!chunk.visible(mouseCanvasX, mouseCanvasY, mouseCanvasX, mouseCanvasY)) continue;
@@ -452,253 +751,12 @@ public final class EditorScreen extends Screen {
                 Theme.TEXT_FAINT, false);
     }
 
-    private static int blockColor(Script.Node n) {
-        int base = n.action.category == null ? 0x7A7A7A : n.action.category.color;
-        return n.action.unavailable ? Draw.mix(base, 0x8A8A8A, 0.4f) : base;
-    }
-
-    private void drawBlockShadow(DrawContext ctx, Layout.Box box) {
-        Draw.shadow(ctx, box.x, box.y + box.hatH, box.w, box.headerH - box.hatH, 1);
-        if (box.node.wraps()) Draw.shadow(ctx, box.x, box.armY(), box.w, Layout.ARM_H, 1);
-    }
-
-    private static int rampAt(int y0, int span, int top, int bottom, int y) {
-        if (span <= 1) return top;
-        float t = (y - y0) / (float) span;
-        return Draw.mixArgb(top, bottom, Math.max(0f, Math.min(1f, t)));
-    }
-
-    private void drawBlock(DrawContext ctx, Layout.Box box) {
-        Script.Node n = box.node;
-        boolean hovered = hoverBox == box && hoverChip == null && drag == null;
-        boolean grad = Settings.gradient();
-        int base = hovered ? blockColor(n) : 0;
-        int top = hovered ? Draw.opaque(Draw.shade(base, grad ? 0.28f : 0.16f)) : box.top;
-        int bottom = hovered ? (grad ? Draw.opaque(Draw.shade(base, 0.02f)) : top) : box.bottom;
-        int border = hovered ? Draw.opaque(Draw.shade(base, -0.28f)) : box.border;
-        boolean wraps = n.wraps();
-        int headerBottom = box.y + box.headerH;
-
-        int y0 = box.y + box.hatH;
-        int span = Math.max(1, box.totalH - box.hatH - 1);
-
-        if (wraps) {
-            int armY = box.armY();
-            int spineY = headerBottom - 1, spineH = armY - headerBottom + 2;
-            Draw.blockShape(ctx, box.x, spineY, Layout.INDENT + 1, spineH, 0, 0,
-                    rampAt(y0, span, top, bottom, spineY),
-                    rampAt(y0, span, top, bottom, spineY + spineH - 1), border);
-            Draw.blockShape(ctx, box.x, armY, box.w, Layout.ARM_H, box.coverFrom, box.coverTo,
-                    rampAt(y0, span, top, bottom, armY + 1),
-                    rampAt(y0, span, top, bottom, armY + Layout.ARM_H - 2), border);
-            Draw.rect(ctx, box.x + 1, armY, Layout.INDENT - 1, 1,
-                    rampAt(y0, span, top, bottom, armY));
-        }
-
-        Draw.blockShape(ctx, box.x, box.y, box.w, box.headerH,
-                wraps ? box.mouthFrom : box.coverFrom, wraps ? box.mouthTo : box.coverTo,
-                rampAt(y0, span, top, bottom, box.y + 1),
-                rampAt(y0, span, top, bottom, headerBottom - 2), border);
-        if (wraps) Draw.rect(ctx, box.x + 1, headerBottom - 1, Layout.INDENT - 1, 1,
-                rampAt(y0, span, top, bottom, headerBottom - 1));
-
-        if (n.isHat())
-            Draw.rect(ctx, box.x + 4, box.y + 2, box.w - 8, 3, Draw.argb(0x4D, 0xFFFFFF));
-        else
-            Draw.rect(ctx, box.x + 1, box.y + 1, box.w - 2, 1, Draw.argb(0x2E, 0xFFFFFF));
-
-        int iconY = box.y + box.hatH + 5;
-        boolean lightHead = hovered
-                ? Draw.isLight(Draw.shade(base, grad ? 0.28f : 0.16f)) : box.lightHead;
-        int ink = hovered ? (lightHead ? 0x141821 : 0xFFFFFF) : box.ink;
-        if (box.card != null) {
-            drawCard(ctx, box, ink, lightHead, top);
-            for (Layout.Chip chip : box.chips) drawChip(ctx, box, chip);
-            return;
-        }
-        ctx.drawItem(n.action.icon(), box.x + Layout.PAD - 1, iconY);
-        Draw.text(ctx, textRenderer, box.title, box.x + Layout.PAD + 20, iconY + 4, ink, !lightHead);
-        if (box.target != null)
-            Draw.text(ctx, textRenderer, box.target, box.targetX, iconY + 4,
-                    Draw.argb(0xC4, ink), !lightHead);
-        if (n.action.unavailable)
-            Draw.glyph(ctx, Draw.WARN, box.x + box.w - Layout.PAD - 5, iconY + 5,
-                    lightHead ? 0x7A5300 : 0xFFE066);
-
-        for (Layout.Chip chip : box.chips) drawChip(ctx, box, chip);
-    }
-
-    private void drawChip(DrawContext ctx, Layout.Box box, Layout.Chip chip) {
-        if (chip.isPlus()) drawPlusChip(ctx, chip);
-        else if (chip.isCondition()) drawConditionChip(ctx, box, chip);
-        else if (chip.isArg() || chip.isCell()) drawArgChip(ctx, box, chip);
-        else drawMarkerChip(ctx, box, chip);
-        if (carry != null) {
-            if (!acceptsCarry(box, chip)) return;
-            boolean under = hoverChip == chip;
-            if (under) Draw.roundOutline(ctx, chip.x - 3, chip.y - 3, chip.w + 6, Layout.CHIP_H + 6,
-                    (Layout.CHIP_H + 6) / 2, Draw.argb(0x3A, Theme.ACCENT));
-            Draw.roundOutline(ctx, chip.x - 1, chip.y - 1, chip.w + 2, Layout.CHIP_H + 2,
-                    (Layout.CHIP_H + 2) / 2,
-                    Draw.argb(under ? 0xFF : 0x55, Theme.ACCENT));
-            return;
-        }
-        if (hoverChip == chip) Draw.roundOutline(ctx, chip.x, chip.y, chip.w, Layout.CHIP_H,
-                Layout.CHIP_H / 2, Draw.argb(0xAA, 0xFFFFFF));
-    }
-
-    private void drawCard(DrawContext ctx, Layout.Box box, int ink, boolean lightHead, int head) {
-        Layout.Card c = box.card;
-        int mute = Draw.mix(ink, head, 0.42f);
-        int soft = Draw.mix(ink, head, 0.30f);
-
-        if (!c.icon.isEmpty()) {
-            if (c.iconSize == 16) {
-                ctx.drawItem(c.icon, c.iconX, c.iconY);
-            } else {
-                Matrix3x2fStack m = ctx.getMatrices();
-                m.pushMatrix();
-                m.translate(c.iconX, c.iconY);
-                m.scale(c.iconSize / 16f, c.iconSize / 16f);
-                ctx.drawItem(c.icon, 0, 0);
-                m.popMatrix();
-            }
-        }
-        if (c.verb != null)
-            Draw.text(ctx, textRenderer, c.verb, c.verbX, c.nameY, soft, !lightHead);
-        Draw.textScaled(ctx, textRenderer, c.name, c.nameX, c.nameY, c.scale,
-                c.named ? ink : mute, !lightHead);
-        if (c.id != null)
-            Draw.text(ctx, textRenderer, c.id, c.idX, c.idY, mute, !lightHead);
-        if (c.kind != null)
-            Draw.text(ctx, textRenderer, c.kind, c.kindX, c.kindY, mute, !lightHead);
-        if (c.missing)
-            Draw.glyph(ctx, Draw.WARN, box.x + box.w - Layout.PAD - 5, c.nameY + (c.scale > 1 ? 4 : 0),
-                    lightHead ? 0x7A5300 : 0xFFE066);
-        for (int i = 0; i < c.desc.size(); i++)
-            Draw.text(ctx, textRenderer, c.desc.get(i), c.descX,
-                    c.descY + i * Layout.DESC_H, soft, !lightHead);
-        if (hoverBox == box && hoverChip == null && drag == null) {
-            if (c.hitName(mouseCanvasX, mouseCanvasY)) {
-                int from = c.verb == null ? c.nameX : c.verbX;
-                Draw.rect(ctx, from, c.nameY + 8 * c.scale, c.nameX + c.nameW - from, 1,
-                        Draw.opaque(mute));
-            }
-            if (c.hitId(mouseCanvasX, mouseCanvasY))
-                Draw.rect(ctx, c.idX, c.idY + 8, c.idW, 1, Draw.opaque(mute));
-            if (c.hitDesc(mouseCanvasX, mouseCanvasY))
-                Draw.rect(ctx, c.descX, c.descY + c.desc.size() * Layout.DESC_H - 2, c.descW, 1,
-                        Draw.opaque(mute));
-            if (c.hitIcon(mouseCanvasX, mouseCanvasY))
-                Draw.roundOutline(ctx, c.iconX - 2, c.iconY - 2, c.iconSize + 4, c.iconSize + 4, 3,
-                        Draw.argb(0x99, ink));
-        }
-        if (c.sepY > 0) {
-            Draw.rect(ctx, box.x + Layout.PAD, c.sepY, box.w - Layout.PAD * 2, 1,
-                    Draw.argb(0x3A, 0x000000));
-            Draw.rect(ctx, box.x + Layout.PAD, c.sepY + 1, box.w - Layout.PAD * 2, 1,
-                    Draw.argb(0x22, 0xFFFFFF));
-        }
-    }
-
-    private void drawPlusChip(DrawContext ctx, Layout.Chip chip) {
-        Draw.pill(ctx, chip.x, chip.y, chip.w, Layout.CHIP_H, chip.border);
-        Draw.pillGrad(ctx, chip.x + 1, chip.y + 1, chip.w - 2, Layout.CHIP_H - 2,
-                chip.top, chip.bottom);
-        Draw.glyph(ctx, Draw.PLUS, chip.x + 5, chip.y + 5, chip.ink);
-        Draw.text(ctx, textRenderer, chip.fitted, chip.x + 16, chip.y + 4, chip.ink, false);
-    }
-
-    private void drawArgChip(DrawContext ctx, Layout.Box box, Layout.Chip chip) {
-        Draw.pill(ctx, chip.x, chip.y, chip.w, Layout.CHIP_H, chip.border);
-        Draw.pillGrad(ctx, chip.x + 1, chip.y + 1, chip.w - 2, Layout.CHIP_H - 2,
-                chip.top, chip.bottom);
-        chipBadge(ctx, chip, chip.icon, chip.dot);
-
-        int textRight = chip.x + chip.w - 6;
-        if (chip.count != null) {
-            Draw.text(ctx, textRenderer, chip.count, textRight - chip.countW, chip.y + 4,
-                    chip.dim, false);
-            textRight -= chip.countW + 5;
-        }
-        if (chip.note != null) {
-            Draw.text(ctx, textRenderer, chip.note, textRight - chip.noteW, chip.y + 4,
-                    chip.dim, false);
-            textRight -= chip.noteW + 4;
-        }
-        Draw.text(ctx, textRenderer, chip.fitted,
-                chip.x + (chip.icon.isEmpty() ? Layout.CHIP_INK_X : Layout.CHIP_ITEM_INK_X),
-                chip.y + 4, chip.ink, false);
-    }
-
-    private static void badge(DrawContext ctx, int x, int y, ItemStack icon, int dot) {
-        if (icon == null || icon.isEmpty()) {
-            Draw.dot(ctx, x + 5, y + 5, dot);
-            return;
-        }
-        Matrix3x2fStack m = ctx.getMatrices();
-        m.pushMatrix();
-        m.translate(x + 2f, y + 2f);
-        m.scale(11 / 16f, 11 / 16f);
-        ctx.drawItem(icon, 0, 0);
-        m.popMatrix();
-    }
-
-    private static void chipBadge(DrawContext ctx, Layout.Chip chip, ItemStack icon, int dot) {
-        badge(ctx, chip.x, chip.y, icon, dot);
-    }
-
-    private static ItemStack itemIcon(Value v) {
-        return v.hasIcon() ? Stacks.preview(v) : ItemStack.EMPTY;
-    }
-
-    private static int pill(DrawContext ctx, int x, int y, int w, int face,
-                            boolean tinted, int alpha) {
-        boolean grad = Settings.gradient();
-        int top = tinted ? Draw.shade(face, grad ? 0.12f : 0.02f) : Theme.MARKER_TOP;
-        int bottom = tinted ? Draw.shade(face, grad ? -0.10f : 0.02f)
-                : grad ? Theme.MARKER_BOTTOM : Theme.MARKER_TOP;
-        Draw.pill(ctx, x, y, w, Layout.CHIP_H,
-                Draw.argb(alpha, tinted ? Draw.shade(face, -0.5f) : Theme.MARKER_BORDER));
-        Draw.pillGrad(ctx, x + 1, y + 1, w - 2, Layout.CHIP_H - 2,
-                Draw.argb(alpha, top), Draw.argb(alpha, bottom));
-        return top;
-    }
-
-    private static int chipPill(DrawContext ctx, Layout.Chip chip, int face, boolean tinted) {
-        return pill(ctx, chip.x, chip.y, chip.w, face, tinted, 0xFF);
-    }
-
-    private void drawConditionChip(DrawContext ctx, Layout.Box box, Layout.Chip chip) {
-        Script.Node cond = box.node.cond;
-        boolean set = cond != null;
-        int face = set && cond.action.category != null
-                ? cond.action.category.color : Theme.MARKER_TOP;
-        int top = chipPill(ctx, chip, face, set);
-        chipBadge(ctx, chip, set && !cond.action.item.isEmpty()
-                ? Catalog.stackOf(cond.action.item) : null, Draw.opaque(Draw.shade(face, -0.55f)));
-        int ink = Draw.isLight(top) ? 0x141821 : set ? 0xFFFFFF : Theme.TEXT_DIM;
-        Draw.text(ctx, textRenderer, chip.fitted, chip.x + 15, chip.y + 4, ink, false);
-    }
-
-    private void drawMarkerChip(DrawContext ctx, Layout.Box box, Layout.Chip chip) {
-        boolean bound = Layout.markerBound(Layout.chipNode(box.node), chip.settingIndex);
-        int face = bound ? Values.color(Value.VARIABLE) : Theme.MARKER_TOP;
-        int top = chipPill(ctx, chip, face, bound);
-        int ink = Draw.isLight(top) ? 0x141821 : bound ? 0xFFFFFF : Theme.TEXT;
-        if (bound) Draw.dot(ctx, chip.x + 5, chip.y + 5, Draw.opaque(Draw.shade(face, -0.55f)));
-        Draw.text(ctx, textRenderer, chip.fitted, chip.x + (bound ? 13 : 8), chip.y + 4,
-                ink, false);
-        Draw.glyph(ctx, Draw.CARET_DOWN, chip.x + chip.w - 11, chip.y + 6,
-                bound ? Draw.argb(0xCC, ink) : Draw.opaque(Theme.TEXT_DIM));
-    }
-
     private void drawDragged(DrawContext ctx) {
         int px = (int) Math.round(mouseCanvasX - dragOffX);
         int py = (int) Math.round(mouseCanvasY - dragOffY);
         Layout l = Layout.ofChain(drag, px, py, textRenderer);
-        for (Layout.Box b : l.boxes) drawBlockShadow(ctx, b);
-        for (Layout.Box b : l.boxes) drawBlock(ctx, b);
+        for (Layout.Box b : l.boxes) BlockView.shadow(ctx, b);
+        for (Layout.Box b : l.boxes) BlockView.block(ctx, textRenderer, b, look);
     }
 
     private void drawSnapMark(DrawContext ctx) {
@@ -706,74 +764,6 @@ public final class EditorScreen extends Screen {
         if (ghost.boxes.isEmpty()) return;
         Layout.Box b = ghost.boxes.get(0);
         Draw.blockSilhouette(ctx, b.x, b.y, b.w, b.headerH, Draw.argb(0x66, 0xC3DEFF));
-    }
-
-    private static final int B_UNDO = 1, B_REDO = 2, B_PLAY = 3, B_BUILD = 4, B_CLEAR = 5,
-            B_ZOOM_OUT = 6, B_ZOOM_IN = 7, B_FIT = 8,
-            B_ORIGINAL = 9, B_CANVAS = 10, B_SETTINGS = 11, B_UPLOAD = 12, B_MORE = 13,
-            B_ZOOM_LABEL = 14, B_LOAD = 15;
-
-    private static final class TopBtn {
-        int id, x, w;
-        String[] icon;
-        String label, tip;
-        boolean enabled = true;
-        boolean separatorAfter;
-        boolean active;
-        boolean joinLeft, joinRight;
-    }
-
-    private TopBtn btn(int id, String[] icon, String tip) {
-        return btn(id, icon, null, tip);
-    }
-
-    private TopBtn btn(int id, String[] icon, String label, String tip) {
-        TopBtn b = new TopBtn();
-        b.id = id; b.icon = icon; b.label = label; b.tip = tip;
-        b.w = 8 + (icon == null ? 0 : Draw.glyphW(icon) + (label == null ? 0 : 5))
-                + (label == null ? 0 : textRenderer.getWidth(label)) + 8;
-        return b;
-    }
-
-    private List<TopBtn> topCache;
-    private int topStamp = Integer.MIN_VALUE;
-    private List<TopBtn> topButtons() {
-        int stamp = width * 31 + canvasLeft() * 7 + countNodes() * 64
-                + (History.canUndo() ? 1 : 0) + (History.canRedo() ? 2 : 0)
-                + (script.roots.isEmpty() ? 0 : 4)
-                + (Settings.canvasMode() ? 8 : 0);
-        if (topCache != null && stamp == topStamp) return topCache;
-        List<TopBtn> list = buildTop(0, true);
-        if (!topFits(list)) list = buildTop(0, false);
-        for (int drop = 1; !topFits(list) && drop <= HIDE_ORDER.length; drop++)
-            list = buildTop(drop, false);
-        topStamp = stamp;
-        topCache = list;
-        return list;
-    }
-
-    private static final int[] HIDE_ORDER = {B_CLEAR, B_LOAD, B_BUILD, B_PLAY, B_UPLOAD, B_REDO,
-            B_UNDO, B_FIT, B_ZOOM_LABEL, B_ZOOM_OUT, B_ORIGINAL};
-
-    private boolean zoomLabelShown = true;
-
-    private boolean infoShown() { return width - canvasLeft() >= 400; }
-
-    private final List<TopBtn> hiddenTop = new ArrayList<>();
-
-    private void openTopMenu(int mx, int my) {
-        List<Menu.Item> items = new ArrayList<>();
-        List<TopBtn> acts = new ArrayList<>(hiddenTop);
-        for (TopBtn b : acts) {
-            String label = b.tip == null ? "" : b.tip;
-            int nl = label.indexOf('\n');
-            if (nl >= 0) label = label.substring(0, nl);
-            Menu.Item item = new Menu.Item(label.trim(), b.id == B_CLEAR, b.icon);
-            item.enabled = b.enabled;
-            items.add(item);
-        }
-        menu = Menu.actions(width, height, mx, my, textRenderer, items,
-                i -> { if (i >= 0 && i < acts.size()) onTopButton(acts.get(i).id); });
     }
 
     private boolean choosingFile;
@@ -787,34 +777,13 @@ public final class EditorScreen extends Screen {
             Files.createDirectories(dir);
         } catch (Exception ignored) {
         }
-        String start = dir.toAbsolutePath() + File.separator;
-        toast(client != null && client.getWindow() != null && client.getWindow().isFullscreen()
-                ? "окно выбора файла открыто — сверни игру, оно позади"
-                : "выбери json в окне проводника");
-        Thread thread = new Thread(() -> {
-            String picked = null;
-            try {
-                TinyFileDialogs.tinyfd_setGlobalInt("tinyfd_winUtf8", 1);
-                try (MemoryStack stack = MemoryStack.stackPush()) {
-                    PointerBuffer filter = stack.mallocPointer(1);
-                    filter.put(stack.UTF8("*.json"));
-                    filter.flip();
-                    picked = TinyFileDialogs.tinyfd_openFileDialog("Загрузить json",
-                            start, filter, "код JustMC (*.json)", false);
-                }
-            } catch (Throwable e) {
-                XeroCode.LOG.error("[xerocode] окно выбора файла не открылось", e);
-            }
-            String chosen = picked;
-            MinecraftClient.getInstance().execute(() -> {
-                choosingFile = false;
-                if (chosen == null || chosen.isEmpty()) return;
-                if (client != null && client.currentScreen != this) return;
-                loadJson(Path.of(chosen));
-            });
-        }, "xerocode-json-dialog");
-        thread.setDaemon(true);
-        thread.start();
+        toast(FileDialog.hint());
+        FileDialog.open("Загрузить json", dir.toAbsolutePath() + File.separator,
+                new String[]{"*.json"}, "код JustMC (*.json)", file -> {
+                    choosingFile = false;
+                    if (file == null || (client != null && client.currentScreen != this)) return;
+                    loadJson(file);
+                });
     }
 
     private void loadJson(Path file) {
@@ -855,231 +824,42 @@ public final class EditorScreen extends Screen {
         toast("полотно заменено: " + note + " · Ctrl+Z вернёт");
     }
 
-    private boolean topFits(List<TopBtn> list) {
-        int leftEnd = canvasLeft(), rightStart = width;
-        for (TopBtn b : list) {
-            boolean right = b.id == B_ZOOM_OUT || b.id == B_ZOOM_IN || b.id == B_FIT
-                    || b.id == B_SETTINGS;
-            if (right) rightStart = Math.min(rightStart, b.x);
-            else leftEnd = Math.max(leftEnd, b.x + b.w);
-        }
-        return leftEnd + 10 <= rightStart;
-    }
-
-    private List<TopBtn> buildTop(int drop, boolean modeLabels) {
-        List<TopBtn> list = new ArrayList<>();
-        TopBtn undo = btn(B_UNDO, Draw.UNDO, "Отменить  " + hotkey(Settings.Hot.UNDO));
-        undo.enabled = History.canUndo();
-        TopBtn redo = btn(B_REDO, Draw.REDO, "Вернуть  " + hotkey(Settings.Hot.REDO));
-        redo.enabled = History.canRedo();
-        redo.separatorAfter = true;
-        list.add(undo);
-        list.add(redo);
-        list.add(btn(B_PLAY, Draw.PLAY, "Игра  " + hotkey(Settings.Hot.PLAY)
-                + "\nЗапустить мир и проверить код"));
-        list.add(btn(B_BUILD, Draw.BRICKS, "Строительство  " + hotkey(Settings.Hot.BUILD)
-                        + "\nВернуться строить мир"));
-        TopBtn clear = btn(B_CLEAR, Draw.TRASH, "Очистить полотно");
-        clear.enabled = !script.roots.isEmpty();
-        list.add(clear);
-        TopBtn upload = btn(B_UPLOAD, Draw.UPLOAD, "Сохранить на сервер  " + hotkey(Settings.Hot.UPLOAD)
-                        + "\nЗаписать код полотна блоками в мир");
-        upload.enabled = !script.roots.isEmpty();
-        list.add(upload);
-        TopBtn load = btn(B_LOAD, Draw.LOAD, "Загрузить json"
-                + "\nЗаменить полотно кодом из файла");
-        load.separatorAfter = true;
-        list.add(load);
-
-        boolean canvasMode = Settings.canvasMode();
-        TopBtn original = btn(B_ORIGINAL, Draw.BRICKS, modeLabels ? "3D" : null,
-                "3D-кодинг  " + hotkey(Settings.Hot.MODE)
-                        + "\nЗакрыть полотно и собирать код блоками в мире");
-        original.active = !canvasMode;
-        original.joinRight = true;
-        TopBtn canvas = btn(B_CANVAS, Draw.CANVAS, modeLabels ? "2D" : null,
-                "2D-кодинг\nСобирать код на полотне, как сейчас");
-        canvas.active = canvasMode;
-        canvas.joinLeft = true;
-        list.add(original);
-        list.add(canvas);
-
-        List<TopBtn> right = new ArrayList<>();
-        right.add(btn(B_ZOOM_OUT, Draw.MINUS, "Отдалить"));
-        right.add(btn(B_ZOOM_IN, Draw.PLUS, "Приблизить"));
-        right.add(btn(B_FIT, Draw.FIT, "Показать всё  " + hotkey(Settings.Hot.FIT)));
-        TopBtn gear = btn(B_SETTINGS, Draw.GEAR, "Настройки  " + hotkey(Settings.Hot.SETTINGS)
-                        + "\nГорячие клавиши и внешний вид");
-
-        hiddenTop.clear();
-        zoomLabelShown = true;
-        for (int i = 0; i < drop && i < HIDE_ORDER.length; i++) {
-            if (HIDE_ORDER[i] == B_ZOOM_LABEL) zoomLabelShown = false;
-            TopBtn hide = find(list, HIDE_ORDER[i]);
-            if (hide == null) hide = find(right, HIDE_ORDER[i]);
-            if (hide != null) hiddenTop.add(hide);
-            if (HIDE_ORDER[i] == B_ZOOM_OUT) {
-                TopBtn zoomIn = find(right, B_ZOOM_IN);
-                if (zoomIn != null) hiddenTop.add(zoomIn);
-            }
-        }
-        list.removeAll(hiddenTop);
-        right.removeAll(hiddenTop);
-        if (find(list, B_ORIGINAL) == null) list.remove(find(list, B_CANVAS));
-        if (find(list, B_CANVAS) == null) for (TopBtn b : list) b.joinRight = false;
-        if (!hiddenTop.isEmpty()) {
-            TopBtn more = btn(B_MORE, Draw.CARET_DOWN, "Ещё");
-            more.separatorAfter = true;
-            list.add(0, more);
-        }
-        for (int i = 0; i < list.size(); i++)
-            list.get(i).separatorAfter = list.get(i).separatorAfter && i < list.size() - 1;
-
-        int x = canvasLeft() + 8;
-        for (TopBtn b : list) {
-            b.x = x;
-            x += b.w + (b.separatorAfter ? 11 : b.joinRight ? 0 : 4);
-        }
-
-        boolean zoomShown = find(right, B_ZOOM_OUT) != null && zoomLabelShown;
-        int zoomLabelW = zoomShown ? textRenderer.getWidth("999%") + 6 : 0;
-        int total = zoomLabelW + gear.w + (right.isEmpty() ? 0 : 11);
-        for (TopBtn b : right) total += b.w + 4;
-        int rx = width - 12 - (infoShown() ? infoWidth() + 12 : 0) - total;
-        for (TopBtn b : right) {
-            b.x = rx;
-            rx += b.w + 4 + (b.id == B_ZOOM_OUT ? zoomLabelW + 4 : 0);
-        }
-        if (!right.isEmpty()) {
-            right.get(right.size() - 1).separatorAfter = true;
-            rx += 7;
-        }
-        gear.x = rx;
-        right.add(gear);
-        list.addAll(right);
-        return list;
-    }
-
-    private static TopBtn find(List<TopBtn> list, int id) {
-        for (TopBtn b : list) if (b.id == id) return b;
-        return null;
-    }
-
-    private static String hotkey(Settings.Hot hot) {
-        return Settings.get().label(hot);
-    }
-
-    private String infoText() { return "блоков: " + countNodes(); }
-    private int infoWidth() { return textRenderer.getWidth(infoText()); }
-
-    private void drawTopBar(DrawContext ctx, int mouseX, int mouseY) {
-        ScreenRect area = new ScreenRect(canvasLeft(), 0, width - canvasLeft(), Theme.TOPBAR_H);
-        Draw.batch(Batch.open(ctx, null, area, 512));
-        Draw.rect(ctx, canvasLeft(), 0, width - canvasLeft(), Theme.TOPBAR_H,
-                Draw.opaque(Theme.PANEL));
-        Draw.rect(ctx, canvasLeft(), Theme.TOPBAR_H - 1, width - canvasLeft(), 1,
-                Draw.opaque(Theme.LINE));
-
-        List<TopBtn> buttons = topButtons();
-        TopBtn joinFirst = null, joinLast = null;
-        for (TopBtn b : buttons) {
-            if (b.joinRight) joinFirst = b;
-            if (b.joinLeft) joinLast = b;
-        }
-        boolean outlined = Settings.outlined();
-        int r = Settings.radius(18);
-
-        for (TopBtn b : buttons) {
-            boolean hover = b.enabled && hitBtn(b, mouseX, mouseY);
-            boolean joined = b.joinLeft || b.joinRight;
-            int fill = hover ? Theme.SURFACE_HOVER : Theme.SURFACE;
-            if (b.active) fill = Draw.mix(Ui.BTN_ON, Theme.ACCENT, hover ? 0.35f : 0.22f);
-            if (!b.enabled) fill = Theme.PANEL_RAISED;
-            int rl = b.joinLeft ? 0 : r, rr = b.joinRight ? 0 : r;
-            if (outlined && !(joined && b.active)) {
-                Draw.roundRect(ctx, b.x, 6, b.w, 18, rl, rr, rr, rl,
-                        Draw.argb(hover ? 0x66 : 0x28, fill));
-                if (!joined) Draw.roundOutline(ctx, b.x, 6, b.w, 18, r,
-                        Draw.opaque(Draw.shade(fill, hover || b.active ? 0.62f : 0.42f)));
-            } else {
-                Draw.roundRect(ctx, b.x, 6, b.w, 18, rl, rr, rr, rl, Draw.opaque(fill));
-            }
-            if (b.active && !outlined) Draw.rect(ctx, b.x + 4, 22, b.w - 8, 1,
-                    Draw.opaque(Theme.ACCENT));
-            int color = !b.enabled ? Theme.TEXT_FAINT
-                    : b.active ? Theme.ON_ACCENT : hover ? Theme.TEXT : Theme.TEXT_DIM;
-            int gx = b.x + 8;
-            if (b.icon != null) {
-                Draw.glyph(ctx, b.icon, gx, 6 + (18 - Draw.glyphH(b.icon)) / 2, color);
-                gx += Draw.glyphW(b.icon) + 5;
-            }
-            if (b.label != null) Draw.text(ctx, textRenderer, b.label, gx, 11, color, false);
-            if (b.separatorAfter)
-                Draw.rect(ctx, b.x + b.w + 5, 8, 1, 14, Draw.opaque(Theme.LINE));
-            if (b.id == B_ZOOM_OUT && zoomLabelShown) {
-                String z = Math.round(zoom * 100) + "%";
-                Draw.text(ctx, textRenderer, z,
-                        b.x + b.w + 4 + (textRenderer.getWidth("999%") + 6 - textRenderer.getWidth(z)) / 2,
-                        11, Theme.TEXT_DIM, false);
-            }
-        }
-        if (joinFirst != null && joinLast != null) {
-            int gx = joinFirst.x, gw = joinLast.x + joinLast.w - gx;
-            if (outlined) Draw.roundOutline(ctx, gx, 6, gw, 18, r, Draw.opaque(Ui.BORDER));
-            Draw.rect(ctx, joinLast.x, 7, 1, 16,
-                    Draw.argb(outlined ? 0xFF : 0x66, outlined ? Ui.BORDER : 0x000000));
-        }
-        Draw.batch(null);
-        if (infoShown())
-            Draw.textRight(ctx, textRenderer, infoText(), width - 12, 11, Theme.TEXT_FAINT, false);
-    }
-
-    private static boolean hitBtn(TopBtn b, double mx, double my) {
-        return mx >= b.x && mx < b.x + b.w && my >= 6 && my < 24;
-    }
-
     private int nodeCount = -1;
 
     private int countNodes() {
-        if (nodeCount < 0) nodeCount = count(script.roots);
+        if (nodeCount < 0) nodeCount = Script.blocksIn(script.roots);
         return nodeCount;
-    }
-
-    private int count(List<Script.Root> roots) {
-        int n = 0;
-        for (Script.Root r : roots) n += countChain(r.chain);
-        return n;
-    }
-
-    private int countChain(List<Script.Node> chain) {
-        int n = 0;
-        for (Script.Node k : chain) n += 1 + countChain(k.body);
-        return n;
     }
 
     private void onTopButton(int id) {
         switch (id) {
-            case B_UNDO -> undo();
-            case B_REDO -> redo();
-            case B_PLAY -> askExit("play");
-            case B_BUILD -> askExit("build");
-            case B_CLEAR -> {
-                if (script.roots.isEmpty()) return;
-                closeOverlays();
-                pushUndo();
-                script.roots.clear();
-                toast("полотно очищено");
-            }
-            case B_ZOOM_OUT -> zoomTo(zoom / 1.15, (canvasLeft() + width) / 2.0, (Theme.TOPBAR_H + height) / 2.0);
-            case B_ZOOM_IN -> zoomTo(zoom * 1.15, (canvasLeft() + width) / 2.0, (Theme.TOPBAR_H + height) / 2.0);
-            case B_FIT -> fitView();
-            case B_UPLOAD -> publish(null);
-            case B_LOAD -> openLoadDialog();
-            case B_SETTINGS -> openSettings();
-            case B_ORIGINAL -> toOriginal();
-            case B_CANVAS -> { }
+            case TopBar.UNDO -> undo();
+            case TopBar.REDO -> redo();
+            case TopBar.PLAY -> askExit("play");
+            case TopBar.BUILD -> askExit("build");
+            case TopBar.CLEAR -> clearCanvas();
+            case TopBar.ZOOM_OUT -> zoomTo(zoom / 1.15, (canvasLeft() + width) / 2.0,
+                    (Theme.TOPBAR_H + height) / 2.0);
+            case TopBar.ZOOM_IN -> zoomTo(zoom * 1.15, (canvasLeft() + width) / 2.0,
+                    (Theme.TOPBAR_H + height) / 2.0);
+            case TopBar.FIT -> fitView();
+            case TopBar.FIND -> toggleFinder();
+            case TopBar.UPLOAD -> publish(null);
+            case TopBar.LOAD -> openLoadDialog();
+            case TopBar.BACKPACK -> openBackpack();
+            case TopBar.MARKET -> openMarket();
+            case TopBar.SETTINGS -> openSettings();
+            case TopBar.ORIGINAL -> toOriginal();
             default -> { }
         }
+    }
+
+    private void clearCanvas() {
+        if (script.roots.isEmpty()) return;
+        closeOverlays();
+        pushUndo();
+        script.roots.clear();
+        toast("полотно очищено");
     }
 
     private static final double MIN_ZOOM = 0.25, MAX_ZOOM = 2.0;
@@ -1117,6 +897,7 @@ public final class EditorScreen extends Screen {
     }
 
     private void applyZoom(double target, double aroundX, double aroundY) {
+        panAnim = false;
         double before = zoom;
         zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, target));
         double cx = (aroundX - canvasLeft() - panX) / before, cy = (aroundY - Theme.TOPBAR_H - panY) / before;
@@ -1125,6 +906,7 @@ public final class EditorScreen extends Screen {
     }
 
     private void fitView() {
+        panAnim = false;
         if (script.roots.isEmpty()) { zoom = 1; panX = 60; panY = 50; toast("масштаб 100%"); return; }
         Layout l = Layout.of(script, textRenderer);
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
@@ -1134,7 +916,7 @@ public final class EditorScreen extends Screen {
             maxX = Math.max(maxX, b.x + b.w);
             maxY = Math.max(maxY, b.bottom());
         }
-        int vw = Math.max(40, width - canvasLeft() - 40);
+        int vw = Math.max(40, canvasRight() - canvasLeft() - 40);
         int vh = Math.max(40, height - Theme.TOPBAR_H - 40);
         zoom = snapZoom(Math.max(MIN_ZOOM, Math.min(1.5,
                 Math.min(vw / (double) (maxX - minX), vh / (double) (maxY - minY)))));
@@ -1151,7 +933,7 @@ public final class EditorScreen extends Screen {
     private void closeSettings() {
         settings = null;
         revision++;
-        topStamp = Integer.MIN_VALUE;
+        top.invalidate();
         palette.invalidate();
     }
 
@@ -1240,8 +1022,12 @@ public final class EditorScreen extends Screen {
         rememberView();
         saveScript();
         MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
-        if (mc.getNetworkHandler() != null) mc.getNetworkHandler().sendChatCommand(command);
         XeroCode.canvasClosed();
+        if (XeroCode.RESTART.equals(command)) {
+            XeroCode.restart();
+            return;
+        }
+        if (mc.getNetworkHandler() != null) mc.getNetworkHandler().sendChatCommand(command);
         XeroCode.cover("play".equals(command) ? "Запуск мира…" : "Режим строительства…", null);
     }
 
@@ -1261,7 +1047,7 @@ public final class EditorScreen extends Screen {
         a = Math.max(0, Math.min(255, a));
         int w = textRenderer.getWidth(status) + 24;
         int x = canvasLeft() + (width - canvasLeft() - w) / 2;
-        int y = height - 34;
+        int y = height - 34 - (barShown() ? BAR_H + 6 : 0);
         Draw.round(ctx, x, y, w, 20, 6, Draw.argb(a * 0xE0 / 255, Ui.HEAD));
         Draw.roundOutline(ctx, x, y, w, 20, 6, Draw.argb(a * 0x80 / 255, Ui.BORDER));
         ctx.drawText(textRenderer, status, x + 12, y + 6, Draw.argb(a, Theme.TEXT), false);
@@ -1271,15 +1057,7 @@ public final class EditorScreen extends Screen {
         if (editor != null && editor.contains(mouseX, mouseY)) return;
 
         if (mouseY < Theme.TOPBAR_H && mouseX >= canvasLeft()) {
-            for (TopBtn b : topButtons())
-                if (hitBtn(b, mouseX, mouseY)) {
-                    List<Text> tip = new ArrayList<>();
-                    String[] parts = b.tip.split("\n");
-                    tip.add(Text.literal(parts[0]));
-                    for (int i = 1; i < parts.length; i++) tip.add(Text.literal("§7" + parts[i]));
-                    ctx.drawTooltip(textRenderer, tip, mouseX, mouseY);
-                    return;
-                }
+            top.tooltip(ctx, mouseX, mouseY);
             return;
         }
         if (mouseX < canvasLeft()) {
@@ -1370,7 +1148,6 @@ public final class EditorScreen extends Screen {
             } else {
                 lines.add(Text.literal("§8" + s.options.size() + " вариантов"));
             }
-            lines.add(Text.literal("§8ЛКМ — список, колесо — перебрать"));
         }
         ctx.drawTooltip(textRenderer, lines, mouseX, mouseY);
     }
@@ -1501,6 +1278,12 @@ public final class EditorScreen extends Screen {
             if (condPicker.isClosed()) condPicker = null;
             return true;
         }
+        if (backpack != null) {
+            BackpackPanel panel = backpack;
+            panel.mouseClicked(click, doubled);
+            if (panel.isClosed() || backpack != panel) backpack = null;
+            return true;
+        }
         if (settings != null) {
             settings.mouseClicked(click, doubled);
             if (settings.isClosed()) closeSettings();
@@ -1512,12 +1295,50 @@ public final class EditorScreen extends Screen {
             if (menu.isClosed()) menu = null;
             return true;
         }
+        if (blockMenu != null) {
+            BlockMenu open = blockMenu;
+            open.mouseClicked(mx, my);
+            if (open.isClosed() || blockMenu != open) blockMenu = null;
+            return true;
+        }
         if (editor != null) {
             boolean inside = editor.mouseClicked(click, doubled);
             if (editor.isClosed()) finishEditor();
             if (inside) return true;
         }
 
+        if (finder != null && finder.mouseClicked(click, doubled)) {
+            if (finder.isClosed()) closeFinder();
+            return true;
+        }
+        if (drag == null && map.hit(mx, my)) {
+            if (button == 1) {
+                Settings s = Settings.get();
+                s.minimap = false;
+                s.save();
+                map.hide();
+                toast("мини-карта убрана · вернуть — в настройках");
+                return true;
+            }
+            if (button == 0) {
+                mapDragging = true;
+                centerOn(map.canvasX(mx), map.canvasY(my), true);
+            }
+            return true;
+        }
+        if (drag != null && dragAwaitsClick) {
+            if (button == 0 && mx >= canvasLeft() && my >= Theme.TOPBAR_H) {
+                finishDrag(mx, my);
+            } else {
+                drag = null;
+                snap = null;
+                dragSnapshot = null;
+                dragAwaitsClick = false;
+                toast("отменено");
+            }
+            return true;
+        }
+        if (drag == null && carry == null && barClicked(mx, my)) return true;
         if (button == 0 && overSplitter(mx)) {
             resizingPalette = true;
             paletteDrag = Theme.PALETTE_W;
@@ -1525,24 +1346,22 @@ public final class EditorScreen extends Screen {
             return true;
         }
         if (my < Theme.TOPBAR_H && mx >= canvasLeft()) {
-            for (TopBtn b : topButtons())
-                if (b.enabled && hitBtn(b, mx, my)) {
-                    if (b.id == B_MORE) openTopMenu(b.x, Theme.TOPBAR_H);
-                    else onTopButton(b.id);
-                    return true;
-                }
+            int id = top.hit(mx, my);
+            if (id == TopBar.MORE) menu = top.menu(width, height, this::onTopButton);
+            else if (id != TopBar.NONE) onTopButton(id);
             return true;
         }
         if (mx < canvasLeft()) {
             if (carry != null) { cancelCarry(); return true; }
             return paletteClicked(click, doubled);
         }
-        return canvasClicked(mx, my, button);
+        return canvasClicked(mx, my, button, click.modifiers());
     }
 
     private boolean paletteClicked(Click click, boolean doubled) {
         double mx = click.x(), my = click.y();
         search.setFocused(false);
+        if (finder != null) finder.blur();
         if (my < Palette.HEADER_H) {
             if (Palette.hitSearchClear(mx, my) && !search.getText().isEmpty()) {
                 search.setText("");
@@ -1585,10 +1404,22 @@ public final class EditorScreen extends Screen {
         return true;
     }
 
-    private boolean canvasClicked(double mx, double my, int button) {
+    private boolean canvasClicked(double mx, double my, int button, int mods) {
         search.setFocused(false);
         if (carry != null) {
             if (button == 0) dropCarry(); else cancelCarry();
+            return true;
+        }
+        boolean add = (mods & GLFW.GLFW_MOD_SHIFT) != 0;
+        boolean sub = (mods & (GLFW.GLFW_MOD_CONTROL | GLFW.GLFW_MOD_ALT)) != 0;
+        if (button == 0 && (add || sub)) {
+            Layout.Box box = grabAt();
+            if (box != null) {
+                if (sub && box.root != null) { picked.remove(box.root.id); pickedChanged(); }
+                else togglePicked(box);
+                return true;
+            }
+            startBand(sub ? BAND_SUB : BAND_ADD);
             return true;
         }
         Layout l = layout();
@@ -1615,11 +1446,85 @@ public final class EditorScreen extends Screen {
             }
             if (button == 0 && box.card != null && cardClicked(box, (int) mx, (int) my)) return true;
             if (button != 0) break;
-            startDrag(box);
+            if (covered().contains(box.node)) startMove();
+            else startDrag(box);
             return true;
         }
+        if (button == 0 && !spaceHeld()) { startBand(BAND_NEW); return true; }
         panning = true;
         return true;
+    }
+
+    private boolean spaceHeld() {
+        return client != null && client.getWindow() != null
+                && InputUtil.isKeyPressed(client.getWindow(), GLFW.GLFW_KEY_SPACE);
+    }
+
+    private void startBand(int mode) {
+        closeOverlays();
+        bandMode = mode;
+        if (mode == BAND_NEW) clearPicked();
+        banding = true;
+        bandCount = picked.size();
+        bandX0 = bandX1 = mouseCanvasX;
+        bandY0 = bandY1 = mouseCanvasY;
+        if (panHinted) return;
+        panHinted = true;
+        toast("рамка выделяет · полотно двигают правой кнопкой, средней или пробелом");
+    }
+
+    private void startMove() {
+        closeOverlays();
+        moving = true;
+        moveShifted = false;
+        moveDX = 0;
+        moveDY = 0;
+        moveSnapshot = snapshot();
+    }
+
+    private void finishMove() {
+        moving = false;
+        int dx = (int) Math.round(moveDX), dy = (int) Math.round(moveDY);
+        moveDX = 0;
+        moveDY = 0;
+        if (!moveShifted || (dx == 0 && dy == 0)) { moveSnapshot = null; return; }
+        pushUndo(moveSnapshot);
+        moveSnapshot = null;
+        List<Script.Root> born = new ArrayList<>();
+        for (Piece p : pieces()) {
+            Layout.Box head = p.head();
+            if (head.index == 0 && !head.nested && head.root != null) {
+                head.root.x += dx;
+                head.root.y += dy;
+                continue;
+            }
+            List<Script.Node> tail = head.owner.subList(head.index, head.owner.size());
+            Script.Root r = new Script.Root(head.x + dx, head.y + dy);
+            r.chain.addAll(tail);
+            tail.clear();
+            born.add(r);
+        }
+        script.roots.addAll(born);
+        script.roots.removeIf(r -> r.chain.isEmpty());
+        pickedChanged();
+    }
+
+    private void cancelMove() {
+        moving = false;
+        moveShifted = false;
+        moveDX = 0;
+        moveDY = 0;
+        moveSnapshot = null;
+    }
+
+    private Layout.Box grabAt() {
+        Layout l = layout();
+        for (int i = l.boxes.size() - 1; i >= 0; i--) {
+            Layout.Box b = l.boxes.get(i);
+            if (b.contains(mouseCanvasX, mouseCanvasY) && b.hitGrab(mouseCanvasX, mouseCanvasY))
+                return b;
+        }
+        return null;
     }
 
     private boolean cardClicked(Layout.Box box, int mx, int my) {
@@ -1638,6 +1543,7 @@ public final class EditorScreen extends Screen {
     }
 
     private void chipClicked(Layout.Box box, Layout.Chip chip, int button) {
+        heldRoot = box.root;
         int sx = toScreenX(chip.x), sy = toScreenY(chip.y + Layout.CHIP_H) + 3;
         if (chip.isCondition()) {
             if (button == 1) {
@@ -1751,46 +1657,106 @@ public final class EditorScreen extends Screen {
 
     private void openBlockMenu(Layout.Box box, int mx, int my) {
         Script.Node node = box.node;
-        List<Menu.Item> items = new ArrayList<>();
-        List<Runnable> acts = new ArrayList<>();
+        Catalog.Action a = node.action;
+        boolean tail = box.index < box.owner.size() - 1 || !node.body.isEmpty();
+
+        String title = a.name;
+        String subtitle = a.category == null ? "" : a.category.name;
+        ItemStack icon = a.icon();
+        if (node.declares() || node.invokes()) {
+            String named = node.declares() ? Functions.nameOf(node) : Functions.targetOf(node);
+            if (!named.isBlank()) { title = named; subtitle = a.name; }
+            Value own = node.declares() ? Functions.iconOf(node) : null;
+            if (own != null) icon = Stacks.preview(own);
+        }
+
+        BlockMenu m = new BlockMenu(width, height, mx, my, textRenderer, icon, title, subtitle,
+                a.category == null ? Theme.ACCENT : a.category.color);
+
         int target = node.settingIndex(Catalog.TARGET);
         int invert = node.settingIndex(Catalog.INVERT);
-        if (target >= 0) {
-            items.add(new Menu.Item("Цель: " + node.marker(target), false, Draw.LOOK));
-            acts.add(() -> chooseTarget(node, target, mx, my));
-        }
-        if (invert >= 0) {
-            items.add(new Menu.Item(Catalog.INVERT_ON.equals(node.marker(invert))
-                    ? "Снять «НЕ»" : "Условие «НЕ»", false, Draw.STRIKE_TEXT));
-            acts.add(() -> { pushUndo(); node.cycleMarker(invert, true); });
-        }
+        if (target >= 0)
+            m.row(Draw.TARGET, "Цель", null, () -> chooseTarget(node, target, mx, my))
+                    .note(node.marker(target)).caret();
+        if (invert >= 0)
+            m.row(Draw.NOT, Catalog.INVERT_ON.equals(node.marker(invert))
+                            ? "Снять «НЕ»" : "Условие «НЕ»", null,
+                    () -> { pushUndo(); node.cycleMarker(invert, true); });
         if (node.declares()) {
             String what = node.isProcess() ? "процесса" : "функции";
-            items.add(new Menu.Item("Имя " + what + "…", false, Draw.STRIKE_TEXT));
-            acts.add(() -> openValue(node, Catalog.FN_NAME, mx, my, false, -1));
-            items.add(new Menu.Item("Добавить параметр", false, Draw.PLUS));
-            acts.add(() -> openValue(node, Catalog.FN_PARAMS, mx, my, true, -1));
-            items.add(new Menu.Item("Отображаемое имя…", false, Draw.STRIKE_TEXT));
-            acts.add(() -> openValue(node, Catalog.FN_DISPLAY, mx, my, false, -1));
-            items.add(new Menu.Item("Описание…", false, Draw.WINDOW));
-            acts.add(() -> openValue(node, Catalog.FN_DESC, mx, my, false, -1));
-            items.add(new Menu.Item("Значок…", false, Draw.BRICKS));
-            acts.add(() -> openValue(node, Catalog.FN_ICON, mx, my, false, -1));
+            m.row(Draw.NAME, "Имя " + what + "…", null,
+                    () -> openValue(node, Catalog.FN_NAME, mx, my, false, -1));
+            m.row(Draw.PLUS, "Добавить параметр", null,
+                    () -> openValue(node, Catalog.FN_PARAMS, mx, my, true, -1));
+            m.row(Draw.NAME, "Отображаемое имя…", null,
+                    () -> openValue(node, Catalog.FN_DISPLAY, mx, my, false, -1));
+            m.row(Draw.LINES, "Описание…", null,
+                    () -> openValue(node, Catalog.FN_DESC, mx, my, false, -1));
+            m.row(Draw.IMAGE, "Значок…", null,
+                    () -> openValue(node, Catalog.FN_ICON, mx, my, false, -1));
         } else if (node.invokes()) {
-            items.add(new Menu.Item(node.isStart() ? "Выбрать процесс…" : "Выбрать функцию…",
-                    false, Draw.LOOK));
-            acts.add(() -> chooseFunction(node, mx, my));
+            m.row(Draw.SEARCH, node.isStart() ? "Выбрать процесс…" : "Выбрать функцию…", null,
+                    () -> chooseFunction(node, mx, my)).caret();
         }
-        items.add(new Menu.Item("Дублировать блок", false, Draw.PLUS));
-        acts.add(() -> duplicate(box, false));
-        items.add(new Menu.Item("Дублировать стопку", false, Draw.PLUS));
-        acts.add(() -> duplicate(box, true));
-        items.add(new Menu.Item("Удалить блок", true, Draw.CROSS));
-        acts.add(() -> deleteBlock(box));
-        items.add(new Menu.Item("Удалить стопку", true, Draw.TRASH));
-        acts.add(() -> deleteStack(box));
-        menu = Menu.actions(width, height, mx, my, textRenderer, items,
-                i -> { if (i >= 0 && i < acts.size()) acts.get(i).run(); });
+
+        m.gap();
+        String named = node.declares() ? Functions.nameOf(node)
+                : node.invokes() ? Functions.targetOf(node) : "";
+        if (!named.isBlank())
+            m.row(Draw.SEARCH, "Найти по имени «" + named + "»", null, () -> openFinder(named));
+        else
+            m.row(Draw.SEARCH, "Найти такие же блоки", Settings.Hot.FIND,
+                    () -> openFinder(a.name));
+        String variable = variableIn(node);
+        if (variable != null)
+            m.row(Draw.SEARCH, "Найти переменную «" + variable + "»", null,
+                    () -> openFinder(variable));
+
+        m.gap();
+        m.row(Draw.COPY, tail ? "Копировать стопку" : "Копировать",
+                Settings.Hot.COPY, () -> copyBox(box, true));
+        if (tail) m.row(Draw.COPY, "Копировать блок",
+                Settings.Hot.COPY_ONE, () -> copyBox(box, false));
+        m.row(Draw.CUT, tail ? "Вырезать стопку" : "Вырезать",
+                Settings.Hot.CUT, () -> cutBox(box));
+        m.row(Draw.PASTE, "Вставить под блок", Settings.Hot.PASTE,
+                () -> pasteAt(box)).on(Clip.has());
+        m.row(Draw.DUPLICATE, tail ? "Дублировать стопку" : "Дублировать",
+                Settings.Hot.DUPLICATE, () -> duplicate(box, true));
+        if (tail) m.row(Draw.DUPLICATE, "Дублировать блок",
+                Settings.Hot.DUP_ONE, () -> duplicate(box, false));
+
+        m.gap();
+        m.row(Draw.PACK, tail ? "Стопку в рюкзак" : "В рюкзак",
+                Settings.Hot.STASH, () -> stashBlock(box, true));
+        if (tail) m.row(Draw.PACK, "Блок в рюкзак", null, () -> stashBlock(box, false));
+        m.row(Draw.SELECT, covered().contains(box.node) ? "Убрать из выделения" : "Выделить",
+                null, () -> togglePicked(box));
+        if (!picked.isEmpty()) {
+            String said = "  ·  " + Ui.plural(pieces().size(), "кусок", "куска", "кусков");
+            m.row(Draw.COPY, "Копировать выделенное" + said, Settings.Hot.COPY, this::copyPicked);
+            m.row(Draw.PACK, "Выделенное в рюкзак" + said, null, this::stashPicked);
+            m.row(Draw.CROSS, "Снять выделение", null, this::clearPicked);
+        }
+
+        m.gap();
+        m.row(Draw.TRASH, tail ? "Удалить блок" : "Удалить",
+                Settings.Hot.DELETE, () -> deleteBlock(box)).danger();
+        if (tail) m.row(Draw.TRASH, "Удалить стопку",
+                Settings.Hot.DEL_STACK, () -> deleteStack(box)).danger();
+
+        menu = null;
+        blockMenu = m.open();
+    }
+
+    private static String variableIn(Script.Node node) {
+        for (List<Value> list : node.values.values())
+            for (Value v : list)
+                if ((Value.VARIABLE.equals(v.type) || Value.PARAMETER.equals(v.type))
+                        && !v.name.isBlank()) return v.name;
+        for (Value v : node.markerVars.values())
+            if (!v.name.isBlank()) return v.name;
+        return null;
     }
 
     private void openValue(Script.Node node, int argIndex, int sx, int sy,
@@ -1856,6 +1822,7 @@ public final class EditorScreen extends Screen {
 
     private void startDrag(Layout.Box box) {
         closeOverlays();
+        heldRoot = box.root;
         pushUndo();
         drag = new ArrayList<>(box.owner.subList(box.index, box.owner.size()));
         box.owner.subList(box.index, box.owner.size()).clear();
@@ -1867,16 +1834,696 @@ public final class EditorScreen extends Screen {
         dragSnapshot = null;
     }
 
+    private static List<Script.Node> chainOf(Layout.Box box, boolean wholeStack) {
+        List<Script.Node> chain = new ArrayList<>();
+        if (wholeStack)
+            for (int i = box.index; i < box.owner.size(); i++) chain.add(box.owner.get(i).copy());
+        else
+            chain.add(box.node.copy());
+        return chain;
+    }
+
+    private static String blocksText(List<Script.Node> chain) {
+        int n = Script.blocks(chain);
+        String word = n % 10 == 1 && n % 100 != 11 ? "блок"
+                : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "блока" : "блоков";
+        return n + " " + word;
+    }
+
     private void duplicate(Layout.Box box, boolean wholeStack) {
         pushUndo();
         Script.Root r = new Script.Root(box.x + 24, box.y + 24);
-        if (wholeStack) {
-            for (int i = box.index; i < box.owner.size(); i++) r.chain.add(box.owner.get(i).copy());
-        } else {
-            r.chain.add(box.node.copy());
-        }
+        r.chain.addAll(chainOf(box, wholeStack));
         script.roots.add(r);
-        toast(wholeStack ? "стопка скопирована" : "блок скопирован");
+        toast(wholeStack ? "стопка продублирована" : "блок продублирован");
+    }
+
+    private void copyBox(Layout.Box box, boolean wholeStack) {
+        List<Script.Node> chain = chainOf(box, wholeStack);
+        Clip.copy(chain);
+        toast("скопировано · " + blocksText(chain));
+    }
+
+    private void cutBox(Layout.Box box) {
+        List<Script.Node> chain = chainOf(box, true);
+        Clip.copy(chain);
+        pushUndo();
+        box.owner.subList(box.index, box.owner.size()).clear();
+        if (box.root != null && box.root.chain.isEmpty()) script.roots.remove(box.root);
+        toast("вырезано · " + blocksText(chain));
+    }
+
+    private void copyHovered(boolean wholeStack) {
+        if (drag != null || carry != null) return;
+        if (hoverBox == null) { toast("наведись на блок — скопирую его"); return; }
+        copyBox(hoverBox, wholeStack);
+    }
+
+    private void cutHovered() {
+        if (drag != null || carry != null) return;
+        if (hoverBox == null) { toast("наведись на блок — вырежу его стопку"); return; }
+        cutBox(hoverBox);
+        hoverBox = null;
+    }
+
+    private void pasteClip() { pasteAt(hoverBox); }
+
+    private void pasteAt(Layout.Box box) {
+        if (drag != null || carry != null) return;
+        List<Script.Root> roots = Clip.pasteRoots();
+        if (!roots.isEmpty()) { pasteRoots(roots); return; }
+        List<Script.Node> chain = Clip.paste();
+        if (chain.isEmpty()) { toast("в буфере нет кода"); return; }
+        if (box != null && !chain.get(0).isHat()) {
+            pushUndo();
+            box.owner.addAll(box.index + 1, chain);
+            toast("вставлено под блок · " + blocksText(chain));
+            return;
+        }
+        holdChain(chain, "вставлено · " + blocksText(chain) + " — клик по полотну поставит");
+    }
+
+    public void openMarket() {
+        closeOverlays();
+        rememberView();
+        saveScript();
+        XeroCode.canvasClosed();
+        client.setScreen(new MarketScreen(script, this));
+    }
+
+    private void openBackpack() {
+        closeOverlays();
+        backpack = new BackpackPanel(textRenderer, width, height, this::takeFromBackpack);
+    }
+
+    private void takeFromBackpack(Backpack.Item item) {
+        if (item.pieces() > 1) {
+            List<Script.Root> roots = item.roots();
+            if (roots.isEmpty()) return;
+            dropRoots(roots, "«" + item.name + "» на полотне · " + item.blocksText(), false);
+            return;
+        }
+        List<Script.Node> chain = item.copy();
+        if (chain.isEmpty()) return;
+        holdChain(chain, "«" + item.name + "» на курсоре — клик по полотну поставит");
+    }
+
+    private void holdChain(List<Script.Node> chain, String note) {
+        menu = null;
+        blockMenu = null;
+        drag = chain;
+        dragSnapshot = snapshot();
+        dragOffX = 26;
+        dragOffY = 10;
+        dragFromPalette = true;
+        dragMoved = false;
+        dragAwaitsClick = true;
+        toast(note);
+    }
+
+    private void stash(List<Script.Node> chain, String note) {
+        if (chain == null || chain.isEmpty()) return;
+        Backpack.Item item = Backpack.put(Backpack.suggest(chain), chain);
+        if (item == null) return;
+        top.invalidate();
+        toast(note + ": «" + item.name + "» · " + item.blocksText());
+    }
+
+    private void stashBlock(Layout.Box box, boolean wholeStack) {
+        stash(chainOf(box, wholeStack), "в рюкзаке");
+    }
+
+    private void stashHovered() {
+        if (drag != null || carry != null) return;
+        if (!picked.isEmpty()) { stashPicked(); return; }
+        if (hoverBox == null) { toast("наведись на блок — уберу его стопку в рюкзак"); return; }
+        stashBlock(hoverBox, true);
+    }
+
+    private static final int BAND_NEW = 0, BAND_ADD = 1, BAND_SUB = 2;
+
+    private record Piece(Layout.Box head, Set<Script.Node> nodes, List<Layout.Box> boxes,
+                         int x, int y, int w, int h, List<int[]> edge, List<int[]> halo) {}
+
+    private List<Piece> pieceCache = List.of();
+    private Map<Script.Root, List<Piece>> byRootCache = Map.of();
+    private int pieceStamp = Integer.MIN_VALUE;
+    private int blocksCache;
+    private String saidCache = "";
+
+    private Map<Script.Root, List<Piece>> byRoot() {
+        pieces();
+        return byRootCache;
+    }
+
+    private void pickedChanged() {
+        pieceStamp = Integer.MIN_VALUE;
+        pickedStamp = layoutStamp;
+    }
+
+    private void clearPicked() {
+        if (picked.isEmpty()) return;
+        picked.clear();
+        pickedChanged();
+    }
+
+    private static void tailNodes(List<Script.Node> owner, int from, Set<Script.Node> out) {
+        for (int i = from; i < owner.size(); i++) subtree(owner.get(i), out);
+    }
+
+    private static void subtree(Script.Node node, Set<Script.Node> out) {
+        out.add(node);
+        if (node.cond != null) out.add(node.cond);
+        for (Script.Node kid : node.body) subtree(kid, out);
+    }
+
+    private void pick(Layout.Box box) {
+        if (box == null) return;
+        Set<Script.Node> tail = Collections.newSetFromMap(new IdentityHashMap<>());
+        tailNodes(box.owner, box.index, tail);
+        if (covered().contains(box.node)) return;
+        picked.removeIf(tail::contains);
+        picked.add(box.node);
+        pickedChanged();
+    }
+
+    private void unpick(Layout.Box box) {
+        if (box == null || !covered().contains(box.node)) return;
+        for (Piece p : pieces()) {
+            if (!p.nodes().contains(box.node)) continue;
+            picked.remove(p.head().node);
+            pickedChanged();
+            return;
+        }
+    }
+
+    private void togglePicked(Layout.Box box) {
+        if (box == null) return;
+        if (covered().contains(box.node)) unpick(box); else pick(box);
+    }
+
+    private void prunePicked() {
+        if (pickedStamp == layoutStamp) return;
+        pickedStamp = layoutStamp;
+        pieceStamp = Integer.MIN_VALUE;
+        if (picked.isEmpty()) return;
+        Set<Script.Node> live = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Layout.Box b : layout().boxes) live.add(b.node);
+        picked.removeIf(n -> !live.contains(n));
+    }
+
+    private Set<Script.Node> covered() {
+        pieces();
+        return coveredCache;
+    }
+
+    private List<Piece> pieces() {
+        Layout l = layout();
+        if (pieceStamp == layoutStamp) return pieceCache;
+        pieceStamp = layoutStamp;
+        pieceCache = List.of();
+        byRootCache = Map.of();
+        coveredCache = Set.of();
+        blocksCache = 0;
+        saidCache = "";
+        if (picked.isEmpty()) return pieceCache;
+        List<Layout.Box> heads = new ArrayList<>(picked.size());
+        for (Layout.Box b : l.boxes) if (picked.contains(b.node)) heads.add(b);
+        Set<Script.Node> all = Collections.newSetFromMap(new IdentityHashMap<>());
+        Map<Script.Node, Integer> owner = new IdentityHashMap<>();
+        List<Set<Script.Node>> tails = new ArrayList<>(heads.size());
+        for (int i = 0; i < heads.size(); i++) {
+            Layout.Box head = heads.get(i);
+            Set<Script.Node> tail = Collections.newSetFromMap(new IdentityHashMap<>());
+            tailNodes(head.owner, head.index, tail);
+            tails.add(tail);
+            all.addAll(tail);
+            for (Script.Node n : tail) owner.put(n, i);
+        }
+        int[][] bounds = new int[heads.size()][];
+        List<List<int[]>> rects = new ArrayList<>(heads.size());
+        List<List<Layout.Box>> mine = new ArrayList<>(heads.size());
+        for (int i = 0; i < heads.size(); i++) {
+            rects.add(new ArrayList<>());
+            mine.add(new ArrayList<>());
+            bounds[i] = new int[]{Integer.MAX_VALUE, Integer.MAX_VALUE,
+                    Integer.MIN_VALUE, Integer.MIN_VALUE};
+        }
+        for (Layout.Box b : l.boxes) {
+            Integer at = owner.get(b.node);
+            if (at == null) continue;
+            shapeOf(b, rects.get(at));
+            mine.get(at).add(b);
+            int[] r = bounds[at];
+            r[0] = Math.min(r[0], b.x);
+            r[1] = Math.min(r[1], b.y);
+            r[2] = Math.max(r[2], b.x + b.w);
+            r[3] = Math.max(r[3], b.bottom());
+        }
+        List<Piece> out = new ArrayList<>(heads.size());
+        for (int i = 0; i < heads.size(); i++) {
+            if (rects.get(i).isEmpty()) continue;
+            int[] r = bounds[i];
+            out.add(new Piece(heads.get(i), tails.get(i), mine.get(i),
+                    r[0], r[1], r[2] - r[0], r[3] - r[1],
+                    Outline.of(rects.get(i), 3), Outline.of(rects.get(i), 5)));
+        }
+        out.sort((a, b) -> a.y() != b.y() ? a.y() - b.y() : a.x() - b.x());
+        Map<Script.Root, List<Piece>> owners = new IdentityHashMap<>();
+        for (Piece p : out)
+            owners.computeIfAbsent(p.head().root, k -> new ArrayList<>()).add(p);
+        pieceCache = out;
+        byRootCache = owners;
+        coveredCache = all;
+        blocksCache = 0;
+        for (Piece p : out) blocksCache += Script.blocks(chainOfPiece(p));
+        saidCache = Ui.plural(out.size(), "кусок", "куска", "кусков")
+                + " · " + Ui.plural(blocksCache, "блок", "блока", "блоков");
+        return out;
+    }
+
+    private static void shapeOf(Layout.Box b, List<int[]> out) {
+        out.add(new int[]{b.x, b.y, b.x + b.w, b.y + b.headerH});
+        if (!b.node.wraps()) return;
+        int arm = b.armY();
+        out.add(new int[]{b.x, b.y + b.headerH - 1, b.x + Layout.INDENT + 1, arm + 1});
+        out.add(new int[]{b.x, arm, b.x + b.w, arm + Layout.ARM_H});
+    }
+
+    private static List<Script.Node> copyOf(Piece p) {
+        Layout.Box head = p.head();
+        List<Script.Node> out = new ArrayList<>();
+        for (int i = head.index; i < head.owner.size(); i++) out.add(head.owner.get(i).copy());
+        return out;
+    }
+
+    private int pickedBlocks() {
+        pieces();
+        return blocksCache;
+    }
+
+    private static List<Script.Node> chainOfPiece(Piece p) {
+        Layout.Box head = p.head();
+        return head.owner.subList(head.index, head.owner.size());
+    }
+
+    private String pickedSaid() {
+        pieces();
+        return saidCache;
+    }
+
+    private void selectAll() {
+        if (script.roots.isEmpty()) { toast("полотно пустое"); return; }
+        closeOverlays();
+        picked.clear();
+        for (Script.Root r : script.roots) if (!r.chain.isEmpty()) picked.add(r.chain.get(0));
+        pickedChanged();
+        toast("выделено " + pickedSaid());
+    }
+
+    private void stashPicked() {
+        List<Script.Root> roots = pickedAsRoots();
+        if (roots.isEmpty()) { toast("ничего не выделено"); return; }
+        Backpack.Item item = Backpack.putAll(Backpack.suggestAll(roots), roots);
+        top.invalidate();
+        clearPicked();
+        if (item == null) { toast("убирать нечего"); return; }
+        toast("в рюкзаке «" + item.name + "» · " + item.blocksText());
+    }
+
+    private List<Script.Root> pickedAsRoots() {
+        List<Script.Root> out = new ArrayList<>();
+        for (Piece p : pieces()) {
+            List<Script.Node> chain = copyOf(p);
+            if (chain.isEmpty()) continue;
+            Script.Root r = new Script.Root(p.head().x, p.head().y);
+            r.chain.addAll(chain);
+            out.add(r);
+        }
+        return out;
+    }
+
+    private void cutOut() {
+        for (Piece p : pieces()) {
+            Layout.Box head = p.head();
+            head.owner.subList(head.index, head.owner.size()).clear();
+        }
+        script.roots.removeIf(r -> r.chain.isEmpty());
+    }
+
+    private void deletePicked() {
+        if (picked.isEmpty()) return;
+        String said = pickedSaid();
+        pushUndo();
+        cutOut();
+        clearPicked();
+        hoverBox = null;
+        toast("удалено " + said);
+    }
+
+    private void copyPicked() {
+        List<Script.Root> roots = pickedAsRoots();
+        if (roots.isEmpty()) return;
+        Clip.copyRoots(roots);
+        toast("скопировано " + pickedSaid());
+    }
+
+    private void cutPicked() {
+        List<Script.Root> roots = pickedAsRoots();
+        if (roots.isEmpty()) return;
+        Clip.copyRoots(roots);
+        String said = pickedSaid();
+        pushUndo();
+        cutOut();
+        clearPicked();
+        hoverBox = null;
+        toast("вырезано " + said);
+    }
+
+    private void duplicatePicked() {
+        List<Script.Root> copies = pickedAsRoots();
+        if (copies.isEmpty()) return;
+        pushUndo();
+        picked.clear();
+        for (Script.Root r : copies) {
+            r.x += 24;
+            r.y += 24;
+            script.roots.add(r);
+            picked.add(r.chain.get(0));
+        }
+        pickedChanged();
+        toast("продублировано " + pickedSaid());
+    }
+
+    private void pasteRoots(List<Script.Root> roots) {
+        dropRoots(roots, null, true);
+    }
+
+    private void dropRoots(List<Script.Root> roots, String note, boolean atCursor) {
+        double x0 = Double.MAX_VALUE, y0 = Double.MAX_VALUE;
+        double x1 = -Double.MAX_VALUE, y1 = -Double.MAX_VALUE;
+        for (Script.Root r : roots) {
+            x0 = Math.min(x0, r.x);
+            y0 = Math.min(y0, r.y);
+            x1 = Math.max(x1, r.x);
+            y1 = Math.max(y1, r.y);
+        }
+        boolean over = atCursor
+                && mouseCanvasX >= toCanvasX(canvasLeft()) && mouseCanvasX <= toCanvasX(canvasRight())
+                && mouseCanvasY >= toCanvasY(Theme.TOPBAR_H) && mouseCanvasY <= toCanvasY(height);
+        double dx, dy;
+        if (over) {
+            dx = Math.round(mouseCanvasX - x0);
+            dy = Math.round(mouseCanvasY - y0);
+        } else {
+            double cx = toCanvasX((canvasLeft() + canvasRight()) / 2.0);
+            double cy = toCanvasY((Theme.TOPBAR_H + height) / 2.0);
+            dx = Math.round(cx - (x0 + x1) / 2 - 70);
+            dy = Math.round(cy - (y0 + y1) / 2 - 40);
+        }
+        pushUndo();
+        picked.clear();
+        for (Script.Root r : roots) {
+            r.x += dx;
+            r.y += dy;
+            script.roots.add(r);
+            picked.add(r.chain.get(0));
+        }
+        pickedChanged();
+        toast(note == null ? "вставлено " + pickedSaid() : note);
+    }
+
+    private List<Layout.Box> bandHits() {
+        double x0 = Math.min(bandX0, bandX1), x1 = Math.max(bandX0, bandX1);
+        double y0 = Math.min(bandY0, bandY1), y1 = Math.max(bandY0, bandY1);
+        if (x1 - x0 < 3 && y1 - y0 < 3) return List.of();
+        List<Layout.Box> out = new ArrayList<>();
+        Set<Script.Node> taken = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Layout.Box b : layout().boxes) {
+            if (taken.contains(b.node)) continue;
+            if (b.x + b.w < x0 || b.x > x1 || b.bottom() < y0 || b.y > y1) continue;
+            out.add(b);
+            tailNodes(b.owner, b.index, taken);
+        }
+        return out;
+    }
+
+    private void syncBand() {
+        if (!banding) { bandCount = 0; return; }
+        List<Layout.Box> hit = bandHits();
+        if (bandMode == BAND_SUB) {
+            int gone = 0;
+            for (Piece p : pieces())
+                for (Layout.Box b : hit)
+                    if (p.nodes().contains(b.node)) { gone++; break; }
+            bandCount = pieces().size() - gone;
+            return;
+        }
+        int add = 0;
+        Set<Script.Node> seen = covered();
+        for (Layout.Box b : hit) if (!seen.contains(b.node)) add++;
+        bandCount = pieces().size() + add;
+    }
+
+    private void applyBand() {
+        banding = false;
+        List<Layout.Box> hit = bandHits();
+        if (hit.isEmpty()) return;
+        Set<Script.Node> was = covered();
+        if (bandMode == BAND_SUB) {
+            for (Piece p : pieces())
+                for (Layout.Box b : hit)
+                    if (p.nodes().contains(b.node)) { picked.remove(p.head().node); break; }
+        } else {
+            Set<Script.Node> tails = Collections.newSetFromMap(new IdentityHashMap<>());
+            for (Layout.Box b : hit) tailNodes(b.owner, b.index, tails);
+            picked.removeIf(tails::contains);
+            for (Layout.Box b : hit) if (!was.contains(b.node)) picked.add(b.node);
+        }
+        pickedChanged();
+        toast(picked.isEmpty() ? "выделение снято" : "выделено " + pickedSaid());
+    }
+
+    public interface ModulePick { void apply(List<Script.Root> roots); }
+
+    public void pickForModule(Screen back, ModulePick done) {
+        closeOverlays();
+        drag = null;
+        snap = null;
+        carry = null;
+        carryHeld = false;
+        banding = false;
+        cancelMove();
+        moduleBack = back;
+        moduleDone = done;
+        clearPicked();
+        toast("выдели код для модуля: обведи рамкой или Shift+клик по блоку");
+    }
+
+    private boolean modulePick() { return moduleDone != null; }
+
+    private void finishModulePick(boolean take) {
+        ModulePick done = moduleDone;
+        Screen back = moduleBack;
+        moduleDone = null;
+        moduleBack = null;
+        List<Script.Root> out = new ArrayList<>();
+        if (take) out.addAll(pickedAsRoots());
+        clearPicked();
+        if (take && done != null) done.apply(out);
+        if (back == null) return;
+        closeOverlays();
+        rememberView();
+        saveScript();
+        XeroCode.canvasClosed();
+        MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
+        mc.setScreen(back);
+    }
+
+    private int barStamp = Integer.MIN_VALUE, barWidth;
+    private int compactStamp = Integer.MIN_VALUE;
+    private boolean compact;
+
+    private static final int BAR_H = 26;
+    private static final String[] BAR_PICKED = {"Копировать", "В рюкзак", "Удалить", "Снять"};
+    private static final String[] BAR_MODULE = {"Готово", "Отмена"};
+
+    private boolean barShown() {
+        return drag == null && (modulePick() || banding || !picked.isEmpty());
+    }
+
+    private String[] barActs() { return modulePick() ? BAR_MODULE : BAR_PICKED; }
+
+    private boolean barOn(int i) {
+        if (modulePick()) return i != 0 || !picked.isEmpty();
+        return !picked.isEmpty();
+    }
+
+    private String barText() {
+        if (banding)
+            return (bandMode == BAND_SUB ? "снимаю рамкой · останется " : "рамка · ")
+                    + Ui.plural(bandCount, "кусок", "куска", "кусков");
+        if (modulePick() && picked.isEmpty())
+            return "выдели код для модуля: рамка мышью или Shift+клик";
+        return (modulePick() ? "в модуль: " : "выделено: ") + pickedSaid();
+    }
+
+    private static final String[][] ICONS_PICKED =
+            {Draw.COPY, Draw.PACK, Draw.TRASH, Draw.CROSS};
+    private static final String[][] ICONS_MODULE = {Draw.CHECK, Draw.CROSS};
+
+    private int barRoom() { return canvasRight() - canvasLeft() - 20; }
+
+    private boolean barCompact() {
+        String said = barText();
+        int stamp = said.hashCode() * 31 + barRoom() * 7 + barActs().length;
+        if (stamp == compactStamp) return compact;
+        int w = 26 + textRenderer.getWidth(said);
+        for (String s : barActs()) w += Ui.buttonW(textRenderer, s) + 6;
+        compactStamp = stamp;
+        compact = w > barRoom();
+        return compact;
+    }
+
+    private int barBtnW(int i) {
+        return barCompact() ? 16 : Ui.buttonW(textRenderer, barActs()[i]);
+    }
+
+    private int barW() {
+        String said = barText();
+        int stamp = said.hashCode() * 31 + barRoom() * 7 + barActs().length;
+        if (stamp == barStamp) return barWidth;
+        int w = 26 + textRenderer.getWidth(said);
+        for (int i = 0; i < barActs().length; i++) w += barBtnW(i) + 6;
+        barStamp = stamp;
+        barWidth = Math.min(w, Math.max(120, barRoom()));
+        return barWidth;
+    }
+
+    private int barX() { return canvasLeft() + (canvasRight() - canvasLeft() - barW()) / 2; }
+
+    private int barY() { return Math.max(Theme.TOPBAR_H + 8, height - 12 - BAR_H); }
+
+    private int barBtnX(int i) {
+        int right = barX() + barW() - 8;
+        for (int k = barActs().length - 1; k > i; k--) right -= barBtnW(k) + 6;
+        return right - barBtnW(i);
+    }
+
+    private void drawBar(DrawContext ctx, int mouseX, int mouseY) {
+        if (!barShown()) return;
+        int bw = barW(), bx = barX(), by = barY(), by2 = by + (BAR_H - 16) / 2;
+        boolean module = modulePick(), small = barCompact();
+        Draw.shadow(ctx, bx, by, bw, BAR_H, Ui.R);
+        Draw.card(ctx, bx, by, bw, BAR_H, Ui.R, Draw.argb(0xF2, Ui.PANEL),
+                Draw.opaque(module ? Theme.ACCENT : Theme.OK));
+        String[] acts = barActs();
+        String[][] icons = module ? ICONS_MODULE : ICONS_PICKED;
+        for (int i = 0; i < acts.length; i++) {
+            if (small) Ui.iconButton(ctx, mouseX, mouseY, barBtnX(i), by2, 16, icons[i],
+                    barKind(i), barOn(i));
+            else Ui.button(ctx, textRenderer, mouseX, mouseY, barBtnX(i), by2, barBtnW(i), 16,
+                    acts[i], barKind(i), barOn(i));
+        }
+        Draw.textFit(ctx, textRenderer, barText(), bx + 10, by + (BAR_H - Ui.TEXT_H) / 2,
+                barBtnX(0) - bx - 16, Theme.TEXT_DIM, false);
+    }
+
+    private int barKind(int i) {
+        if (modulePick()) return i == 0 ? Ui.ACCENT : Ui.GHOST;
+        return i == 1 ? Ui.ACCENT : i == 2 ? Ui.DANGER : Ui.GHOST;
+    }
+
+    private boolean barClicked(double mx, double my) {
+        if (!barShown()) return false;
+        if (!Ui.hit(mx, my, barX(), barY(), barW(), BAR_H)) return false;
+        int by2 = barY() + (BAR_H - 16) / 2;
+        for (int i = 0; i < barActs().length; i++) {
+            if (!Ui.hit(mx, my, barBtnX(i), by2, barBtnW(i), 16)) continue;
+            if (barOn(i)) barAct(i);
+            return true;
+        }
+        return true;
+    }
+
+    private void barAct(int i) {
+        if (modulePick()) { finishModulePick(i == 0); return; }
+        switch (i) {
+            case 0 -> copyPicked();
+            case 1 -> stashPicked();
+            case 2 -> deletePicked();
+            default -> clearPicked();
+        }
+    }
+
+    private static final int POCKET_W = 152, POCKET_H = 34, POCKET_EDGE = 10;
+
+    private int pocketW() {
+        return Math.min(POCKET_W, Math.max(36, canvasRight() - canvasLeft() - 40));
+    }
+
+    private int pocketX() { return canvasRight() - pocketW() - POCKET_EDGE; }
+
+    private int pocketY() {
+        return Math.max(Theme.TOPBAR_H + 8, height - POCKET_H - POCKET_EDGE);
+    }
+
+    private boolean overPocket(double mx, double my) {
+        return drag != null && Ui.hit(mx, my, pocketX(), pocketY(), pocketW(), POCKET_H);
+    }
+
+    private void drawPocket(DrawContext ctx, int mouseX, int mouseY) {
+        if (drag == null) return;
+        int px = pocketX(), py = pocketY(), pw = pocketW();
+        boolean hot = overPocket(mouseX, mouseY);
+        Draw.shadow(ctx, px, py, pw, POCKET_H, Ui.R);
+        Draw.card(ctx, px, py, pw, POCKET_H, Ui.R,
+                Draw.argb(hot ? 0xFF : 0xE0,
+                        hot ? Draw.mix(Ui.PANEL, Theme.ACCENT, 0.22f) : Ui.PANEL),
+                Draw.opaque(hot ? Theme.ACCENT : Ui.BORDER));
+        int gx = px + 11, gy = py + (POCKET_H - Draw.glyphH(Draw.PACK)) / 2;
+        Draw.glyph(ctx, Draw.PACK, gx, gy, hot ? Theme.ACCENT : Theme.TEXT_DIM);
+        int tx = gx + Draw.glyphW(Draw.PACK) + 8;
+        int room = px + pw - 9 - tx;
+        if (room < 34) return;
+        Draw.textFit(ctx, textRenderer, "В РЮКЗАК", tx, py + 8, room,
+                hot ? Theme.TEXT : Theme.TEXT_DIM, false);
+        Draw.textFit(ctx, textRenderer, hot ? "отпусти — уберу" : "перетащи сюда", tx, py + 19,
+                room, Theme.TEXT_FAINT, false);
+    }
+
+    private void finishDrag(double mx, double my) {
+        if (drag == null) return;
+        dragAwaitsClick = false;
+        if (overPocket(mx, my)) {
+            List<Script.Node> chain = drag;
+            drag = null;
+            snap = null;
+            dragSnapshot = null;
+            stash(chain, "убрано в рюкзак");
+            return;
+        }
+        if (mx < canvasLeft()) {
+            if (dragFromPalette && !dragMoved) placeAtCenter();
+            else toast(dragFromPalette ? "отменено" : "блок удалён");
+            drag = null;
+            snap = null;
+            dragSnapshot = null;
+            return;
+        }
+        Snap s = findSnap(layout());
+        if (dragFromPalette && dragSnapshot != null) pushUndo(dragSnapshot);
+        if (s != null) {
+            s.target.addAll(s.index, drag);
+            if (s.above && s.root != null && s.target == s.root.chain) { s.root.x = s.x; s.root.y = s.y; }
+        } else {
+            Script.Root r = new Script.Root(mouseCanvasX - dragOffX, mouseCanvasY - dragOffY);
+            r.chain.addAll(drag);
+            script.roots.add(r);
+        }
+        drag = null;
+        snap = null;
+        dragSnapshot = null;
     }
 
     private void deleteBlock(Layout.Box box) {
@@ -1901,10 +2548,21 @@ public final class EditorScreen extends Screen {
         hoverBox = null;
     }
 
+    private void deleteStackHovered() {
+        if (hoverBox == null || drag != null) return;
+        deleteStack(hoverBox);
+        hoverBox = null;
+    }
+
     private void duplicateHovered() {
         if (drag != null || (carry != null && carryHeld)) return;
         if (hoverBox != null && hoverChip != null && grabFromChip(hoverBox, hoverChip, false)) return;
         if (carry == null && hoverBox != null) duplicate(hoverBox, true);
+    }
+
+    private void duplicateBlockHovered() {
+        if (drag != null || carry != null) return;
+        if (hoverBox != null) duplicate(hoverBox, false);
     }
 
     private static final int GRAB_SLOP = 3;
@@ -1967,7 +2625,7 @@ public final class EditorScreen extends Screen {
     }
 
     private static ItemStack icon(Value v) {
-        ItemStack own = itemIcon(v);
+        ItemStack own = BlockView.itemIcon(v);
         if (!own.isEmpty()) return own;
         Values.Kind k = Values.kind(v.type);
         return k == null ? ItemStack.EMPTY : Catalog.stackOf(k.item());
@@ -2047,31 +2705,80 @@ public final class EditorScreen extends Screen {
     }
 
     private void placeCarry(Layout.Box box, Layout.Chip chip) {
-        Script.Node n = Layout.chipNode(box.node);
         pushUndo(carrySnapshot);
-        List<Value> dst = n.valuesOf(chip.argIndex);
-        Catalog.Arg a = n.args().get(chip.argIndex);
-        int put = 0;
-        if (chip.isCell()) {
-            while (dst.size() <= chip.cell) dst.add(Value.blank());
-            dst.set(chip.cell, carry.get(0).copy());
-            put = 1;
-        } else if (a.list) {
-            for (Value v : carry) {
-                if (dst.size() >= a.capacity) break;
-                dst.add(v.copy());
-                put++;
-            }
-        } else {
-            dst.clear();
-            dst.add(carry.get(0).copy());
-            put = 1;
-        }
+        int put = putValues(box, chip, carry);
         int left = carry.size() - put;
         carry = null;
         carryHeld = false;
         carrySnapshot = null;
         toast(left > 0 ? "вставлено " + put + ", не влезло " + left : "вставлено");
+    }
+
+    private static int putValues(Layout.Box box, Layout.Chip chip, List<Value> values) {
+        Script.Node n = Layout.chipNode(box.node);
+        List<Value> dst = n.valuesOf(chip.argIndex);
+        Catalog.Arg a = n.args().get(chip.argIndex);
+        if (chip.isCell()) {
+            while (dst.size() <= chip.cell) dst.add(Value.blank());
+            dst.set(chip.cell, values.get(0).copy());
+            return 1;
+        }
+        if (a.list) {
+            int put = 0;
+            for (Value v : values) {
+                if (dst.size() >= a.capacity) break;
+                dst.add(v.copy());
+                put++;
+            }
+            return put;
+        }
+        dst.clear();
+        dst.add(values.get(0).copy());
+        return 1;
+    }
+
+    private boolean copyChip(boolean cut) {
+        if (hoverBox == null || hoverChip == null) return false;
+        List<Value> have = chipValues(hoverBox, hoverChip);
+        if (have.isEmpty()) {
+            toast(cut ? "в этом слоте нечего вырезать" : "в этом слоте пусто");
+            return true;
+        }
+        Clip.copyValues(have);
+        String said = have.size() == 1 ? "«" + have.get(0).label() + "»"
+                : "значений: " + have.size();
+        if (!cut) { toast("скопировано " + said); return true; }
+        pushUndo();
+        List<Value> src = Layout.chipNode(hoverBox.node).values.get(hoverChip.argIndex);
+        if (src != null) {
+            if (hoverChip.isCell()) {
+                if (hoverChip.cell < src.size()) src.set(hoverChip.cell, Value.blank());
+            } else src.clear();
+        }
+        revision++;
+        toast("вырезано " + said);
+        return true;
+    }
+
+    private boolean pasteChip() {
+        if (hoverBox == null || hoverChip == null) return false;
+        if (!hoverChip.isArg() && !hoverChip.isCell()) return false;
+        Script.Node n = Layout.chipNode(hoverBox.node);
+        if (hoverChip.argIndex < 0 || hoverChip.argIndex >= n.args().size()) return false;
+        List<Value> values = Clip.pasteValues();
+        if (values.isEmpty()) return false;
+        List<Value> ok = new ArrayList<>(values.size());
+        for (Value v : values) if (fits(n, hoverChip.argIndex, v)) ok.add(v);
+        if (ok.isEmpty()) {
+            toast("такое значение в этот слот не кладётся");
+            return true;
+        }
+        pushUndo();
+        int put = putValues(hoverBox, hoverChip, ok);
+        int left = ok.size() - put;
+        toast(left > 0 ? "вставлено " + put + ", не влезло " + left
+                : put == 1 ? "вставлено «" + ok.get(0).label() + "»" : "вставлено " + put);
+        return true;
     }
 
     private static final int CARRY_MAX = 4;
@@ -2113,10 +2820,10 @@ public final class EditorScreen extends Screen {
         int ink = Draw.isLight(tc) ? 0x141821 : 0xFFFFFF;
 
         Draw.shadow(ctx, x, y, w, Layout.CHIP_H, 7);
-        pill(ctx, x, y, w, tc, true, carryHeld ? 0xE0 : 0xFF);
+        BlockView.pill(ctx, x, y, w, tc, true, carryHeld ? 0xE0 : 0xFF);
 
-        ItemStack stack = itemIcon(v);
-        badge(ctx, x, y, stack, Draw.opaque(Draw.shade(tc, -0.55f)));
+        ItemStack stack = BlockView.itemIcon(v);
+        BlockView.badge(ctx, x, y, stack, Draw.opaque(Draw.shade(tc, -0.55f)));
         int textX = x + (stack.isEmpty() ? Layout.CHIP_INK_X : Layout.CHIP_ITEM_INK_X);
 
         int right = x + w - 6;
@@ -2141,15 +2848,33 @@ public final class EditorScreen extends Screen {
     @Override
     public boolean mouseDragged(Click click, double dx, double dy) {
         if (menu != null && menu.mouseDragged(click.y())) return true;
+        if (blockMenu != null && blockMenu.mouseDragged(click.y())) return true;
         if (palette.barDragging()) { palette.barDrag(click.y(), height); return true; }
+        if (backpack != null) return backpack.mouseDragged(click, dx, dy);
         if (condPicker != null) return condPicker.mouseDragged(click, click.x(), click.y());
-        if (settings != null) return settings.mouseDragged(click.x(), click.y());
+        if (settings != null) return settings.mouseDragged(click, dx, dy);
         if (resizingPalette) {
             paletteDrag += dx;
             setPaletteWidth((int) Math.round(paletteDrag));
             return true;
         }
+        if (mapDragging) {
+            centerOn(map.canvasX(click.x()), map.canvasY(click.y()), false);
+            return true;
+        }
+        if (banding) {
+            bandX1 = toCanvasX(click.x());
+            bandY1 = toCanvasY(click.y());
+            return true;
+        }
+        if (moving) {
+            moveDX += dx / zoom;
+            moveDY += dy / zoom;
+            if (Math.abs(moveDX) > 0.5 || Math.abs(moveDY) > 0.5) moveShifted = true;
+            return true;
+        }
         if (editor != null) return editor.mouseDragged(click, dx, dy);
+        if (finder != null && finder.mouseDragged(click)) return true;
         if (draggingSearch) return search.mouseDragged(click, dx, dy);
         if (pressChip != null) {
             if (Math.abs(click.x() - pressX) < GRAB_SLOP
@@ -2160,7 +2885,12 @@ public final class EditorScreen extends Screen {
             return true;
         }
         if (drag != null) { dragMoved = true; return true; }
-        if (panning) { panX += dx; panY += dy; return true; }
+        if (panning) {
+            panAnim = false;
+            panX += dx;
+            panY += dy;
+            return true;
+        }
         return super.mouseDragged(click, dx, dy);
     }
 
@@ -2168,10 +2898,16 @@ public final class EditorScreen extends Screen {
     public boolean mouseReleased(Click click) {
         palette.barRelease();
         if (menu != null) menu.mouseReleased();
+        if (blockMenu != null) blockMenu.mouseReleased();
+        if (backpack != null) { backpack.mouseReleased(); return true; }
         if (settings != null) { settings.mouseReleased(); return true; }
+        if (banding) { applyBand(); return true; }
+        if (moving) { finishMove(); return true; }
         panning = false;
         draggingSearch = false;
         resizingPalette = false;
+        mapDragging = false;
+        if (finder != null) finder.mouseReleased();
         if (editor != null) editor.mouseReleased();
         if (pressChip != null) {
             Layout.Box box = pressBox;
@@ -2186,28 +2922,8 @@ public final class EditorScreen extends Screen {
             return true;
         }
         if (drag == null) return super.mouseReleased(click);
-
-        if (click.x() < canvasLeft()) {
-            if (dragFromPalette && !dragMoved) placeAtCenter();
-            else toast(dragFromPalette ? "отменено" : "блок удалён");
-            drag = null;
-            snap = null;
-            dragSnapshot = null;
-            return true;
-        }
-        Snap s = findSnap(layout());
-        if (dragFromPalette && dragSnapshot != null) pushUndo(dragSnapshot);
-        if (s != null) {
-            s.target.addAll(s.index, drag);
-            if (s.above && s.root != null && s.target == s.root.chain) { s.root.x = s.x; s.root.y = s.y; }
-        } else {
-            Script.Root r = new Script.Root(mouseCanvasX - dragOffX, mouseCanvasY - dragOffY);
-            r.chain.addAll(drag);
-            script.roots.add(r);
-        }
-        drag = null;
-        snap = null;
-        dragSnapshot = null;
+        if (dragAwaitsClick) { dragAwaitsClick = false; return true; }
+        finishDrag(click.x(), click.y());
         return true;
     }
 
@@ -2231,9 +2947,13 @@ public final class EditorScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mx, double my, double hAmount, double vAmount) {
         if (condPicker != null) return condPicker.mouseScrolled(mx, my, vAmount);
+        if (backpack != null) return backpack.mouseScrolled(mx, my, vAmount);
         if (settings != null) return settings.mouseScrolled(mx, my, vAmount);
         if (menu != null && menu.mouseScrolled(mx, my, vAmount)) return true;
+        if (blockMenu != null) { blockMenu.mouseScrolled(mx, my, vAmount); return true; }
         if (editor != null && editor.mouseScrolled(mx, my, vAmount)) return true;
+        if (finder != null && finder.mouseScrolled(mx, my, vAmount)) return true;
+        if (map.hit(mx, my)) return true;
         if (mx < canvasLeft()) { palette.scrollBy(vAmount, height); return true; }
         if (my < Theme.TOPBAR_H) return true;
         if (hoverChip != null && hoverBox != null && hoverChip.isMarker()) {
@@ -2308,6 +3028,12 @@ public final class EditorScreen extends Screen {
             if (condPicker.isClosed()) condPicker = null;
             return true;
         }
+        if (backpack != null) {
+            BackpackPanel panel = backpack;
+            panel.keyPressed(input);
+            if (panel.isClosed() || backpack != panel) backpack = null;
+            return true;
+        }
         if (settings != null) {
             settings.keyPressed(input);
             if (settings.isClosed()) closeSettings();
@@ -2317,6 +3043,12 @@ public final class EditorScreen extends Screen {
             if (key == GLFW.GLFW_KEY_ESCAPE) { menu = null; return true; }
             return true;
         }
+        if (blockMenu != null) {
+            BlockMenu open = blockMenu;
+            boolean ate = open.keyPressed(input);
+            if (open.isClosed() || blockMenu != open) blockMenu = null;
+            if (ate) return true;
+        }
         if (editor != null) {
             editor.keyPressed(input);
             if (editor.isClosed()) finishEditor();
@@ -2324,7 +3056,13 @@ public final class EditorScreen extends Screen {
         }
         Settings st = Settings.get();
         Settings.Hot hot = st.match(key, input.modifiers());
-        if (hot != null && (st.mods(hot) != 0 || !search.isFocused()) && runHotkey(hot)) return true;
+        if (hot != null && typing(hot)) hot = null;
+        if (hot != null && (st.mods(hot) != 0 || !typingText()) && runHotkey(hot)) return true;
+        if (finder != null) {
+            boolean ate = finder.keyPressed(input);
+            if (finder.isClosed()) closeFinder();
+            if (ate) return true;
+        }
         if (search.isFocused()) {
             if (key == GLFW.GLFW_KEY_ESCAPE) {
                 if (!search.getText().isEmpty()) search.setText("");
@@ -2336,7 +3074,17 @@ public final class EditorScreen extends Screen {
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             if (exitPrompt) { exitPrompt = false; return true; }
             if (carry != null) { cancelCarry(); return true; }
-            if (drag != null) { drag = null; snap = null; toast("отменено"); return true; }
+            if (banding) { banding = false; return true; }
+            if (moving) { cancelMove(); return true; }
+            if (!picked.isEmpty()) { clearPicked(); toast("выделение снято"); return true; }
+            if (modulePick()) { finishModulePick(false); return true; }
+            if (drag != null) {
+                drag = null;
+                snap = null;
+                dragAwaitsClick = false;
+                toast("отменено");
+                return true;
+            }
             if (palette.hasCrumb()) {
                 if (!search.getText().isEmpty()) search.setText("");
                 else palette.openCategory(-1);
@@ -2348,18 +3096,48 @@ public final class EditorScreen extends Screen {
         return super.keyPressed(input);
     }
 
+    private boolean typingText() {
+        return search.isFocused() || (finder != null && finder.focused());
+    }
+
+    private boolean typing(Settings.Hot hot) {
+        if (!typingText()) return false;
+        return hot == Settings.Hot.COPY || hot == Settings.Hot.CUT || hot == Settings.Hot.PASTE
+                || hot == Settings.Hot.SELECT;
+    }
+
     private boolean runHotkey(Settings.Hot hot) {
         switch (hot) {
             case UNDO -> undo();
             case REDO -> redo();
             case SAVE -> { saveScript(); toast("сохранено"); }
             case UPLOAD -> publish(null);
-            case SEARCH -> { search.setFocused(true); setFocused(search); }
+            case SEARCH -> {
+                if (finder != null) finder.blur();
+                search.setFocused(true);
+                setFocused(search);
+            }
+            case FIND -> toggleFinder();
             case FIT -> fitView();
-            case DUPLICATE -> duplicateHovered();
-            case DELETE -> deleteHovered();
+            case DUPLICATE -> { if (picked.isEmpty()) duplicateHovered(); else duplicatePicked(); }
+            case DUP_ONE -> duplicateBlockHovered();
+            case COPY -> {
+                if (!copyChip(false)) { if (picked.isEmpty()) copyHovered(true); else copyPicked(); }
+            }
+            case COPY_ONE -> { if (!copyChip(false)) copyHovered(false); }
+            case CUT -> {
+                if (!copyChip(true)) { if (picked.isEmpty()) cutHovered(); else cutPicked(); }
+            }
+            case PASTE -> { if (!pasteChip()) pasteClip(); }
+            case DELETE -> { if (picked.isEmpty()) deleteHovered(); else deletePicked(); }
+            case DEL_STACK -> { if (picked.isEmpty()) deleteStackHovered(); else deletePicked(); }
+            case SELECT -> selectAll();
+            case BACKPACK -> openBackpack();
+            case MARKET -> { if (modulePick()) finishModulePick(false); else openMarket(); }
+            case STASH -> stashHovered();
             case PLAY -> askExit("play");
             case BUILD -> askExit("build");
+            case RESTART -> askExit(XeroCode.RESTART);
             case SETTINGS -> openSettings();
             case MODE -> toOriginal();
             default -> { return false; }
@@ -2370,9 +3148,11 @@ public final class EditorScreen extends Screen {
     @Override
     public boolean charTyped(CharInput input) {
         if (condPicker != null) { condPicker.charTyped(input); return true; }
+        if (backpack != null) { backpack.charTyped(input); return true; }
         if (settings != null) { settings.charTyped(input); return true; }
         if (menu != null) return true;
         if (editor != null) return editor.charTyped(input);
+        if (finder != null && finder.focused()) return finder.charTyped(input);
         if (!search.isFocused()) {
             String s = input.asString();
             if (s != null && !s.isBlank()) {

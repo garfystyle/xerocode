@@ -16,6 +16,10 @@
 | <kbd>Ctrl</kbd> + <kbd>G</kbd> | открыть редактор, а заодно уйти в `/dev` |
 | <kbd>Ctrl</kbd> + <kbd>P</kbd> | режим игры |
 | <kbd>Ctrl</kbd> + <kbd>B</kbd> | режим строительства |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> | перезапустить мир |
+| <kbd>Ctrl</kbd> + <kbd>R</kbd> | рюкзак кода |
+| <kbd>Ctrl</kbd> + <kbd>E</kbd> | магазин модулей |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> | поиск по коду |
 
 Переназначаются в настройках мода — <kbd>Ctrl</kbd> + <kbd>,</kbd>.
 

@@ -187,14 +187,17 @@ public final class ExportScreen extends DialogScreen {
     private void finish() {
         MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
         if (exitTo == null) { mc.setScreen(parent); return; }
-        if (mc.getNetworkHandler() != null) mc.getNetworkHandler().sendChatCommand(exitTo);
         XeroCode.canvasClosed();
+        if (XeroCode.RESTART.equals(exitTo)) {
+            XeroCode.restart();
+            return;
+        }
+        if (mc.getNetworkHandler() != null) mc.getNetworkHandler().sendChatCommand(exitTo);
         XeroCode.cover("build".equals(exitTo) ? "Режим строительства…" : "Запуск мира…", null);
     }
 
     @Override
     public void close() {
-        if (job != null && job.state == Publish.State.UPLOADING) job.cancel();
         MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
         mc.setScreen(parent);
     }

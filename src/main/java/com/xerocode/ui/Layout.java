@@ -201,6 +201,27 @@ public final class Layout {
 
     public final List<Chunk> chunks = new ArrayList<>();
 
+    public int[] bounds(int pad) {
+        int x0 = Integer.MAX_VALUE, y0 = Integer.MAX_VALUE;
+        int x1 = Integer.MIN_VALUE, y1 = Integer.MIN_VALUE;
+        for (Box b : boxes) {
+            x0 = Math.min(x0, b.x);
+            y0 = Math.min(y0, b.y);
+            x1 = Math.max(x1, b.x + b.w + pad);
+            y1 = Math.max(y1, b.bottom() + pad + 1);
+        }
+        if (x1 <= x0) return new int[]{0, 0, 1, 1};
+        return new int[]{x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0)};
+    }
+
+    public Box at(double cx, double cy) {
+        for (int i = boxes.size() - 1; i >= 0; i--) {
+            Box b = boxes.get(i);
+            if (b.contains(cx, cy) && b.hitGrab(cx, cy)) return b;
+        }
+        return null;
+    }
+
     public static Layout of(Script script, TextRenderer tr) {
         Layout l = new Layout();
         for (Script.Root r : script.roots) {

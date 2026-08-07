@@ -137,8 +137,62 @@ public final class Script {
 
     public static final class Root {
         public double x, y;
+        public final String id;
         public final List<Node> chain = new ArrayList<>();
-        public Root(double x, double y) { this.x = x; this.y = y; }
+
+        public Root(double x, double y) { this(x, y, newId()); }
+
+        public Root(double x, double y, String id) {
+            this.x = x;
+            this.y = y;
+            this.id = id == null || id.isBlank() ? newId() : id;
+        }
+    }
+
+    private static final java.security.SecureRandom IDS = new java.security.SecureRandom();
+
+    public static String newId() {
+        byte[] raw = new byte[6];
+        IDS.nextBytes(raw);
+        StringBuilder sb = new StringBuilder(12);
+        for (byte b : raw) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
+
+    public Root rootById(String id) {
+        for (Root r : roots) if (r.id.equals(id)) return r;
+        return null;
+    }
+
+    public Root rootOf(Node node) {
+        for (Root r : roots) if (holds(r.chain, node)) return r;
+        return null;
+    }
+
+    private static boolean holds(List<Node> chain, Node node) {
+        for (Node n : chain) {
+            if (n == node) return true;
+            if (n.cond != null && holds(List.of(n.cond), node)) return true;
+            if (holds(n.body, node)) return true;
+        }
+        return false;
+    }
+
+    public static int rootHash(Root r) {
+        int h = Double.hashCode(r.x) * 31 + Double.hashCode(r.y);
+        return chainHash(h, r.chain);
+    }
+
+    public static int blocks(List<Node> chain) {
+        int n = 0;
+        for (Node k : chain) n += 1 + blocks(k.body);
+        return n;
+    }
+
+    public static int blocksIn(List<Root> roots) {
+        int n = 0;
+        for (Root r : roots) n += blocks(r.chain);
+        return n;
     }
 
     public final List<Root> roots = new ArrayList<>();
@@ -181,6 +235,7 @@ public final class Script {
         JsonArray arr = new JsonArray();
         for (Root r : roots) {
             JsonObject ro = new JsonObject();
+            ro.addProperty("id", r.id);
             ro.addProperty("x", r.x);
             ro.addProperty("y", r.y);
             ro.add("chain", writeChain(r.chain));
@@ -206,7 +261,8 @@ public final class Script {
             s.viewZoom = Math.max(0.2, Math.min(2.0, root.get("viewZoom").getAsDouble()));
         for (JsonElement re : root.getAsJsonArray("roots")) {
             JsonObject ro = re.getAsJsonObject();
-            Root rt = new Root(ro.get("x").getAsDouble(), ro.get("y").getAsDouble());
+            Root rt = new Root(ro.get("x").getAsDouble(), ro.get("y").getAsDouble(),
+                    ro.has("id") ? ro.get("id").getAsString() : null);
             rt.chain.addAll(readChain(ro.getAsJsonArray("chain")));
             s.roots.add(rt);
         }
@@ -284,7 +340,7 @@ public final class Script {
         }
     }
 
-    private static JsonArray writeChain(List<Node> chain) {
+    static JsonArray writeChain(List<Node> chain) {
         JsonArray arr = new JsonArray();
         for (Node n : chain) {
             JsonObject o = new JsonObject();
@@ -327,7 +383,7 @@ public final class Script {
         return arr;
     }
 
-    private static List<Node> readChain(JsonArray arr) {
+    static List<Node> readChain(JsonArray arr) {
         List<Node> out = new ArrayList<>();
         for (JsonElement e : arr) {
             JsonObject o = e.getAsJsonObject();

@@ -60,6 +60,7 @@ public final class ItemStudio {
     private int x, y, w, h, lw, rw;
     private final Ui.Pane pane = new Ui.Pane();
     private final Ui.Bar bar = new Ui.Bar(), loreBar = new Ui.Bar();
+    private final Ui.Grab grab = new Ui.Grab();
     private int lastMx, lastMy;
     private int cardY, pickY, numsY, nameY, modeY, nameBtnY, loreY, enchY, propY, glintY, hideY;
     private int prevY, prevH, nbtY, nbtH, nbtMsgY, nbtBtnY, footY;
@@ -710,6 +711,7 @@ public final class ItemStudio {
             focus = NBT;
             focusFields();
             nbtBox.mouseClicked(click, doubled);
+            grab.take(nbtBox);
             return true;
         }
         Ui.Cluster nbt = nbtRow();
@@ -741,6 +743,7 @@ public final class ItemStudio {
         focusFields();
         TextFieldWidget f = widget(which);
         if (f != null && !f.mouseClicked(click, doubled)) f.onClick(click, doubled);
+        grab.take(f);
         return true;
     }
 
@@ -816,14 +819,13 @@ public final class ItemStudio {
         if (picker != null) return picker.mouseDragged(click, dx, dy);
         if (studio != null) return studio.mouseDragged(click, dx, dy);
         if (enchPicker != null) return enchPicker.mouseDragged(click, dx, dy);
-        if (focus == NBT) return nbtBox.mouseDragged(click, dx, dy);
-        TextFieldWidget f = widget(focus);
-        return f != null && f.mouseDragged(click, dx, dy);
+        return grab.drag(click, dx, dy);
     }
 
     public void mouseReleased() {
         bar.release();
         loreBar.release();
+        grab.release();
         if (studio != null) studio.mouseReleased();
         if (enchPicker != null) enchPicker.mouseReleased();
         if (picker != null) picker.mouseReleased();

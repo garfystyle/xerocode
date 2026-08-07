@@ -7,7 +7,6 @@ import com.google.gson.JsonParser;
 import com.xerocode.ui.Theme;
 import com.xerocode.ui.Ui;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.util.InputUtil;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.Reader;
@@ -45,11 +44,23 @@ public final class Settings {
         SAVE     ("save",      "Сохранить",            GLFW.GLFW_KEY_S,      CTRL),
         UPLOAD   ("upload",    "Сохранить на сервер",  GLFW.GLFW_KEY_S,      CTRL | SHIFT),
         SEARCH   ("search",    "Поиск блока",          GLFW.GLFW_KEY_F,      CTRL),
+        FIND     ("find",      "Поиск по коду",        GLFW.GLFW_KEY_F,      CTRL | SHIFT),
         FIT      ("fit",       "Показать всё",         GLFW.GLFW_KEY_0,      CTRL),
+        COPY     ("copy",      "Копировать стопку",    GLFW.GLFW_KEY_C,      CTRL),
+        COPY_ONE ("copyOne",   "Копировать блок",      GLFW.GLFW_KEY_C,      CTRL | SHIFT),
+        CUT      ("cut",       "Вырезать стопку",      GLFW.GLFW_KEY_X,      CTRL),
+        PASTE    ("paste",     "Вставить",             GLFW.GLFW_KEY_V,      CTRL),
         DUPLICATE("duplicate", "Дублировать стопку",   GLFW.GLFW_KEY_D,      CTRL),
+        DUP_ONE  ("dupOne",    "Дублировать блок",     GLFW.GLFW_KEY_D,      CTRL | SHIFT),
         DELETE   ("delete",    "Удалить блок",         GLFW.GLFW_KEY_DELETE, 0),
+        DEL_STACK("delStack",  "Удалить стопку",       GLFW.GLFW_KEY_DELETE, SHIFT),
+        SELECT   ("select",    "Выделить всё",         GLFW.GLFW_KEY_A,      CTRL),
+        BACKPACK ("backpack",  "Рюкзак кода",          GLFW.GLFW_KEY_R,      CTRL),
+        MARKET   ("market",    "Магазин модулей",      GLFW.GLFW_KEY_E,      CTRL),
+        STASH    ("stash",     "Убрать в рюкзак",      GLFW.GLFW_KEY_R,      CTRL | SHIFT),
         PLAY     ("play",      "Игра",                 GLFW.GLFW_KEY_P,      CTRL),
-        BUILD    ("build",     "Строительство",        GLFW.GLFW_KEY_B,      CTRL);
+        BUILD    ("build",     "Строительство",        GLFW.GLFW_KEY_B,      CTRL),
+        RESTART  ("restart",   "Перезапустить мир",    GLFW.GLFW_KEY_P,      CTRL | SHIFT);
 
         public final String id, label;
         public final int defCode, defMods;
@@ -76,6 +87,11 @@ public final class Settings {
     public boolean gradient = true;
     public int grid = GRID_LINES;
     public boolean smoothText = true;
+    public boolean minimap = true;
+
+    public String collabName = "";
+    public String collabCode = "";
+    public boolean collabCursors = true;
 
     public final Map<String, Integer> colors = new LinkedHashMap<>();
     public final List<String> symbols = new ArrayList<>();
@@ -99,6 +115,7 @@ public final class Settings {
     public static boolean shadows()   { return get().shadows; }
     public static boolean gradient()  { return get().gradient; }
     public static boolean smoothText(){ return get().smoothText; }
+    public static boolean minimap()   { return get().minimap; }
     public static int gridStyle()     { return get().grid; }
     public static boolean outlined()  { return get().buttons == BTN_OUTLINE; }
     public static boolean canvasMode(){ return get().mode == Mode.CANVAS; }
@@ -152,11 +169,60 @@ public final class Settings {
     }
 
     public static String keyName(int code) {
-        try {
-            return InputUtil.Type.KEYSYM.createFromCode(code).getLocalizedText().getString();
-        } catch (Throwable e) {
-            return "клавиша " + code;
-        }
+        if (code >= GLFW.GLFW_KEY_A && code <= GLFW.GLFW_KEY_Z) return String.valueOf((char) code);
+        if (code >= GLFW.GLFW_KEY_0 && code <= GLFW.GLFW_KEY_9) return String.valueOf((char) code);
+        if (code >= GLFW.GLFW_KEY_F1 && code <= GLFW.GLFW_KEY_F25)
+            return "F" + (code - GLFW.GLFW_KEY_F1 + 1);
+        if (code >= GLFW.GLFW_KEY_KP_0 && code <= GLFW.GLFW_KEY_KP_9)
+            return "Num " + (code - GLFW.GLFW_KEY_KP_0);
+        return switch (code) {
+            case GLFW.GLFW_KEY_SPACE -> "Space";
+            case GLFW.GLFW_KEY_APOSTROPHE -> "'";
+            case GLFW.GLFW_KEY_COMMA -> ",";
+            case GLFW.GLFW_KEY_MINUS -> "-";
+            case GLFW.GLFW_KEY_PERIOD -> ".";
+            case GLFW.GLFW_KEY_SLASH -> "/";
+            case GLFW.GLFW_KEY_SEMICOLON -> ";";
+            case GLFW.GLFW_KEY_EQUAL -> "=";
+            case GLFW.GLFW_KEY_LEFT_BRACKET -> "[";
+            case GLFW.GLFW_KEY_BACKSLASH -> "\\";
+            case GLFW.GLFW_KEY_RIGHT_BRACKET -> "]";
+            case GLFW.GLFW_KEY_GRAVE_ACCENT -> "`";
+            case GLFW.GLFW_KEY_ESCAPE -> "Esc";
+            case GLFW.GLFW_KEY_ENTER -> "Enter";
+            case GLFW.GLFW_KEY_TAB -> "Tab";
+            case GLFW.GLFW_KEY_BACKSPACE -> "Backspace";
+            case GLFW.GLFW_KEY_INSERT -> "Insert";
+            case GLFW.GLFW_KEY_DELETE -> "Delete";
+            case GLFW.GLFW_KEY_RIGHT -> "→";
+            case GLFW.GLFW_KEY_LEFT -> "←";
+            case GLFW.GLFW_KEY_DOWN -> "↓";
+            case GLFW.GLFW_KEY_UP -> "↑";
+            case GLFW.GLFW_KEY_PAGE_UP -> "PgUp";
+            case GLFW.GLFW_KEY_PAGE_DOWN -> "PgDn";
+            case GLFW.GLFW_KEY_HOME -> "Home";
+            case GLFW.GLFW_KEY_END -> "End";
+            case GLFW.GLFW_KEY_CAPS_LOCK -> "Caps Lock";
+            case GLFW.GLFW_KEY_SCROLL_LOCK -> "Scroll Lock";
+            case GLFW.GLFW_KEY_NUM_LOCK -> "Num Lock";
+            case GLFW.GLFW_KEY_PRINT_SCREEN -> "Print Screen";
+            case GLFW.GLFW_KEY_PAUSE -> "Pause";
+            case GLFW.GLFW_KEY_MENU -> "Menu";
+            case GLFW.GLFW_KEY_KP_DECIMAL -> "Num .";
+            case GLFW.GLFW_KEY_KP_DIVIDE -> "Num /";
+            case GLFW.GLFW_KEY_KP_MULTIPLY -> "Num *";
+            case GLFW.GLFW_KEY_KP_SUBTRACT -> "Num -";
+            case GLFW.GLFW_KEY_KP_ADD -> "Num +";
+            case GLFW.GLFW_KEY_KP_ENTER -> "Num Enter";
+            case GLFW.GLFW_KEY_KP_EQUAL -> "Num =";
+            case GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_RIGHT_SHIFT -> "Shift";
+            case GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_RIGHT_CONTROL -> "Ctrl";
+            case GLFW.GLFW_KEY_LEFT_ALT, GLFW.GLFW_KEY_RIGHT_ALT -> "Alt";
+            case GLFW.GLFW_KEY_LEFT_SUPER, GLFW.GLFW_KEY_RIGHT_SUPER -> "Win";
+            case GLFW.GLFW_KEY_WORLD_1 -> "World 1";
+            case GLFW.GLFW_KEY_WORLD_2 -> "World 2";
+            default -> "клавиша " + code;
+        };
     }
 
     public void setColor(String category, int rgb) {
@@ -193,6 +259,7 @@ public final class Settings {
         shadows = true;
         gradient = true;
         smoothText = true;
+        minimap = true;
         colors.clear();
         apply();
     }
@@ -209,6 +276,7 @@ public final class Settings {
         look.addProperty("shadows", shadows);
         look.addProperty("gradient", gradient);
         look.addProperty("smoothText", smoothText);
+        look.addProperty("minimap", minimap);
         look.addProperty("drawableOnly", drawableOnly);
 
         JsonObject hot = new JsonObject();
@@ -226,8 +294,14 @@ public final class Settings {
         root.add("look", look);
         root.add("keys", hot);
         root.add("colors", palette);
+        JsonObject collab = new JsonObject();
+        collab.addProperty("name", collabName);
+        collab.addProperty("code", collabCode);
+        collab.addProperty("cursors", collabCursors);
+
         root.add("symbols", strings(symbols));
         root.add("collapsed", strings(collapsed));
+        root.add("collab", collab);
         return root;
     }
 
@@ -271,6 +345,7 @@ public final class Settings {
                     s.shadows = flag(look, "shadows", s.shadows);
                     s.gradient = flag(look, "gradient", s.gradient);
                     s.smoothText = flag(look, "smoothText", s.smoothText);
+                    s.minimap = flag(look, "minimap", s.minimap);
                     s.drawableOnly = flag(look, "drawableOnly", s.drawableOnly);
                 }
                 if (root.has("keys")) {
@@ -295,6 +370,12 @@ public final class Settings {
                 }
                 readStrings(root, "symbols", s.symbols);
                 readStrings(root, "collapsed", s.collapsed);
+                if (root.has("collab")) {
+                    JsonObject collab = root.getAsJsonObject("collab");
+                    if (collab.has("name")) s.collabName = collab.get("name").getAsString();
+                    if (collab.has("code")) s.collabCode = collab.get("code").getAsString();
+                    s.collabCursors = flag(collab, "cursors", s.collabCursors);
+                }
             }
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] не удалось прочитать настройки", e);

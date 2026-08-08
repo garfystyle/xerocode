@@ -248,8 +248,9 @@ public final class Mapping {
     }
 
     public static boolean invertible(Catalog.Action action) {
+        if (action == null || action.category == null) return false;
         Act act = forExport(action);
-        return act != null && act.container;
+        return act != null && act.container || action.category.wraps();
     }
 
     private Mapping() {}

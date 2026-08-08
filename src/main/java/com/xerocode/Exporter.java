@@ -122,6 +122,28 @@ public final class Exporter {
         if (node.action == Catalog.ELSE) {
             op.addProperty("action", "else");
             op.add("values", new JsonArray());
+        } else if (Mapping.elseCondId(node.action) != null) {
+            String condId = Mapping.elseCondId(node.action);
+            Mapping.Act condAct = Mapping.action(condId);
+            if (condAct != null && node.raw != null && node.raw.has(Importer.KEPT_ID)) {
+                String kept = node.raw.get(Importer.KEPT_ID).getAsString();
+                Mapping.Act keptAct = Mapping.action(kept);
+                if (keptAct != null && condAct.key.equals(keptAct.key)) {
+                    condId = kept; condAct = keptAct;
+                }
+            }
+            if (condAct == null) {
+                report.unmapped++;
+                report.problem("«Иначе " + node.action.name + "»");
+                return null;
+            }
+            op.addProperty("action", "else");
+            op.add("values", values(node, condAct, report));
+            JsonObject cond = new JsonObject();
+            cond.addProperty("action", condId);
+            cond.addProperty("is_inverted",
+                    Catalog.INVERT_ON.equals(node.settingOf(Catalog.INVERT)));
+            op.add("conditional", cond);
         } else if (node.invokes()) {
             op.addProperty("action", node.isStart() ? "start_process" : "call_function");
             op.add("values", invokeValues(node));
@@ -187,7 +209,8 @@ public final class Exporter {
                 op.add("selection", selection);
             }
         }
-        if (Catalog.INVERT_ON.equals(node.settingOf(Catalog.INVERT)))
+        if (Catalog.INVERT_ON.equals(node.settingOf(Catalog.INVERT))
+                && Mapping.elseCondId(node.action) == null)
             op.addProperty("is_inverted", true);
     }
 

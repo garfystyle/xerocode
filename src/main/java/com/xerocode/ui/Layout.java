@@ -311,7 +311,7 @@ public final class Layout {
             box.card = new Card();
             titleW = measureCard(box, tr);
         } else {
-            name = outer.inverted() ? INVERT_PREFIX + a.name : a.name;
+            name = blockTitle(outer);
             box.targetSetting = outer.settingIndex(Catalog.TARGET);
             target = box.targetSetting < 0 ? null : outer.marker(box.targetSetting);
             if (target != null && Catalog.TARGET_DEFAULT.equals(target)) target = null;
@@ -700,6 +700,12 @@ public final class Layout {
 
     public static final int TARGET_GAP = 8;
     public static final String INVERT_PREFIX = "НЕ ";
+    public static final String ELSE_IF_PREFIX = "Иначе если ";
+
+    public static String blockTitle(Script.Node n) {
+        String name = (n.inverted() ? INVERT_PREFIX : "") + n.action.name;
+        return Mapping.elseCondId(n.action) == null ? name : ELSE_IF_PREFIX + name;
+    }
 
     private static int markerChipWidth(Script.Node n, int i, TextRenderer tr) {
         int w = (markerBound(n, i) ? 13 : 8) + tr.getWidth(markerText(n, i)) + 6 + 5 + 6;

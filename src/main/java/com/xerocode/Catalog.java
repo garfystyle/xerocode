@@ -86,7 +86,9 @@ public final class Catalog {
         }
     }
 
-    private static final List<String> WRAPPING = List.of("Повторение", "Контроллер", "Иначе");
+    public static final String ELSE_CATEGORY = "Иначе";
+
+    private static final List<String> WRAPPING = List.of("Повторение", "Контроллер", ELSE_CATEGORY);
 
     private static final Map<String, Integer> COLORS_TEXTURE = Map.ofEntries(
             Map.entry("Событие игрока",          0x44EBF1),
@@ -195,6 +197,7 @@ public final class Catalog {
                         a.subcategory = sn.isJsonNull() ? null : sn.getAsString();
                         list.add(a);
                         BY_KEY.put(key(cat.name, a.name), a);
+                        BY_KEY.put(keyOf(a), a);
                     }
                     cat.subNames.add(sn.isJsonNull() ? null : sn.getAsString());
                     cat.subActions.add(list);
@@ -456,7 +459,13 @@ public final class Catalog {
 
     public static String key(String category, String action) { return category + "|" + action; }
     public static Action byKey(String key) { return BY_KEY.get(key); }
-    public static String keyOf(Action a) { return key(a.category.name, a.name); }
+
+    public static String keyOf(Action a) {
+        if (a != ELSE && a.subcategory != null && a.category != null
+                && ELSE_CATEGORY.equals(a.category.name))
+            return key(a.category.name, a.subcategory + "|" + a.name);
+        return key(a.category.name, a.name);
+    }
 
     public record Slots(int size, int cols, int hotbar, String title) {}
 

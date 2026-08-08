@@ -148,7 +148,52 @@ public final class Mapping {
 
     public static Act forExport(Catalog.Action action) {
         String id = actionId(action);
+        if (id == null) return elseCondAct(action);
+        return ACTIONS.get(id);
+    }
+
+    private static final Map<String, String> ELSE_IF = new HashMap<>();
+    private static final Map<String, Catalog.Action> ELSE_BY_ID = new HashMap<>();
+    private static boolean elseBuilt;
+
+    private static void buildElse() {
+        if (elseBuilt || EXPORT_ACTIONS.isEmpty() || !Catalog.loaded()) return;
+        Catalog.Category cat = Catalog.category(Catalog.ELSE_CATEGORY);
+        if (cat == null) return;
+        elseBuilt = true;
+        Map<String, List<String>> byCondKey = new HashMap<>();
+        ACTIONS.forEach((id, act) ->
+                byCondKey.computeIfAbsent(act.key, k -> new ArrayList<>()).add(id));
+        for (List<Catalog.Action> list : cat.subActions)
+            for (Catalog.Action a : list) {
+                if (a == Catalog.ELSE || a.subcategory == null) continue;
+                int cut = a.subcategory.indexOf(" / ");
+                String from = cut < 0 ? a.subcategory : a.subcategory.substring(0, cut);
+                String condKey = Catalog.key(from, a.name);
+                List<String> ids = byCondKey.get(condKey);
+                if (ids == null || ids.isEmpty()) continue;
+                String id = EXPORT_ACTIONS.get(condKey);
+                ELSE_IF.put(Catalog.keyOf(a), ids.contains(id) ? id : ids.get(0));
+                for (String sid : ids) ELSE_BY_ID.putIfAbsent(sid, a);
+            }
+    }
+
+    public static String elseCondId(Catalog.Action action) {
+        if (action == null || action == Catalog.ELSE || action.category == null
+                || !Catalog.ELSE_CATEGORY.equals(action.category.name)) return null;
+        buildElse();
+        return ELSE_IF.get(Catalog.keyOf(action));
+    }
+
+    public static Act elseCondAct(Catalog.Action action) {
+        String id = elseCondId(action);
         return id == null ? null : ACTIONS.get(id);
+    }
+
+    public static Catalog.Action elseFor(String condId) {
+        if (condId == null) return null;
+        buildElse();
+        return ELSE_BY_ID.get(condId);
     }
 
     private static String family(String key) {

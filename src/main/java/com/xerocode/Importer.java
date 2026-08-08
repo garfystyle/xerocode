@@ -289,8 +289,25 @@ public final class Importer {
             if ("empty".equals(id)) continue;
 
             if ("else".equals(id)) {
-                Script.Node node = new Script.Node(Catalog.ELSE);
+                JsonObject c = op.has("conditional") && op.get("conditional").isJsonObject()
+                        ? op.getAsJsonObject("conditional") : null;
+                String condId = c == null ? "" : str(c, "action");
+                Catalog.Action branch = Mapping.elseFor(condId);
+                Mapping.Act condAct = branch == null ? null : Mapping.action(condId);
+                Script.Node node = new Script.Node(branch == null ? Catalog.ELSE : branch);
                 keepFields(op, node);
+                if (condAct != null) {
+                    if (node.raw != null) node.raw.remove("conditional");
+                    if (!condId.equals(Mapping.elseCondId(node.action)))
+                        raw(node).addProperty(KEPT_ID, condId);
+                    if (c.has("is_inverted") && c.get("is_inverted").isJsonPrimitive()
+                            && c.get("is_inverted").getAsBoolean())
+                        node.setSetting(Catalog.INVERT, Catalog.INVERT_ON);
+                    readBlockFields(op, node, result);
+                    readValues(op, node, condAct, node.action);
+                } else if (c != null) {
+                    unknown(result, "условие " + condId + " у «Иначе»");
+                }
                 readOperations(op, node.body, result);
                 into.add(node);
                 result.blocks++;

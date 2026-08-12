@@ -228,10 +228,6 @@ public final class Draw {
             rect(ctx, openFrom, y + h - 1, openTo - openFrom, 1, fillBottom);
     }
 
-    public static void blockSilhouette(DrawContext ctx, int x, int y, int w, int h, int argb) {
-        rect(ctx, x, y, w, h, argb);
-    }
-
     public static void span(DrawContext ctx, int l, int r, int y, int hole0, int hole1, int argb) {
         rect(ctx, l, y, Math.max(0, Math.min(hole0, r) - l), 1, argb);
         int right = Math.max(l, hole1);

@@ -32,6 +32,8 @@ public final class Theme {
     public static int MARKER_TOP    = 0x2A303D;
     public static int MARKER_BOTTOM = 0x1E232D;
 
+    public static int GHOST         = 0x5A6579;
+
     public static int PALETTE_W = 218;
     public static final int PALETTE_MIN_W = 150;
     public static final int PALETTE_MAX_W = 460;
@@ -70,6 +72,7 @@ public final class Theme {
         MARKER_BORDER = 0x424B5B;
         MARKER_TOP    = 0x2A303D;
         MARKER_BOTTOM = 0x1E232D;
+        GHOST         = 0x5A6579;
 
         Ui.PANEL   = 0x171A21;
         Ui.HEAD    = 0x1C212B;
@@ -113,6 +116,7 @@ public final class Theme {
         MARKER_BORDER = 0xA9B3C3;
         MARKER_TOP    = 0xF3F5FA;
         MARKER_BOTTOM = 0xE2E7F0;
+        GHOST         = 0xBFC8D8;
 
         Ui.PANEL   = 0xFFFFFF;
         Ui.HEAD    = 0xF1F4FA;

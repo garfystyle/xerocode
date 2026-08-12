@@ -457,8 +457,51 @@ public final class Catalog {
                 o.has("d") ? o.get("d").getAsString() : "", args, settings, unavailable);
     }
 
+    public static final String UNKNOWN_EVENT_CAT = "Неизвестное событие";
+    public static final String UNKNOWN_BLOCK_CAT = "Неизвестный блок";
+
+    private static final String UNKNOWN_BLOCK = "minecraft:barrier";
+    private static final String UNKNOWN_HINT =
+            "Этого блока нет в каталоге мода — сервер его знает, редактор нет. "
+                    + "Настройки править нельзя, но блок хранится целиком и уедет на сервер "
+                    + "таким же, каким пришёл.";
+
+    private static final Category UNKNOWN_EVENTS =
+            new Category(UNKNOWN_EVENT_CAT, "event", UNKNOWN_BLOCK, 0x8A8F98);
+    private static final Category UNKNOWN_BLOCKS =
+            new Category(UNKNOWN_BLOCK_CAT, "action", UNKNOWN_BLOCK, 0x8A8F98);
+
+    public static Action unknownEvent(String serverId) { return unknown(serverId, UNKNOWN_EVENTS); }
+
+    public static Action unknownAction(String serverId) { return unknown(serverId, UNKNOWN_BLOCKS); }
+
+    private static Action unknown(String serverId, Category cat) {
+        if (serverId == null || serverId.isBlank()) return null;
+        String key = key(cat.name, serverId);
+        Action was = BY_KEY.get(key);
+        if (was != null) return was;
+        Action action = new Action(-1, serverId, UNKNOWN_BLOCK, UNKNOWN_HINT,
+                List.of(), List.of(), false);
+        action.category = cat;
+        BY_KEY.put(key, action);
+        return action;
+    }
+
+    public static boolean isUnknown(Action a) {
+        return a != null && (a.category == UNKNOWN_EVENTS || a.category == UNKNOWN_BLOCKS);
+    }
+
     public static String key(String category, String action) { return category + "|" + action; }
-    public static Action byKey(String key) { return BY_KEY.get(key); }
+
+    public static Action byKey(String key) {
+        Action a = BY_KEY.get(key);
+        if (a != null) return a;
+        if (key.startsWith(UNKNOWN_EVENT_CAT + "|"))
+            return unknown(key.substring(UNKNOWN_EVENT_CAT.length() + 1), UNKNOWN_EVENTS);
+        if (key.startsWith(UNKNOWN_BLOCK_CAT + "|"))
+            return unknown(key.substring(UNKNOWN_BLOCK_CAT.length() + 1), UNKNOWN_BLOCKS);
+        return null;
+    }
 
     public static String keyOf(Action a) {
         if (a != ELSE && a.subcategory != null && a.category != null

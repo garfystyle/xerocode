@@ -28,6 +28,7 @@ public final class Importer {
     public static final String PRIVATE = "__";
     public static final String TRANSLATIONS = PRIVATE + "tr_";
     public static final String KEPT_ID = PRIVATE + "id";
+    public static final String KEPT_OP = PRIVATE + "op";
 
     public static String translationsKey(int arg) {
         String field = Catalog.localizedField(arg);
@@ -77,8 +78,12 @@ public final class Importer {
     }
 
     public static Result importInto(Script script, JsonArray handlers, TextRenderer tr) {
+        return importInto(script, handlers, tr, 40);
+    }
+
+    public static Result importInto(Script script, JsonArray handlers, TextRenderer tr, int startX) {
         Result result = new Result();
-        int x = 40, y = 40, columnW = 0;
+        int x = startX, y = 40, columnW = 0;
 
         int line = -1;
         for (JsonElement he : handlers) {
@@ -125,7 +130,10 @@ public final class Importer {
             Catalog.Action hat = Mapping.event(str(handler, "event"));
             if (hat != null) { chain.add(new Script.Node(hat)); result.blocks++; }
             else {
-                unknown(result, "событие " + str(handler, "event"));
+                String event = str(handler, "event");
+                unknown(result, "событие " + event);
+                Script.Node kept = keptBlock(handler, Catalog.unknownEvent(event));
+                if (kept != null) { chain.add(kept); result.blocks++; }
             }
         } else if ("function".equals(type)) {
             chain.add(declarationHat(handler, Catalog.FUNCTION, result));
@@ -227,6 +235,7 @@ public final class Importer {
                 JsonObject passed = args.getAsJsonObject(key);
                 keys.add(param);
                 int index = keys.size() - 1;
+                if (passed.isEmpty()) continue;
                 if (Value.ARRAY.equals(str(passed, "type")) && passed.has("values")
                         && passed.get("values").isJsonArray()) {
                     for (JsonObject cell : cells(passed)) {
@@ -318,7 +327,14 @@ public final class Importer {
             Catalog.Action action = act == null ? null : Catalog.byKey(act.key);
             if (action == null) {
                 unknown(result, id);
-                readOperations(op, into, result);
+                Script.Node kept = keptBlock(op, Catalog.unknownAction(id));
+                if (kept == null) {
+                    readOperations(op, into, result);
+                    continue;
+                }
+                readOperations(op, kept.body, result);
+                into.add(kept);
+                result.blocks++;
                 continue;
             }
             Script.Node node = new Script.Node(action);
@@ -542,6 +558,16 @@ public final class Importer {
         } catch (IllegalArgumentException e) {
             return false;
         }
+    }
+
+    private static Script.Node keptBlock(JsonObject op, Catalog.Action action) {
+        if (action == null) return null;
+        Script.Node node = new Script.Node(action);
+        JsonObject copy = op.deepCopy();
+        copy.remove("operations");
+        copy.remove("position");
+        raw(node).add(KEPT_OP, copy);
+        return node;
     }
 
     private static void unknown(Result result, String id) {

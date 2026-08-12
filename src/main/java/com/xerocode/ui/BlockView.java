@@ -35,6 +35,18 @@ public final class BlockView {
         if (box.node.wraps()) Draw.shadow(ctx, box.x, box.armY(), box.w, Layout.ARM_H, 1);
     }
 
+    public static void ghost(DrawContext ctx, Layout.Box box, int argb) {
+        boolean wraps = box.node.wraps();
+        int headerBottom = box.y + box.headerH;
+        if (wraps) {
+            int armY = box.armY();
+            int spineY = headerBottom - 1, spineH = armY - headerBottom + 2;
+            Draw.rect(ctx, box.x, spineY, Layout.INDENT + 1, spineH, argb);
+            Draw.rect(ctx, box.x, armY, box.w, Layout.ARM_H, argb);
+        }
+        Draw.rect(ctx, box.x, box.y, box.w, box.headerH, argb);
+    }
+
     public static void paint(DrawContext ctx, TextRenderer tr, Layout layout,
                              ScreenRect area, Look look) {
         Draw.batch(Batch.open(ctx, area, area, 256));

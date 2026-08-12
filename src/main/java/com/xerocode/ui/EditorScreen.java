@@ -63,6 +63,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private boolean dragFromPalette, dragMoved, dragAwaitsClick;
     private String dragSnapshot;
     private Snap snap;
+    private Layout.Ghost ghost;
+    private Layout ghostLayout;
+    private int ghostStamp = Integer.MIN_VALUE;
 
     private final Set<Script.Node> picked = Collections.newSetFromMap(new IdentityHashMap<>());
     private Set<Script.Node> coveredCache = Set.of();
@@ -551,6 +554,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         syncFound();
         updateHover(mouseX, mouseY);
         snap = drag == null ? null : findSnap(layout);
+        Layout view = syncGhost();
 
         look.hover = hoverBox;
         look.chip = hoverChip;
@@ -582,26 +586,26 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         SmoothText.clip(canvasArea);
 
         Draw.batch(Batch.open(ctx, canvasArea, canvasArea, 1024));
-        for (Layout.Chunk chunk : layout.chunks) {
+        for (Layout.Chunk chunk : view.chunks) {
             if (!chunk.visible(vx0, vy0, vx1, vy1)) continue;
             for (int i = chunk.from; i < chunk.to; i++) {
-                Layout.Box box = layout.boxes.get(i);
+                Layout.Box box = view.boxes.get(i);
                 if (!rides(box) && visible(box, vx0, vy0, vx1, vy1)) BlockView.shadow(ctx, box);
             }
         }
         Draw.batch(null);
 
-        for (Layout.Chunk chunk : layout.chunks) {
+        for (Layout.Chunk chunk : view.chunks) {
             if (!chunk.visible(vx0, vy0, vx1, vy1)) continue;
             Draw.batch(Batch.open(ctx, canvasArea, canvasArea, 512));
             for (int i = chunk.from; i < chunk.to; i++) {
-                Layout.Box box = layout.boxes.get(i);
+                Layout.Box box = view.boxes.get(i);
                 if (!rides(box) && visible(box, vx0, vy0, vx1, vy1))
                     BlockView.block(ctx, textRenderer, box, look);
             }
             Draw.batch(null);
-            if (moving || picked.isEmpty()) continue;
-            List<Piece> mine = byRoot().get(layout.boxes.get(chunk.from).root);
+            if (moving || picked.isEmpty() || view != layout) continue;
+            List<Piece> mine = byRoot().get(view.boxes.get(chunk.from).root);
             if (mine == null) continue;
             m.popMatrix();
             drawOutlines(ctx, mine, 0, 0, canvasArea, vx0, vy0, vx1, vy1);
@@ -760,10 +764,11 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     private void drawSnapMark(DrawContext ctx) {
-        Layout ghost = Layout.ofChain(drag, snap.x, snap.y, textRenderer);
-        if (ghost.boxes.isEmpty()) return;
-        Layout.Box b = ghost.boxes.get(0);
-        Draw.blockSilhouette(ctx, b.x, b.y, b.w, b.headerH, Draw.argb(0x66, 0xC3DEFF));
+        int mx = ghost != null ? ghost.x : snap.x;
+        int my = ghost != null ? ghost.y : snap.y;
+        Layout mark = Layout.ofChain(drag, mx, my, textRenderer);
+        int ink = Draw.opaque(Theme.GHOST);
+        for (Layout.Box b : mark.boxes) BlockView.ghost(ctx, b, ink);
     }
 
     private boolean choosingFile;
@@ -2967,15 +2972,37 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private static final class Snap {
         final List<Script.Node> target;
-        final int index, x, y, markX, markY, width;
+        final int index, x, y, markX, markY, width, height;
         final boolean above;
         final Script.Root root;
+        final boolean reflow;
         Snap(List<Script.Node> target, int index, int x, int y, int markX, int markY,
-             int width, boolean above, Script.Root root) {
+             int width, int height, boolean above, Script.Root root) {
             this.target = target; this.index = index; this.x = x; this.y = y;
-            this.markX = markX; this.markY = markY; this.width = width;
+            this.markX = markX; this.markY = markY; this.width = width; this.height = height;
             this.above = above; this.root = root;
+            this.reflow = !(above && root != null && target == root.chain);
         }
+    }
+
+    private Layout syncGhost() {
+        if (snap == null || !snap.reflow) { dropGhost(); return layout; }
+        if (ghostLayout != null && ghostStamp == layoutStamp
+                && ghost.same(snap.target, snap.index, snap.width, snap.height))
+            return ghostLayout;
+        Layout.Ghost g = new Layout.Ghost(snap.target, snap.index, snap.width, snap.height);
+        Layout built = Layout.of(script, textRenderer, g);
+        if (!g.placed) { dropGhost(); return layout; }
+        ghost = g;
+        ghostLayout = built;
+        ghostStamp = layoutStamp;
+        return ghostLayout;
+    }
+
+    private void dropGhost() {
+        ghost = null;
+        ghostLayout = null;
+        ghostStamp = Integer.MIN_VALUE;
     }
 
     private static double dist(double dx, double dy) { return Math.hypot(dx * 0.6, dy); }
@@ -2996,14 +3023,15 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 if (d < bestDist) {
                     bestDist = d;
                     best = new Snap(box.owner, box.index + 1, box.x, by,
-                            box.x, by, payloadW, false, box.root);
+                            box.x, by, payloadW, payloadH, false, box.root);
                 }
                 if (box.node.wraps()) {
                     int ix = box.x + Layout.INDENT, iy = box.bodyTop();
                     double di = dist(px - ix, py - iy);
                     if (di < bestDist) {
                         bestDist = di;
-                        best = new Snap(box.node.body, 0, ix, iy, ix, iy, payloadW, false, box.root);
+                        best = new Snap(box.node.body, 0, ix, iy, ix, iy,
+                                payloadW, payloadH, false, box.root);
                     }
                 }
             }
@@ -3013,7 +3041,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 if (d < bestDist) {
                     bestDist = d;
                     best = new Snap(box.owner, 0, box.x, box.y - payloadH,
-                            box.x, box.y, payloadW, true, box.root);
+                            box.x, box.y, payloadW, payloadH, true, box.root);
                 }
             }
         }

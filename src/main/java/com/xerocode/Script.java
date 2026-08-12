@@ -12,6 +12,8 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -319,6 +321,31 @@ public final class Script {
         } catch (IOException e) {
             XeroCode.LOG.error("[xerocode] save failed", e);
         }
+    }
+
+    public Path backup() {
+        try {
+            Path from = file(plot);
+            if (!Files.exists(from)) return null;
+            Path dir = dir().resolve("backup");
+            Files.createDirectories(dir);
+            String stem = (plot == null || plot.isEmpty() ? "canvas" : plot) + "-"
+                    + LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"));
+            Path into = dir.resolve(stem + ".json");
+            for (int i = 2; Files.exists(into) && i < 100; i++)
+                into = dir.resolve(stem + "-" + i + ".json");
+            Files.copy(from, into);
+            return into;
+        } catch (Exception e) {
+            XeroCode.LOG.warn("[xerocode] полотно не забэкапилось", e);
+            return null;
+        }
+    }
+
+    public double lastRootX() {
+        double max = 0;
+        for (Root r : roots) max = Math.max(max, r.x);
+        return max;
     }
 
     public static Script load() { return load(""); }

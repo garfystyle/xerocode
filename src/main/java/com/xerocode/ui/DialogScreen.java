@@ -4,7 +4,10 @@ import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.input.KeyInput;
+import net.minecraft.text.OrderedText;
 import net.minecraft.text.Text;
+
+import java.util.List;
 import org.lwjgl.glfw.GLFW;
 
 abstract class DialogScreen extends Screen {
@@ -13,6 +16,7 @@ abstract class DialogScreen extends Screen {
     protected static final int ROW = 12;
     protected static final int BTN_H = 22;
     protected static final int BAR_H = 10;
+    protected static final int GAP = 7;
 
     private final int wantW;
 
@@ -90,6 +94,53 @@ abstract class DialogScreen extends Screen {
     private int ghostX(int x, int w, String primary, String ghost) {
         int gw = ghostW(ghost);
         return primary == null ? x + w - gw : x + w - gw - 6 - primaryW(primary);
+    }
+
+    protected int paragraph(DrawContext ctx, String text, int x, int y, int w, int rgb) {
+        List<OrderedText> lines = textRenderer.wrapLines(Text.literal(text), w);
+        for (int i = 0; i < lines.size(); i++)
+            Draw.text(ctx, textRenderer, lines.get(i), x, y + ROW * i, rgb, false);
+        return lines.size();
+    }
+
+    protected int paragraphRows(String text, int w) {
+        return Math.max(1, textRenderer.wrapLines(Text.literal(text), w).size());
+    }
+
+    private int[] rowX(int x, int w, String... labels) {
+        int[] at = new int[labels.length];
+        int bx = x + w;
+        for (int i = labels.length - 1; i >= 0; i--) {
+            bx -= ghostW(labels[i]);
+            at[i] = bx;
+            bx -= 6;
+        }
+        return at;
+    }
+
+    protected void rowButtons(DrawContext ctx, int mouseX, int mouseY, int x, int w,
+                              int mainKind, String... labels) {
+        int[] kinds = new int[labels.length];
+        for (int i = 0; i < kinds.length; i++) kinds[i] = Ui.GHOST;
+        if (kinds.length > 0) kinds[kinds.length - 1] = mainKind;
+        rowButtons(ctx, mouseX, mouseY, x, w, kinds, labels);
+    }
+
+    protected void rowButtons(DrawContext ctx, int mouseX, int mouseY, int x, int w,
+                              int[] kinds, String... labels) {
+        int[] at = rowX(x, w, labels);
+        int y = buttonY();
+        for (int i = 0; i < labels.length; i++)
+            Ui.button(ctx, textRenderer, mouseX, mouseY, at[i], y, ghostW(labels[i]), BTN_H,
+                    labels[i], i < kinds.length ? kinds[i] : Ui.GHOST);
+    }
+
+    protected int hitRow(double mx, double my, int x, int w, String... labels) {
+        int[] at = rowX(x, w, labels);
+        int y = buttonY();
+        for (int i = 0; i < labels.length; i++)
+            if (Ui.hit(mx, my, at[i], y, ghostW(labels[i]), BTN_H)) return i;
+        return -1;
     }
 
     protected boolean hitPrimary(double mx, double my, String primary) {

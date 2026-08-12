@@ -2,27 +2,32 @@ package com.xerocode.ui;
 
 import com.xerocode.Codespace;
 import com.xerocode.Exporter;
+import com.xerocode.Sync;
 import com.xerocode.XeroCode;
 import com.xerocode.Publish;
 import com.xerocode.Script;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.client.gui.screen.Screen;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public final class ExportScreen extends DialogScreen {
-    private enum Phase { RUNNING, DONE }
+    private enum Phase { CONFIRM, RUNNING, DONE }
 
     private static final int ANSWER_TICKS = 60;
     private static final String CANCEL = "Отмена";
+    private static final String SEND = "Отправить", RELOAD = "Перечитать мир";
 
     private final Script script;
     private final Screen parent;
     private final String exitTo;
 
     private Phase phase = Phase.RUNNING;
+    private Sync.State sync = Sync.State.UNKNOWN;
+    private int worldLines = -1;
     private Exporter.Result code;
     private Publish.Job job;
     private String failure;
@@ -46,21 +51,76 @@ public final class ExportScreen extends DialogScreen {
             failure = e.getClass().getSimpleName();
             XeroCode.LOG.error("[xerocode] сборка кода не удалась", e);
         }
+        MinecraftClient mc = mc();
+        sync = Sync.state(script, mc.world);
+        worldLines = Sync.worldLines(mc.world);
+        if (risky()) { phase = Phase.CONFIRM; return; }
         begin();
+    }
+
+    private boolean risky() {
+        if (code == null) return false;
+        int canvas = code.report().lines;
+        if (worldLines > 0 && canvas == 0) return true;
+        if (sync.risky()) return true;
+        return worldLines > canvas;
+    }
+
+    private int canvasLines() { return code == null ? 0 : code.report().lines; }
+
+    private String confirmWhat() {
+        if (canvasLines() == 0) return "Полотно пусто — код мира будет стёрт.";
+        if (sync == Sync.State.DIVERGED) return "Мир и полотно разошлись.";
+        if (sync == Sync.State.WORLD_AHEAD) return "Код в мире менялся мимо редактора.";
+        return "В мире строк больше, чем на полотне.";
+    }
+
+    private String confirmCounts() {
+        int canvas = canvasLines();
+        String counts = "в мире " + (worldLines < 0 ? "?" : String.valueOf(worldLines))
+                + "   ·   на полотне " + canvas;
+        return worldLines > canvas ? counts + "   ·   исчезнет " + (worldLines - canvas) : counts;
+    }
+
+    private int confirmH() {
+        return paragraphRows(confirmWhat(), bodyW()) * ROW + GAP + ROW;
+    }
+
+    private void drawConfirm(DrawContext ctx, int mouseX, int mouseY, int x, int y, int w) {
+        int at = y + paragraph(ctx, confirmWhat(), x, y, w, Theme.TEXT) * ROW + GAP;
+        Draw.textFit(ctx, textRenderer, confirmCounts(), x, at, w,
+                worldLines > canvasLines() ? Theme.DANGER : Theme.TEXT_DIM, false);
+        rowButtons(ctx, mouseX, mouseY, x, w, new int[]{Ui.GHOST, Ui.ACCENT, Ui.DANGER},
+                CANCEL, RELOAD, SEND);
+    }
+
+    private MinecraftClient mc() { return client == null ? MinecraftClient.getInstance() : client; }
+
+    private void reread() {
+        MinecraftClient mc = mc();
+        if (mc.world == null) { close(); return; }
+        List<BlockPos> lines = Codespace.lines(mc.world);
+        if (lines.isEmpty()) { close(); return; }
+        mc.setScreen(new ImportScreen(script, lines, ImportScreen.Mode.RELOAD));
     }
 
     @Override
     protected int bodyH() {
-        return phase == Phase.RUNNING
-                ? ROW + 8 + BAR_H + 6 + ROW + 12 + BTN_H
-                : ROW * doneLines().size() + 12 + BTN_H;
+        return switch (phase) {
+            case CONFIRM -> confirmH() + 12 + BTN_H;
+            case RUNNING -> ROW + 8 + BAR_H + 6 + ROW + 12 + BTN_H;
+            case DONE -> ROW * doneLines().size() + 12 + BTN_H;
+        };
     }
 
     @Override
-    protected int accent() { return failed() ? Theme.DANGER : Theme.ACCENT; }
+    protected int accent() {
+        return failed() || phase == Phase.CONFIRM ? Theme.DANGER : Theme.ACCENT;
+    }
 
     @Override
     protected String title() {
+        if (phase == Phase.CONFIRM) return "ОТПРАВКА СОТРЁТ КОД МИРА";
         if (phase == Phase.RUNNING) return "ОТПРАВКА КОДА";
         return failed() ? "НЕ ОТПРАВИЛОСЬ" : "КОД ОТПРАВЛЕН";
     }
@@ -75,6 +135,7 @@ public final class ExportScreen extends DialogScreen {
 
     @Override
     protected void drawBody(DrawContext ctx, int mouseX, int mouseY, int x, int y, int w) {
+        if (phase == Phase.CONFIRM) { drawConfirm(ctx, mouseX, mouseY, x, y, w); return; }
         if (phase == Phase.RUNNING) drawRunning(ctx, x, y, w);
         else drawDone(ctx, x, y, w);
         buttons(ctx, mouseX, mouseY, x, w, button(), null);
@@ -134,6 +195,13 @@ public final class ExportScreen extends DialogScreen {
 
     @Override
     protected boolean onClick(double mx, double my) {
+        if (phase == Phase.CONFIRM) {
+            int hit = hitRow(mx, my, bodyX(), bodyW(), CANCEL, RELOAD, SEND);
+            if (hit == 0) { close(); return true; }
+            if (hit == 1) { reread(); return true; }
+            if (hit == 2) { phase = Phase.RUNNING; begin(); return true; }
+            return false;
+        }
         if (!hitPrimary(mx, my, button())) return false;
         if (phase == Phase.RUNNING) stop();
         else finish();
@@ -149,6 +217,7 @@ public final class ExportScreen extends DialogScreen {
 
     @Override
     protected void onEscape() {
+        if (phase == Phase.CONFIRM) { close(); return; }
         if (phase == Phase.RUNNING) stop();
         else finish();
     }
@@ -174,8 +243,10 @@ public final class ExportScreen extends DialogScreen {
             if (job.state == Publish.State.UPLOADING) return;
             phase = Phase.DONE;
             listening = job.state == Publish.State.SENT ? ANSWER_TICKS : 0;
-            if (job.state == Publish.State.SENT && parent instanceof EditorScreen editor)
-                editor.markPublished();
+            if (job.state == Publish.State.SENT) {
+                Sync.published(script);
+                if (parent instanceof EditorScreen editor) editor.markPublished();
+            }
             return;
         }
         if (listening <= 0 || job == null) return;

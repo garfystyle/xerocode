@@ -185,6 +185,23 @@ public final class Layout {
         }
     }
 
+    public static final class Ghost {
+        public final List<Script.Node> target;
+        public final int index, w, h;
+        public int x, y;
+        public boolean placed;
+
+        public Ghost(List<Script.Node> target, int index, int w, int h) {
+            this.target = target; this.index = index; this.w = w; this.h = h;
+        }
+
+        public boolean same(List<Script.Node> target, int index, int w, int h) {
+            return this.target == target && this.index == index && this.w == w && this.h == h;
+        }
+    }
+
+    private Ghost ghost;
+
     public final List<Box> boxes = new ArrayList<>();
 
     public static final class Chunk {
@@ -223,7 +240,12 @@ public final class Layout {
     }
 
     public static Layout of(Script script, TextRenderer tr) {
+        return of(script, tr, null);
+    }
+
+    public static Layout of(Script script, TextRenderer tr, Ghost ghost) {
         Layout l = new Layout();
+        l.ghost = ghost;
         for (Script.Root r : script.roots) {
             int from = l.boxes.size();
             l.chain(r.chain, r, false, (int) r.x, (int) r.y, tr);
@@ -257,11 +279,24 @@ public final class Layout {
         return new Layout().chain(chain, null, false, 0, 0, tr);
     }
 
+    private int gap(List<Script.Node> owner, int index, int x, int cy) {
+        if (ghost == null || ghost.placed || ghost.target != owner || ghost.index != index) return cy;
+        ghost.x = x;
+        ghost.y = cy;
+        ghost.placed = true;
+        return cy + ghost.h;
+    }
+
+    private boolean gapIn(List<Script.Node> owner, int index) {
+        return ghost != null && ghost.placed && ghost.target == owner && ghost.index == index;
+    }
+
     private int chain(List<Script.Node> chain, Script.Root root, boolean nested,
                       int x, int y, TextRenderer tr) {
         List<Box> mine = new ArrayList<>();
         int cy = y;
         for (int i = 0; i < chain.size(); i++) {
+            cy = gap(chain, i, x, cy);
             Script.Node n = chain.get(i);
             Box box = new Box(n, chain, i, root, nested, x, cy);
             measure(box, tr);
@@ -271,13 +306,15 @@ public final class Layout {
                 int bodyTop = box.bodyTop();
                 int bodyEnd;
                 if (n.body.isEmpty()) {
-                    bodyEnd = bodyTop + EMPTY_BODY_H;
+                    bodyEnd = gap(n.body, 0, x + INDENT, bodyTop);
+                    if (gapIn(n.body, 0)) mouth(box, x, x + INDENT, ghost.w);
+                    else bodyEnd = bodyTop + EMPTY_BODY_H;
                 } else {
                     int firstBody = boxes.size();
                     bodyEnd = chain(n.body, root, true, x + INDENT, bodyTop, tr);
                     Box first = boxes.get(firstBody);
-                    box.mouthFrom = first.x + 1;
-                    box.mouthTo = Math.min(first.x + first.w, x + box.w) - 1;
+                    mouth(box, x, x + INDENT,
+                            gapIn(n.body, 0) ? Math.max(ghost.w, first.w) : first.w);
                 }
                 box.totalH = (bodyEnd + ARM_H) - cy;
             } else {
@@ -285,12 +322,21 @@ public final class Layout {
             }
             cy += box.totalH - SEAM_LIFT;
         }
-        for (int i = 0; i + 1 < mine.size(); i++) {
-            Box a = mine.get(i), b = mine.get(i + 1);
+        cy = gap(chain, chain.size(), x, cy);
+        for (int i = 0; i < mine.size(); i++) {
+            Box a = mine.get(i);
+            int nextW = gapIn(chain, i + 1) ? ghost.w
+                    : i + 1 < mine.size() ? mine.get(i + 1).w : 0;
+            if (nextW <= 0) continue;
             a.coverFrom = a.x + 1;
-            a.coverTo = a.x + Math.min(a.w, b.w) - 1;
+            a.coverTo = a.x + Math.min(a.w, nextW) - 1;
         }
         return cy;
+    }
+
+    private static void mouth(Box box, int x, int bodyX, int bodyW) {
+        box.mouthFrom = bodyX + 1;
+        box.mouthTo = Math.min(bodyX + bodyW, x + box.w) - 1;
     }
 
     public static Script.Node chipNode(Script.Node n) { return n.cond == null ? n : n.cond; }

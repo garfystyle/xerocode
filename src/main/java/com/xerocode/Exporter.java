@@ -45,7 +45,16 @@ public final class Exporter {
         return new Result(json, report);
     }
 
+    private static JsonObject keptOp(Script.Node node) {
+        if (!Catalog.isUnknown(node.action) || node.raw == null
+                || !node.raw.has(Importer.KEPT_OP)) return null;
+        JsonElement kept = node.raw.get(Importer.KEPT_OP);
+        return kept.isJsonObject() ? kept.getAsJsonObject().deepCopy() : null;
+    }
+
     private static JsonObject handler(Script.Node head, Report report) {
+        JsonObject kept = keptOp(head);
+        if (kept != null) { report.blocks++; return kept; }
         JsonObject o = new JsonObject();
         if (head.declares()) {
             o.addProperty("type", head.isProcess() ? "process" : "function");
@@ -118,6 +127,13 @@ public final class Exporter {
     }
 
     private static JsonObject operation(Script.Node node, Report report) {
+        JsonObject verbatim = keptOp(node);
+        if (verbatim != null) {
+            report.blocks++;
+            if (node.wraps() || !node.body.isEmpty())
+                verbatim.add("operations", operations(node.body, report));
+            return verbatim;
+        }
         JsonObject op = new JsonObject();
         if (node.action == Catalog.ELSE) {
             op.addProperty("action", "else");
@@ -283,13 +299,12 @@ public final class Exporter {
 
         JsonObject args = new JsonObject();
         List<Catalog.Arg> params = node.args();
-        for (int i = 1; i < params.size(); i++) {
-            List<Value> list = node.values.get(i);
-            if (list == null || list.isEmpty()) continue;
-            JsonElement passed = params.get(i).list
-                    ? array(cells(list)) : value(list.get(0));
-            if (passed == null) continue;
-            args.add(paramKey(params.get(i).purpose), passed);
+        int count = Math.max(params.size(), node.dynKeys.size());
+        for (int i = 1; i < count; i++) {
+            String name = paramName(node, params, i);
+            if (name == null) continue;
+            args.add(paramKey(name),
+                    passed(node.values.get(i), i < params.size() && params.get(i).list));
         }
         List<Catalog.Setting> settings = node.settings();
         for (int i = node.action.settings.size(); i < settings.size(); i++) {
@@ -305,6 +320,20 @@ public final class Exporter {
         }
         keptValues(node, out);
         return out;
+    }
+
+    private static String paramName(Script.Node node, List<Catalog.Arg> params, int i) {
+        if (i < node.dynKeys.size() && !node.dynKeys.get(i).isBlank()) return node.dynKeys.get(i);
+        return i < params.size() ? params.get(i).purpose : null;
+    }
+
+    private static JsonElement passed(List<Value> list, boolean plural) {
+        if (list == null || list.isEmpty()) return new JsonObject();
+        boolean filled = false;
+        for (Value v : list) if (v != null && !v.isBlank()) { filled = true; break; }
+        if (!filled) return new JsonObject();
+        JsonElement out = plural ? array(cells(list)) : value(list.get(0));
+        return out == null ? new JsonObject() : out;
     }
 
     private static void marker(JsonArray out, Script.Node node, int index, String name) {

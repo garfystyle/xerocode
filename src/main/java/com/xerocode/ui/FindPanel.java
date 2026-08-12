@@ -233,8 +233,8 @@ public final class FindPanel {
     private void drawEmpty(DrawContext ctx, int top, int bottom) {
         String[] lines = outline
                 ? new String[]{"полотно пусто", "перетащи блок из палитры слева"}
-                : new String[]{"ничего не нашлось", "ищется имя блока, текст, имя переменной,",
-                        "звук, предмет и цель блока"};
+                : new String[]{"ничего не нашлось", "ищется имя, текст, переменная,",
+                        "звук, предмет, цель"};
         int ty = top + (bottom - top) / 2 - lines.length * 6;
         for (int i = 0; i < lines.length; i++)
             Draw.textCenter(ctx, tr, lines[i], x + PAD, ty + i * 11, w - PAD * 2, w - PAD * 2,

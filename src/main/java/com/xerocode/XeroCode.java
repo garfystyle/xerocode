@@ -44,6 +44,7 @@ public final class XeroCode implements ClientModInitializer {
     public static final Logger LOG = LoggerFactory.getLogger("xerocode");
 
     private static final int SCAN_DELAY = 40;
+    private static final int SETTLE_EVERY = 20;
     private static final int SCAN_RETRIES = 5;
     private static final int DEV_WAIT = 60;
 
@@ -55,6 +56,7 @@ public final class XeroCode implements ClientModInitializer {
     private boolean wasInDev;
     private int pending;
     private int waited;
+    private int settling;
     private int waitingDev;
     private int holdScreen;
     private EditorScreen holding;
@@ -127,6 +129,7 @@ public final class XeroCode implements ClientModInitializer {
         script.save();
         scriptPlot = plot;
         script = Script.load(plot);
+        Sync.forget();
         History.clear();
         if (client.currentScreen instanceof EditorScreen) client.setScreen(new EditorScreen(script));
         holding = null;
@@ -290,6 +293,10 @@ public final class XeroCode implements ClientModInitializer {
             if (inDev) {
                 waitingDev = 0;
                 if (holdScreen > 20) holdScreen = 20;
+                if (++settling >= SETTLE_EVERY) {
+                    settling = 0;
+                    Sync.settle(script(), client.world);
+                }
             }
             if (holdScreen > 0) hold(client);
             wasInDev = inDev;
@@ -572,22 +579,30 @@ public final class XeroCode implements ClientModInitializer {
                     + Settings.get().label(Settings.Hot.OPEN)).formatted(Formatting.GRAY), false);
             return;
         }
-        if (script().roots.isEmpty()) pending = SCAN_DELAY;
-        else if (client.currentScreen == null && holding == null) open(client);
+        if (!script().roots.isEmpty() && client.currentScreen == null && holding == null)
+            open(client);
+        pending = SCAN_DELAY;
     }
 
     private void offerImport(MinecraftClient client) {
         boolean busy = client.currentScreen != null && !(client.currentScreen instanceof EditorScreen);
         if (client.world == null || busy) return;
-        if (!inDev(client) || !script().roots.isEmpty()) return;
+        if (!inDev(client)) return;
         if (!Codespace.chunksReady(client.world) && ++waited < SCAN_RETRIES) {
             pending = SCAN_DELAY;
             return;
         }
         List<BlockPos> lines = Codespace.lines(client.world);
-        if (lines.isEmpty()) { open(client); return; }
+        if (script().roots.isEmpty()) {
+            if (lines.isEmpty()) { open(client); return; }
+            ready();
+            client.setScreen(new ImportScreen(script(), lines));
+            return;
+        }
+        if (lines.isEmpty() || Sync.hushed(script())) return;
+        if (!Sync.state(script(), client.world).risky()) return;
         ready();
-        client.setScreen(new ImportScreen(script(), lines));
+        client.setScreen(new ImportScreen(script(), lines, ImportScreen.Mode.DIVERGED));
     }
 
     private static void preload() {

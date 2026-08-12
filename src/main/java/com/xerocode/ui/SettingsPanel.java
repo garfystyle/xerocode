@@ -107,20 +107,20 @@ public final class SettingsPanel {
         this.SV_W = Math.min(WANT_SV_W, inner - 12 - 74);
 
         int chipsW = inner - LABEL_W;
-        rows.add(new Row("Тема", "цвет самого редактора: панели, полотно, подписи",
+        rows.add(new Row("Тема", "цвет панелей, полотна и подписей",
                 Settings.THEME_NAMES, () -> s.theme, v -> s.theme = v, tr, chipsW));
-        rows.add(new Row("Кнопки", "форма и заливка кнопок, чипов и полей во всём редакторе",
+        rows.add(new Row("Кнопки", "форма и заливка кнопок, чипов и полей",
                 Settings.BTN_NAMES, () -> s.buttons, v -> s.buttons = v, tr, chipsW));
-        rows.add(new Row("Тени", "тени под блоками и всплывающими панелями",
+        rows.add(new Row("Тени", "тени под блоками и панелями",
                 Settings.YES_NO, () -> s.shadows ? 0 : 1, v -> s.shadows = v == 0, tr, chipsW));
-        rows.add(new Row("Блоки", "заливка блоков и чипов: с переходом или в один тон",
+        rows.add(new Row("Блоки", "заливка блоков: переход или один тон",
                 Settings.BLOCK_NAMES, () -> s.gradient ? 0 : 1, v -> s.gradient = v == 0,
                 tr, chipsW));
         rows.add(new Row("Сетка полотна", "чем размечен фон за блоками",
                 Settings.GRID_NAMES, () -> s.grid, v -> s.grid = v, tr, chipsW));
-        rows.add(new Row("Мелкий текст", "сглаживать подписи, когда полотно отдалено и буква мельче пикселя",
+        rows.add(new Row("Мелкий текст", "сглаживать подписи на мелком масштабе",
                 Settings.YES_NO, () -> s.smoothText ? 0 : 1, v -> s.smoothText = v == 0, tr, chipsW));
-        rows.add(new Row("Мини-карта", "весь код уголком справа внизу: клик — прыжок, ПКМ — убрать",
+        rows.add(new Row("Мини-карта", "весь код уголком справа внизу",
                 Settings.YES_NO, () -> s.minimap ? 0 : 1, v -> s.minimap = v == 0, tr, chipsW));
 
         int dy = 0;
@@ -365,8 +365,8 @@ public final class SettingsPanel {
                 Ui.button(ctx, tr, mouseX, mouseY, lx + wellW + 6, rowY, copyW, ROW_H + 3,
                         "Копировать", Ui.GHOST);
                 boolean fresh = System.currentTimeMillis() - copied < 1500;
-                Draw.textFit(ctx, tr, fresh ? "код скопирован — отправьте его тому, кого зовёте"
-                                : "кто знает код — тот правит код этого мира; чужим не давайте",
+                Draw.textFit(ctx, tr, fresh ? "код скопирован"
+                                : "кто знает код — тот правит код мира",
                         lx, rowY + ROW_H + 7, inner, fresh ? Theme.OK : Theme.TEXT_FAINT, false);
             } else if (act && Ui.hit(cx, cy, lx + wellW + 6, rowY, copyW, ROW_H + 3)) {
                 MinecraftClient client = MinecraftClient.getInstance();
@@ -407,7 +407,7 @@ public final class SettingsPanel {
                     codeField.render(ctx, mouseX, mouseY, 0);
                     Ui.placeholder(ctx, tr, codeField);
                 }
-                Draw.textFit(ctx, tr, "ваше полотно заменится кодом комнаты, копия останется в файле",
+                Draw.textFit(ctx, tr, "полотно заменится кодом комнаты, копия — в файле",
                         lx, rowY + ROW_H + 4, inner, Theme.TEXT_FAINT, false);
             } else if (act) {
                 if (full && Ui.hit(cx, cy, lx + fieldW + 6, rowY, goW, ROW_H))

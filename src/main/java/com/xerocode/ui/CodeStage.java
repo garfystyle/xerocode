@@ -1,8 +1,8 @@
 package com.xerocode.ui;
 
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.ScreenRect;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
 
 public final class CodeStage {
     private final double min, max, fitMax;
@@ -93,12 +93,12 @@ public final class CodeStage {
         return layout.at((mx - panX) / zoom, (my - panY) / zoom);
     }
 
-    public void draw(DrawContext ctx, TextRenderer tr, Layout layout, BlockView.Look look) {
+    public void draw(GuiGraphics ctx, Font tr, Layout layout, BlockView.Look look) {
         if (layout == null) return;
-        ScreenRect area = new ScreenRect(x, y, w, h);
+        ScreenRectangle area = new ScreenRectangle(x, y, w, h);
         ctx.enableScissor(x, y, x + w, y + h);
         SmoothText.clip(area);
-        var m = ctx.getMatrices();
+        var m = ctx.pose();
         m.pushMatrix();
         m.translate((float) panX, (float) panY);
         m.scale((float) zoom, (float) zoom);

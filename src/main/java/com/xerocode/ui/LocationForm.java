@@ -1,18 +1,17 @@
 package com.xerocode.ui;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.cursor.StandardCursors;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
-
+import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
 
 public final class LocationForm extends Screen {
     private final Ui.Grab grab = new Ui.Grab();
@@ -22,7 +21,7 @@ public final class LocationForm extends Screen {
     private static final int[] INK = {0xF0605E, 0x8FD94F, 0x5B8CF5, 0xFFD54A, 0xFFD54A};
     private static final String[] CAPS = {"X", "Y", "Z", "yaw", "pitch"};
 
-    private final List<TextFieldWidget> fields = new ArrayList<>();
+    private final List<EditBox> fields = new ArrayList<>();
     private int focus;
     private int x, y, h, W;
 
@@ -30,7 +29,7 @@ public final class LocationForm extends Screen {
     private double scrubFrom, scrubX0;
     private boolean scrubbing;
 
-    public LocationForm() { super(Text.literal("Местоположение")); }
+    public LocationForm() { super(Component.literal("Местоположение")); }
 
     @Override
     protected void init() {
@@ -39,16 +38,16 @@ public final class LocationForm extends Screen {
         x = Ui.midX(width, W);
         y = Ui.midY(height, h);
         List<String> typed = new ArrayList<>();
-        for (TextFieldWidget f : fields) typed.add(f.getText());
+        for (EditBox f : fields) typed.add(f.getValue());
         int was = focus;
         fields.clear();
         double[] v = LocationPick.values();
         for (int i = 0; i < 5; i++) {
             int cw = colW();
-            TextFieldWidget f = Ui.field(textRenderer, fieldX(i) + 7, fieldY(i) + 9 + 4,
+            EditBox f = Ui.field(font, fieldX(i) + 7, fieldY(i) + 9 + 4,
                     cw - 14, 12, "0");
             f.setMaxLength(24);
-            f.setText(i < typed.size() ? typed.get(i) : fmt(v[i]));
+            f.setValue(i < typed.size() ? typed.get(i) : fmt(v[i]));
             fields.add(f);
         }
         focus(was);
@@ -66,7 +65,7 @@ public final class LocationForm extends Screen {
     private void focus(int i) {
         focus = Math.max(0, Math.min(fields.size() - 1, i));
         for (int k = 0; k < fields.size(); k++) fields.get(k).setFocused(k == focus);
-        fields.get(focus).setCursorToEnd(false);
+        fields.get(focus).moveCursorToEnd(false);
     }
 
     private static double parse(String s) {
@@ -79,9 +78,9 @@ public final class LocationForm extends Screen {
     }
 
     private void push() {
-        LocationPick.setValues(parse(fields.get(0).getText()), parse(fields.get(1).getText()),
-                parse(fields.get(2).getText()), parse(fields.get(3).getText()),
-                parse(fields.get(4).getText()));
+        LocationPick.setValues(parse(fields.get(0).getValue()), parse(fields.get(1).getValue()),
+                parse(fields.get(2).getValue()), parse(fields.get(3).getValue()),
+                parse(fields.get(4).getValue()));
     }
 
     private int fieldX(int i) { return x + PAD + (i < 3 ? i : i - 3) * (colW() + GAP); }
@@ -95,51 +94,51 @@ public final class LocationForm extends Screen {
     }
 
     @Override
-    public boolean shouldPause() { return false; }
+    public boolean isPauseScreen() { return false; }
 
     @Override
-    public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void renderBackground(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         super.render(ctx, mouseX, mouseY, delta);
         SmoothText.clip(null);
         Draw.batch(null);
         Ui.panel(ctx, x, y, W, h);
 
         int cy = y + PAD;
-        Draw.textFit(ctx, textRenderer, "МЕСТОПОЛОЖЕНИЕ", x + PAD, cy, W - PAD * 2 - 90,
+        Draw.textFit(ctx, font, "МЕСТОПОЛОЖЕНИЕ", x + PAD, cy, W - PAD * 2 - 90,
                 Theme.TEXT, false);
-        Draw.textRight(ctx, textRenderer, "Tab — дальше", x + W - PAD, cy, Theme.TEXT_FAINT, false);
+        Draw.textRight(ctx, font, "Tab — дальше", x + W - PAD, cy, Theme.TEXT_FAINT, false);
 
         for (int i = 0; i < 5; i++) {
             int cw = colW(), fx = fieldX(i), fy = fieldY(i);
-            if (Ui.hit(mouseX, mouseY, fx, fy, cw, 9)) ctx.setCursor(StandardCursors.RESIZE_EW);
+            if (Ui.hit(mouseX, mouseY, fx, fy, cw, 9)) ctx.requestCursor(CursorTypes.RESIZE_EW);
             else if (Ui.hit(mouseX, mouseY, fx, fy + 9, cw, FIELD_H))
-                ctx.setCursor(StandardCursors.IBEAM);
-            Draw.textFit(ctx, textRenderer, CAPS[i], fx + 2, fy, cw - 4, INK[i], false);
+                ctx.requestCursor(CursorTypes.IBEAM);
+            Draw.textFit(ctx, font, CAPS[i], fx + 2, fy, cw - 4, INK[i], false);
             Ui.input(ctx, fx, fy + 9, cw, FIELD_H, i == focus);
             Draw.roundRect(ctx, fx + 1, fy + 10, 3, FIELD_H - 2,
                     Ui.R_SM - 1, 0, 0, Ui.R_SM - 1, Draw.opaque(INK[i]));
             fields.get(i).render(ctx, mouseX, mouseY, delta);
-            Ui.placeholder(ctx, textRenderer, fields.get(i));
+            Ui.placeholder(ctx, font, fields.get(i));
         }
 
         String[] labels = {"Отмена", "В мир", "Готово"};
         for (int i = 0; i < 3; i++)
-            Ui.button(ctx, textRenderer, mouseX, mouseY, buttonX(i), buttonY(), buttonW(i), BTN_H,
+            Ui.button(ctx, font, mouseX, mouseY, buttonX(i), buttonY(), buttonW(i), BTN_H,
                     labels[i], i == 2 ? Ui.ACCENT : Ui.GHOST);
     }
 
     @Override
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
         for (int i = 0; i < 5; i++) {
             int cw = colW(), fx = fieldX(i), fy = fieldY(i);
             if (Ui.hit(mx, my, fx, fy, cw, 9)) {
                 scrubField = i;
-                scrubFrom = parse(fields.get(i).getText());
+                scrubFrom = parse(fields.get(i).getValue());
                 scrubX0 = click.x();
                 scrubbing = false;
                 focus(i);
@@ -157,19 +156,19 @@ public final class LocationForm extends Screen {
     }
 
     @Override
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (scrubField >= 0) {
             double moved = click.x() - scrubX0;
             if (!scrubbing && Math.abs(moved) < 3) return true;
             if (!scrubbing) {
                 scrubbing = true;
-                fields.get(scrubField).setCursorToEnd(false);
+                fields.get(scrubField).moveCursorToEnd(false);
             }
             double step = mod(GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_RIGHT_CONTROL) ? 1.0
                     : mod(GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_RIGHT_SHIFT) ? 0.01 : 0.05;
-            TextFieldWidget f = fields.get(scrubField);
-            f.setText(fmt(scrubFrom + moved * step));
-            f.setCursorToEnd(false);
+            EditBox f = fields.get(scrubField);
+            f.setValue(fmt(scrubFrom + moved * step));
+            f.moveCursorToEnd(false);
             push();
             return true;
         }
@@ -178,7 +177,7 @@ public final class LocationForm extends Screen {
     }
 
     @Override
-    public boolean mouseReleased(Click click) {
+    public boolean mouseReleased(MouseButtonEvent click) {
         scrubField = -1;
         scrubbing = false;
         grab.release();
@@ -186,13 +185,13 @@ public final class LocationForm extends Screen {
     }
 
     private static boolean mod(int left, int right) {
-        var window = MinecraftClient.getInstance().getWindow();
-        return window != null && (net.minecraft.client.util.InputUtil.isKeyPressed(window, left)
-                || net.minecraft.client.util.InputUtil.isKeyPressed(window, right));
+        var window = Minecraft.getInstance().getWindow();
+        return window != null && (com.mojang.blaze3d.platform.InputConstants.isKeyDown(window, left)
+                || com.mojang.blaze3d.platform.InputConstants.isKeyDown(window, right));
     }
 
     @Override
-    public boolean keyPressed(KeyInput input) {
+    public boolean keyPressed(KeyEvent input) {
         int key = input.key();
         if (key == GLFW.GLFW_KEY_ESCAPE) { cancel(); return true; }
         if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) { toWorld(); return true; }
@@ -206,19 +205,19 @@ public final class LocationForm extends Screen {
     }
 
     @Override
-    public boolean charTyped(CharInput input) {
+    public boolean charTyped(CharacterEvent input) {
         if (fields.get(focus).charTyped(input)) { push(); return true; }
         return super.charTyped(input);
     }
 
     private void toWorld() {
         push();
-        close();
+        onClose();
     }
 
     private void cancel() {
         LocationPick.undoForm();
-        close();
+        onClose();
     }
 
     private void done() {
@@ -227,8 +226,8 @@ public final class LocationForm extends Screen {
     }
 
     @Override
-    public void close() {
-        MinecraftClient client = MinecraftClient.getInstance();
+    public void onClose() {
+        Minecraft client = Minecraft.getInstance();
         LocationPick.formClosed();
         client.setScreen(null);
     }

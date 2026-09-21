@@ -3,18 +3,6 @@ package com.xerocode.ui;
 import com.xerocode.Symbols;
 import com.xerocode.Value;
 import com.xerocode.Values;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.text.OrderedText;
-import net.minecraft.text.Style;
-import net.minecraft.text.Text;
-import net.minecraft.text.TextColor;
-import net.minecraft.util.Formatting;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayDeque;
@@ -22,6 +10,18 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TextColor;
+import net.minecraft.util.FormattedCharSequence;
 
 public final class TextStudio {
     private static final int PAD = 10, HEAD_H = 26, FOOT_H = 26, GUTTER = 12;
@@ -41,12 +41,12 @@ public final class TextStudio {
 
     public interface Done { void apply(String text, String parsing); }
 
-    private final TextRenderer tr;
+    private final Font tr;
     private final Done done;
     private int screenW, screenH;
 
     private String parsing;
-    private final TextFieldWidget input, hex, search;
+    private final EditBox input, hex, search;
     private Ui.Chips modeChips, tabChips, catChips;
 
     private float pickH = 0f, pickS = 0.85f, pickV = 1f;
@@ -74,13 +74,13 @@ public final class TextStudio {
 
     private String tintKey = SEP, prevKey = SEP, shownKey = SEP;
     private int[] tint = new int[0];
-    private Text preview = Text.empty();
+    private Component preview = Component.empty();
     private int plainW;
     private List<String> otherModes = List.of();
     private final List<String> otherText = new ArrayList<>();
     private List<Symbols.Sym> shown = List.of();
 
-    public TextStudio(TextRenderer tr, int screenW, int screenH,
+    public TextStudio(Font tr, int screenW, int screenH,
                       String text, String parsing, Done done) {
         this.tr = tr;
         this.screenW = screenW;
@@ -91,7 +91,7 @@ public final class TextStudio {
         input = Ui.field(tr, text, "текст сообщения", Ui.TEXT_MAX);
         hex = Ui.field(tr, "", "#RRGGBB", 7);
         search = Ui.field(tr, "", "поиск символа", 32);
-        hex.setChangedListener(s -> {
+        hex.setResponder(s -> {
             if (syncing) return;
             String h6 = McText.normaliseHex(s);
             if (h6 != null) fromRgb(McText.hexRgb(h6));
@@ -135,8 +135,8 @@ public final class TextStudio {
         tabChips = new Ui.Chips(tr, TABS, lw, TAB_H, 3);
         catChips = new Ui.Chips(tr, Symbols.categories(), lw, CAT_H, 3);
 
-        int headRoom = inner() - tr.getWidth(TITLE) - 9 - 14
-                - tr.getWidth("0000 симв.") - 14 - 22;
+        int headRoom = inner() - tr.width(TITLE) - 9 - 14
+                - tr.width("0000 симв.") - 14 - 22;
         headMode = modeChips.rows == 1 && modeChips.width() <= headRoom;
 
         int at = HEAD_H + 1 + 8;
@@ -236,8 +236,8 @@ public final class TextStudio {
 
     private int headChipsX() {
         int cw = modeChips.width();
-        int left = x + PAD + 9 + tr.getWidth(TITLE) + 14;
-        int right = x + w - PAD - 22 - tr.getWidth("0000 симв.") - 14 - cw;
+        int left = x + PAD + 9 + tr.width(TITLE) + 14;
+        int right = x + w - PAD - 22 - tr.width("0000 симв.") - 14 - cw;
         return Math.max(left, Math.min(x + (w - cw) / 2, right));
     }
 
@@ -246,7 +246,7 @@ public final class TextStudio {
     private int rightX() { return one ? x + PAD : x + PAD + lw + GUTTER; }
     private int accent() { return Values.color(Value.TEXT); }
 
-    private void focus(TextFieldWidget f) {
+    private void focus(EditBox f) {
         input.setFocused(f == input);
         hex.setFocused(f == hex);
         search.setFocused(f == search);
@@ -269,10 +269,10 @@ public final class TextStudio {
                     len = 8;
                     ink = McText.hexRgb(h6);
                 } else {
-                    Formatting f = Formatting.byCode(next);
+                    ChatFormatting f = ChatFormatting.getByCode(next);
                     if (f != null) {
                         len = 2;
-                        ink = f.getColorValue() != null ? f.getColorValue() : tagInk;
+                        ink = f.getColor() != null ? f.getColor() : tagInk;
                     }
                 }
             } else if (McText.MINI.equals(parsing) && c == '<') {
@@ -311,15 +311,15 @@ public final class TextStudio {
         return out;
     }
 
-    private String textKey() { return parsing + SEP + input.getText(); }
+    private String textKey() { return parsing + SEP + input.getValue(); }
 
-    private OrderedText highlight(String visible, int offset) {
+    private FormattedCharSequence highlight(String visible, int offset) {
         String key = textKey();
         if (!key.equals(tintKey)) {
             tintKey = key;
-            tint = colourise(input.getText());
+            tint = colourise(input.getValue());
         }
-        List<OrderedText> out = new ArrayList<>();
+        List<FormattedCharSequence> out = new ArrayList<>();
         StringBuilder buf = new StringBuilder();
         int run = Theme.TEXT;
         for (int i = 0; i < visible.length(); i++) {
@@ -332,12 +332,12 @@ public final class TextStudio {
             buf.append(visible.charAt(i));
         }
         flush(out, buf, run);
-        return out.isEmpty() ? OrderedText.EMPTY : OrderedText.concat(out);
+        return out.isEmpty() ? FormattedCharSequence.EMPTY : FormattedCharSequence.composite(out);
     }
 
-    private static void flush(List<OrderedText> out, StringBuilder buf, int rgb) {
+    private static void flush(List<FormattedCharSequence> out, StringBuilder buf, int rgb) {
         if (buf.isEmpty()) return;
-        out.add(OrderedText.styledForwardsVisitedString(buf.toString(),
+        out.add(FormattedCharSequence.forward(buf.toString(),
                 Style.EMPTY.withColor(TextColor.fromRgb(rgb))));
         buf.setLength(0);
     }
@@ -346,10 +346,10 @@ public final class TextStudio {
         String key = textKey();
         if (key.equals(prevKey)) return;
         prevKey = key;
-        String raw = input.getText();
+        String raw = input.getValue();
         List<McText.Run> runs = McText.runs(raw, parsing);
         preview = McText.preview(raw, parsing);
-        plainW = tr.getWidth(McText.writePlain(runs));
+        plainW = tr.width(McText.writePlain(runs));
         List<String> rest = new ArrayList<>(MODES);
         rest.remove(parsing);
         otherModes = rest;
@@ -358,7 +358,7 @@ public final class TextStudio {
     }
 
     private void syncSymbols() {
-        String q = search.getText().trim();
+        String q = search.getValue().trim();
         String key = tab + SEP + cat + SEP + Symbols.favourites().size() + SEP
                 + Symbols.onlyDrawable() + SEP + lw + SEP + q;
         if (key.equals(shownKey)) return;
@@ -372,7 +372,7 @@ public final class TextStudio {
         cells = new int[shown.size()][];
         int cx = 0, cy = 0;
         for (int i = 0; i < shown.size(); i++) {
-            int cw = Math.min(lw, Math.max(CELL, tr.getWidth(shown.get(i).glyph()) + 7));
+            int cw = Math.min(lw, Math.max(CELL, tr.width(shown.get(i).glyph()) + 7));
             if (cx > 0 && cx + cw > lw) {
                 cx = 0;
                 cy += CELL;
@@ -387,7 +387,7 @@ public final class TextStudio {
 
     private void clampGrid() { gridScroll = Math.max(0, Math.min(gridMax(), gridScroll)); }
 
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         syncPreview();
         syncSymbols();
         Ui.dim(ctx, screenW, screenH);
@@ -395,7 +395,7 @@ public final class TextStudio {
         Ui.headerStrip(ctx, x, y, w, HEAD_H, accent());
 
         Draw.round(ctx, x + PAD, headY(10), 3, 10, 1, Draw.opaque(accent()));
-        String len = input.getText().length() + " симв.";
+        String len = input.getValue().length() + " симв.";
         Draw.text(ctx, tr, TITLE, x + PAD + 9, headY(Ui.TEXT_H), Theme.TEXT, false);
         Draw.textRight(ctx, tr, len, x + w - PAD - 22, headY(Ui.TEXT_H), Theme.TEXT_FAINT, false);
         Ui.closeButton(ctx, mouseX, mouseY, x + w - PAD - 14, headY(14), 14);
@@ -428,16 +428,16 @@ public final class TextStudio {
         drawFooter(ctx, mouseX, mouseY);
 
         if (menu != null) {
-            ctx.createNewRootLayer();
+            ctx.nextStratum();
             menu.render(ctx, tr, mouseX, mouseY);
         }
         if (complete.active()) {
-            ctx.createNewRootLayer();
+            ctx.nextStratum();
             complete.render(ctx, tr, mouseX, mouseY);
         }
     }
 
-    private void drawTools(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawTools(GuiGraphics ctx, int mouseX, int mouseY) {
         int lx = leftX(), ty = absY(toolY);
         boolean on = McText.formattable(parsing);
         for (int i = 0; i < McText.DECOS.size(); i++) {
@@ -459,13 +459,13 @@ public final class TextStudio {
                         ty + (TOOL_H - Draw.glyphH(Draw.RESET)) / 2, ink);
                 continue;
             }
-            Text label = Text.literal(d.label()).styled(s -> switch (d.code()) {
+            Component label = Component.literal(d.label()).withStyle(s -> switch (d.code()) {
                 case 'l' -> s.withBold(true);
                 case 'o' -> s.withItalic(true);
-                case 'n' -> s.withUnderline(true);
+                case 'n' -> s.withUnderlined(true);
                 default -> s;
             });
-            ctx.drawText(tr, label, cx + (DECO_W - tr.getWidth(d.label())) / 2,
+            ctx.drawString(tr, label, cx + (DECO_W - tr.width(d.label())) / 2,
                     ty + (TOOL_H - Ui.TEXT_H) / 2, Draw.opaque(ink), false);
         }
 
@@ -533,7 +533,7 @@ public final class TextStudio {
 
     private int swatchW() { return (lw - 15) / 16; }
 
-    private void drawColour(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    private void drawColour(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         int lx = leftX();
         boolean on = McText.formattable(parsing);
 
@@ -580,7 +580,7 @@ public final class TextStudio {
                     Ui.hit(mouseX, mouseY, lx + i * 14, absY(recentY), 13, 11));
     }
 
-    private void drawSymbols(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    private void drawSymbols(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         int lx = leftX();
         Ui.input(ctx, lx, absY(searchY), lw, SEARCH_H, search.isFocused());
         Draw.glyph(ctx, Draw.SEARCH, lx + lw - 14, absY(searchY) + 5,
@@ -588,7 +588,7 @@ public final class TextStudio {
         search.render(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, search);
 
-        boolean searching = !search.getText().trim().isEmpty();
+        boolean searching = !search.getValue().trim().isEmpty();
         catChips.render(ctx, tr, mouseX, mouseY, lx, absY(catsY),
                 searching ? -1 : cat, accent());
 
@@ -604,7 +604,7 @@ public final class TextStudio {
             String g = shown.get(i).glyph();
             int ink = !shown.get(i).drawable() ? Theme.TEXT_FAINT
                     : hov ? Theme.TEXT : Theme.TEXT_DIM;
-            ctx.drawText(tr, g, cx + (cw - 1 - tr.getWidth(g)) / 2, cy + 4,
+            ctx.drawString(tr, g, cx + (cw - 1 - tr.width(g)) / 2, cy + 4,
                     Draw.opaque(ink), false);
             if (Symbols.favourite(g))
                 Draw.rect(ctx, cx + 2, cy + CELL - 4, cw - 5, 1, Draw.opaque(accent()));
@@ -632,11 +632,11 @@ public final class TextStudio {
 
     private int column(String[] labels, int lead, int trail) {
         int width = 0;
-        for (String s : labels) width = Math.max(width, tr.getWidth(s));
+        for (String s : labels) width = Math.max(width, tr.width(s));
         return lead + width + trail;
     }
 
-    private void drawRight(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawRight(GuiGraphics ctx, int mouseX, int mouseY) {
         int px = rightX();
         Ui.caption(ctx, tr, "ПРЕДПРОСМОТР", px, absY(prevY) - CAP, rw);
         int col = column(WHERE, 5, 8);
@@ -649,7 +649,7 @@ public final class TextStudio {
             int right = px + rw - (i == 1 ? 42 : 4);
             if (right > tx) {
                 ctx.enableScissor(tx, ry, right, ry + PREV_ROW - 1);
-                ctx.drawText(tr, preview, tx, ry + 5, Draw.opaque(Theme.TEXT), i != 1);
+                ctx.drawString(tr, preview, tx, ry + 5, Draw.opaque(Theme.TEXT), i != 1);
                 ctx.disableScissor();
             }
             if (i != 1) continue;
@@ -674,7 +674,7 @@ public final class TextStudio {
         }
     }
 
-    private void drawFooter(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawFooter(GuiGraphics ctx, int mouseX, int mouseY) {
         int fy = y + footY + (FOOT_H - ROW) / 2;
         Draw.textFit(ctx, tr, "Enter — сохранить · Esc — отменить · Ctrl+Z — вернуть",
                 x + PAD, fy + 4, inner() - 126, Theme.TEXT_FAINT, false);
@@ -693,7 +693,7 @@ public final class TextStudio {
 
     private void setHexFromPicker() {
         syncing = true;
-        hex.setText("#" + String.format("%06x", pickRgb() & 0xFFFFFF));
+        hex.setValue("#" + String.format("%06x", pickRgb() & 0xFFFFFF));
         syncing = false;
     }
 
@@ -709,7 +709,7 @@ public final class TextStudio {
     }
 
     private void snapshot() {
-        undo.push(new String[]{input.getText(), parsing});
+        undo.push(new String[]{input.getValue(), parsing});
         while (undo.size() > UNDO_MAX) undo.removeLast();
         redo.clear();
         lastTyped = System.currentTimeMillis();
@@ -718,7 +718,7 @@ public final class TextStudio {
     private void typedSnapshot() {
         long now = System.currentTimeMillis();
         if (now - lastTyped > 700) {
-            undo.push(new String[]{input.getText(), parsing});
+            undo.push(new String[]{input.getValue(), parsing});
             while (undo.size() > UNDO_MAX) undo.removeLast();
             redo.clear();
         }
@@ -727,64 +727,64 @@ public final class TextStudio {
 
     private void step(Deque<String[]> from, Deque<String[]> to, String what) {
         if (from.isEmpty()) { toast("нечего " + what); return; }
-        to.push(new String[]{input.getText(), parsing});
+        to.push(new String[]{input.getValue(), parsing});
         String[] s = from.pop();
         parsing = s[1];
         focus(input);
-        input.setText(s[0]);
-        input.setCursorToEnd(false);
+        input.setValue(s[0]);
+        input.moveCursorToEnd(false);
         lastTyped = 0;
     }
 
     private void wrap(String open, String close) {
         if (!McText.formattable(parsing)) { toast("в этом режиме разметки нет"); return; }
         snapshot();
-        String sel = input.getSelectedText();
+        String sel = input.getHighlighted();
         focus(input);
-        input.write(sel.isEmpty() ? open : open + sel + close);
+        input.insertText(sel.isEmpty() ? open : open + sel + close);
     }
 
     private void stripFormatting() {
         snapshot();
-        String sel = input.getSelectedText();
+        String sel = input.getHighlighted();
         focus(input);
         if (sel.isEmpty()) {
-            input.setText(McText.plain(input.getText(), parsing));
-            input.setCursorToEnd(false);
+            input.setValue(McText.plain(input.getValue(), parsing));
+            input.moveCursorToEnd(false);
             toast("разметка убрана");
             return;
         }
-        input.write(McText.plain(sel, parsing));
+        input.insertText(McText.plain(sel, parsing));
         toast("разметка убрана из выделения");
     }
 
     private void span(java.util.function.Function<String, String> markup) {
-        String sel = input.getSelectedText();
+        String sel = input.getHighlighted();
         if (sel.isEmpty()) { toast("сначала выделите текст"); return; }
         snapshot();
         focus(input);
-        input.write(markup.apply(sel));
+        input.insertText(markup.apply(sel));
     }
 
     private void setMode(String mode) {
         if (mode.equals(parsing)) return;
         snapshot();
-        String converted = McText.convert(input.getText(), parsing, mode);
+        String converted = McText.convert(input.getValue(), parsing, mode);
         parsing = mode;
         focus(input);
-        input.setText(converted);
-        input.setCursorToEnd(false);
+        input.setValue(converted);
+        input.moveCursorToEnd(false);
         toast("переведено в «" + Values.parsingName(mode) + "»");
     }
 
     private void insert(String glyph) {
         snapshot();
         focus(input);
-        input.write(glyph);
+        input.insertText(glyph);
     }
 
     private void copy(String s) {
-        MinecraftClient.getInstance().keyboard.setClipboard(s);
+        Minecraft.getInstance().keyboardHandler.setClipboard(s);
         toast("скопировано");
     }
 
@@ -810,7 +810,7 @@ public final class TextStudio {
         return -1;
     }
 
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
         boolean right = click.button() == 1;
         if (menu != null) {
@@ -898,7 +898,7 @@ public final class TextStudio {
         return false;
     }
 
-    private boolean colourClicked(int mx, int my, Click click, boolean doubled) {
+    private boolean colourClicked(int mx, int my, MouseButtonEvent click, boolean doubled) {
         int lx = leftX(), swW = swatchW();
         for (int i = 0; i < McText.COLOURS.size(); i++)
             if (Ui.hit(mx, my, lx + i * (swW + 1), absY(swY), swW, SW_H)) {
@@ -946,7 +946,7 @@ public final class TextStudio {
         wrap(McText.hexTag(parsing, pickRgb()), McText.hexClose(parsing));
     }
 
-    private boolean symbolsClicked(int mx, int my, Click click, boolean doubled) {
+    private boolean symbolsClicked(int mx, int my, MouseButtonEvent click, boolean doubled) {
         int lx = leftX();
         if (Ui.hit(mx, my, lx, absY(searchY), lw, SEARCH_H)) {
             focus(search);
@@ -958,9 +958,9 @@ public final class TextStudio {
         if (ci >= 0) {
             cat = ci;
             gridScroll = 0;
-            if (!search.getText().isEmpty()) {
+            if (!search.getValue().isEmpty()) {
                 focus(search);
-                search.setText("");
+                search.setValue("");
             }
             return true;
         }
@@ -1009,11 +1009,11 @@ public final class TextStudio {
     private static float clamp01(double v) { return (float) Math.max(0, Math.min(1, v)); }
 
     private void finish() {
-        done.apply(input.getText(), parsing);
+        done.apply(input.getValue(), parsing);
         closed = true;
     }
 
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (menu != null && menu.mouseDragged(click.y())) return true;
         if (bar.dragged(click.y(), 1, pane.max(), v -> { pane.scroll = v; placeFields(); }))
             return true;
@@ -1043,7 +1043,7 @@ public final class TextStudio {
         return true;
     }
 
-    public boolean keyPressed(KeyInput in) {
+    public boolean keyPressed(KeyEvent in) {
         int key = in.key();
         boolean ctrl = (in.modifiers() & GLFW.GLFW_MOD_CONTROL) != 0;
         boolean shift = (in.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
@@ -1053,8 +1053,8 @@ public final class TextStudio {
         }
         if (complete.keyPressed(in)) { syncPreview(); return true; }
         if (key == GLFW.GLFW_KEY_ESCAPE) {
-            if (search.isFocused() && !search.getText().isEmpty()) {
-                search.setText("");
+            if (search.isFocused() && !search.getValue().isEmpty()) {
+                search.setValue("");
                 return true;
             }
             closed = true;
@@ -1088,7 +1088,7 @@ public final class TextStudio {
         return used;
     }
 
-    public boolean charTyped(CharInput in) {
+    public boolean charTyped(CharacterEvent in) {
         if (menu != null) return true;
         if (hex.isFocused()) return hex.charTyped(in);
         if (search.isFocused()) return search.charTyped(in);

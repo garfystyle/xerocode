@@ -3,21 +3,21 @@ package com.xerocode.ui;
 import com.xerocode.Stacks;
 import com.xerocode.Value;
 import com.xerocode.Values;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.widget.EditBoxWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.MultiLineEditBox;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
 
 public final class ItemStudio {
     public interface Done { void apply(Value value); }
@@ -43,13 +43,13 @@ public final class ItemStudio {
     private static final List<String> HIDE_IDS = List.of(
             "minecraft:enchantments", "minecraft:unbreakable", "minecraft:attribute_modifiers");
 
-    private final TextRenderer tr;
+    private final Font tr;
     private int screenW, screenH;
     private final Done done;
     private final Value v;
 
-    private final TextFieldWidget nameField, countField, damageField, modelField;
-    private EditBoxWidget nbtBox;
+    private final EditBox nameField, countField, damageField, modelField;
+    private MultiLineEditBox nbtBox;
     private Ui.Chips modeChips, glintChips, hideChips;
 
     private ItemPicker picker;
@@ -76,7 +76,7 @@ public final class ItemStudio {
     private String flash = "";
     private long flashAt;
 
-    public ItemStudio(TextRenderer tr, int screenW, int screenH, Value value, Done done) {
+    public ItemStudio(Font tr, int screenW, int screenH, Value value, Done done) {
         this.tr = tr;
         this.screenW = screenW;
         this.screenH = screenH;
@@ -96,19 +96,19 @@ public final class ItemStudio {
         lastSig = fieldSig();
     }
 
-    private EditBoxWidget buildNbtBox(int screenW, String text) {
-        EditBoxWidget box = EditBoxWidget.builder()
-                .placeholder(Text.literal("{\"minecraft:custom_data\":{}}")
+    private MultiLineEditBox buildNbtBox(int screenW, String text) {
+        MultiLineEditBox box = MultiLineEditBox.builder()
+                .setPlaceholder(Component.literal("{\"minecraft:custom_data\":{}}")
                         .withColor(Theme.TEXT_FAINT))
-                .textColor(Draw.opaque(Theme.TEXT))
-                .textShadow(false)
-                .cursorColor(Draw.opaque(Theme.ACCENT))
-                .hasBackground(false)
-                .hasOverlay(false)
-                .build(tr, rightColW(screenW) - 8, 60, Text.literal("компоненты"));
-        box.setMaxLength(16384);
-        box.setText(text);
-        box.setChangeListener(s -> v.components = s);
+                .setTextColor(Draw.opaque(Theme.TEXT))
+                .setTextShadow(false)
+                .setCursorColor(Draw.opaque(Theme.ACCENT))
+                .setShowBackground(false)
+                .setShowDecorations(false)
+                .build(tr, rightColW(screenW) - 8, 60, Component.literal("компоненты"));
+        box.setCharacterLimit(16384);
+        box.setValue(text);
+        box.setValueListener(s -> v.components = s);
         return box;
     }
 
@@ -131,7 +131,7 @@ public final class ItemStudio {
         String all = Stacks.print(v);
         if (all.equals(v.components)) return;
         v.components = all;
-        nbtBox.setText(all);
+        nbtBox.setValue(all);
     }
 
     private void readNbt() {
@@ -140,7 +140,7 @@ public final class ItemStudio {
         lastSig = fieldSig();
     }
 
-    private TextFieldWidget field(String text, String placeholder, int max) {
+    private EditBox field(String text, String placeholder, int max) {
         return Ui.field(tr, text, placeholder, max);
     }
 
@@ -235,7 +235,7 @@ public final class ItemStudio {
         Ui.width(nameField, lw - 14);
         int cw = numW();
         for (int i = 0; i < 3; i++) {
-            TextFieldWidget f = numField(i);
+            EditBox f = numField(i);
             f.setX(leftX() + i * (cw + 4) + 6);
             f.setY(absY(numsY) + (INPUT_H - 12) / 2 + 2);
             Ui.width(f, cw - 12);
@@ -248,9 +248,9 @@ public final class ItemStudio {
 
     private int numW() { return (lw - 8) / 3; }
 
-    private int glintLabelW() { return tr.getWidth(GLINT_LABEL) + 7; }
+    private int glintLabelW() { return tr.width(GLINT_LABEL) + 7; }
 
-    private int hideLabelW() { return tr.getWidth(HIDE_LABEL) + 7; }
+    private int hideLabelW() { return tr.width(HIDE_LABEL) + 7; }
 
     private boolean[] hidden() {
         boolean[] on = new boolean[HIDE_IDS.size()];
@@ -285,7 +285,7 @@ public final class ItemStudio {
                 Ui.buttonW(tr, "копировать"), Ui.buttonW(tr, "очистить"));
     }
 
-    private TextFieldWidget numField(int i) {
+    private EditBox numField(int i) {
         return i == 0 ? countField : i == 1 ? damageField : modelField;
     }
 
@@ -293,7 +293,7 @@ public final class ItemStudio {
 
     private int footAbsY() { return y + footY; }
 
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         lastMx = mouseX;
         lastMy = mouseY;
         if (picker != null) { picker.render(ctx, mouseX, mouseY, delta); return; }
@@ -327,7 +327,7 @@ public final class ItemStudio {
         drawFooter(ctx, mouseX, mouseY);
     }
 
-    private void drawLeft(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    private void drawLeft(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         ItemStack st = Stacks.preview(v);
 
         Ui.well(ctx, leftX(), absY(cardY), lw, CARD_H);
@@ -337,10 +337,10 @@ public final class ItemStudio {
                     leftX() + 20, absY(cardY) + (CARD_H - Ui.TEXT_H) / 2, lw - 26,
                     Theme.TEXT_DIM, false);
         } else {
-            ctx.drawItem(st, leftX() + 7, absY(cardY) + (CARD_H - 16) / 2);
-            ctx.drawStackOverlay(tr, st, leftX() + 7, absY(cardY) + (CARD_H - 16) / 2);
+            ctx.renderItem(st, leftX() + 7, absY(cardY) + (CARD_H - 16) / 2);
+            ctx.renderItemDecorations(tr, st, leftX() + 7, absY(cardY) + (CARD_H - 16) / 2);
             int top = absY(cardY) + (CARD_H - (11 + Ui.TEXT_H)) / 2;
-            ctx.drawText(tr, McText.fit(tr, McText.runsOf(st.getName()), lw - 40),
+            ctx.drawString(tr, McText.fit(tr, McText.runsOf(st.getHoverName()), lw - 40),
                     leftX() + 28, top, Draw.opaque(Theme.TEXT), false);
             Draw.textFit(ctx, tr, v.itemId, leftX() + 28, top + 11, lw - 36,
                     Theme.TEXT_FAINT, false);
@@ -395,7 +395,7 @@ public final class ItemStudio {
                 Draw.textFit(ctx, tr, "пустая строка", leftX() + 20, ry + 4, rowW - 26,
                         Theme.TEXT_FAINT, false);
             } else {
-                ctx.drawText(tr, McText.fit(tr, McText.runs(line, v.itemParsing), rowW - 26),
+                ctx.drawString(tr, McText.fit(tr, McText.runs(line, v.itemParsing), rowW - 26),
                         leftX() + 20, ry + 4, Draw.opaque(Theme.TEXT), false);
             }
             Ui.iconButton(ctx, mouseX, mouseY, leftX() + lw - ROW, ry, ROW, Draw.CROSS,
@@ -467,7 +467,7 @@ public final class ItemStudio {
 
     private int enchStepX() { return leftX() + lw - ROW - 2 - 2 * ROW - 2; }
 
-    private void drawRight(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    private void drawRight(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         ItemStack st = Stacks.preview(v);
 
         Ui.caption(ctx, tr, "ПРЕДПРОСМОТР", rightX(), absY(prevY) - CAP, rw);
@@ -476,16 +476,16 @@ public final class ItemStudio {
             Draw.textFit(ctx, tr, "нечего показывать", rightX() + 8,
                     absY(prevY) + (prevH - Ui.TEXT_H) / 2, rw - 16, Theme.TEXT_FAINT, false);
         } else {
-            List<Text> lines = Stacks.tooltip(st);
-            var m = ctx.getMatrices();
+            List<Component> lines = Stacks.tooltip(st);
+            var m = ctx.pose();
             m.pushMatrix();
             m.translate(rightX() + 8, absY(prevY) + 6);
             m.scale(2, 2);
-            ctx.drawItem(st, 0, 0);
+            ctx.renderItem(st, 0, 0);
             m.popMatrix();
             int nameX = rightX() + 46;
-            ctx.drawText(tr, McText.fit(tr, McText.runsOf(
-                            lines.isEmpty() ? st.getName() : lines.get(0)), rw - 54), nameX,
+            ctx.drawString(tr, McText.fit(tr, McText.runsOf(
+                            lines.isEmpty() ? st.getHoverName() : lines.get(0)), rw - 54), nameX,
                     absY(prevY) + 10, Draw.opaque(lines.isEmpty() ? Theme.TEXT_FAINT : Theme.TEXT),
                     false);
             String amount = "×" + st.getCount() + " · " + v.itemId;
@@ -505,7 +505,7 @@ public final class ItemStudio {
                             Theme.TEXT_FAINT, false);
                     break;
                 }
-                ctx.drawText(tr, McText.fit(tr, McText.runsOf(lines.get(i)), rw - 16),
+                ctx.drawString(tr, McText.fit(tr, McText.runsOf(lines.get(i)), rw - 16),
                         rightX() + 8, at, Draw.opaque(Theme.TEXT_DIM), false);
                 at += 10;
             }
@@ -543,7 +543,7 @@ public final class ItemStudio {
     private int okX()      { return x + w - PAD - OK_W; }
     private int cancelX()  { return okX() - BTN_GAP - NO_W; }
 
-    private void drawFooter(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawFooter(GuiGraphics ctx, int mouseX, int mouseY) {
         int fy = footBtnY();
         String hint = System.currentTimeMillis() - flashAt < 1800 ? flash : Stacks.summary(v);
         if (hint.isEmpty()) hint = "Enter — готово, Esc — отмена";
@@ -572,13 +572,13 @@ public final class ItemStudio {
     }
 
     private ItemStack held() {
-        ClientPlayerEntity player = MinecraftClient.getInstance().player;
+        LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) return null;
-        ItemStack st = player.getMainHandStack();
+        ItemStack st = player.getMainHandItem();
         return st == null || st.isEmpty() ? null : st;
     }
 
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         if (picker != null) {
             picker.mouseClicked(click, doubled);
             if (picker.isClosed()) picker = null;
@@ -645,7 +645,7 @@ public final class ItemStudio {
         if (names.hit(0, mx, my, absY(nameBtnY), BTN_H)) { openStudio(-1); return true; }
         if (names.hit(1, mx, my, absY(nameBtnY), BTN_H)) {
             v.itemName = "";
-            nameField.setText("");
+            nameField.setValue("");
             return true;
         }
 
@@ -718,18 +718,18 @@ public final class ItemStudio {
         if (nbt.hit(0, mx, my, absY(nbtBtnY), BTN_H)) {
             String indented = Stacks.indent(v.components);
             if (indented.equals(v.components)) toast("нечего выпрямлять");
-            else { v.components = indented; nbtBox.setText(indented); }
+            else { v.components = indented; nbtBox.setValue(indented); }
             return true;
         }
         if (nbt.hit(1, mx, my, absY(nbtBtnY), BTN_H)) {
             String all = Stacks.print(v);
-            MinecraftClient.getInstance().keyboard.setClipboard(all);
+            Minecraft.getInstance().keyboardHandler.setClipboard(all);
             toast(all.isEmpty() ? "копировать нечего" : "компоненты в буфере");
             return true;
         }
         if (nbt.hit(2, mx, my, absY(nbtBtnY), BTN_H)) {
             v.components = "";
-            nbtBox.setText("");
+            nbtBox.setValue("");
             readNbt();
             return true;
         }
@@ -738,16 +738,16 @@ public final class ItemStudio {
         return true;
     }
 
-    private boolean takeFocus(Click click, boolean doubled, int which) {
+    private boolean takeFocus(MouseButtonEvent click, boolean doubled, int which) {
         focus = which;
         focusFields();
-        TextFieldWidget f = widget(which);
+        EditBox f = widget(which);
         if (f != null && !f.mouseClicked(click, doubled)) f.onClick(click, doubled);
         grab.take(f);
         return true;
     }
 
-    private TextFieldWidget widget(int which) {
+    private EditBox widget(int which) {
         return switch (which) {
             case NAME -> nameField;
             case COUNT -> countField;
@@ -783,7 +783,7 @@ public final class ItemStudio {
             v.itemParsing = parsing;
             if (studioLine < 0) {
                 v.itemName = edited;
-                nameField.setText(edited);
+                nameField.setValue(edited);
             } else if (studioLine < v.lore.size()) {
                 v.lore.set(studioLine, edited);
             }
@@ -813,7 +813,7 @@ public final class ItemStudio {
                 });
     }
 
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (bar.dragged(click.y(), 1, pane.max(), v -> pane.scroll = v)) return true;
         if (loreBar.dragged(click.y(), ROW + 2, maxLoreScroll(), v -> loreScroll = v)) return true;
         if (picker != null) return picker.mouseDragged(click, dx, dy);
@@ -863,7 +863,7 @@ public final class ItemStudio {
         return true;
     }
 
-    public boolean keyPressed(KeyInput input) {
+    public boolean keyPressed(KeyEvent input) {
         if (picker != null) {
             picker.keyPressed(input);
             if (picker.isClosed()) picker = null;
@@ -892,57 +892,57 @@ public final class ItemStudio {
         }
         if (focus == NBT) {
             boolean typed = nbtBox.keyPressed(input);
-            v.components = nbtBox.getText();
+            v.components = nbtBox.getValue();
             readNbt();
             return typed;
         }
-        TextFieldWidget f = widget(focus);
+        EditBox f = widget(focus);
         boolean used = f != null && f.keyPressed(input);
         readForm();
         return used;
     }
 
-    public boolean charTyped(CharInput input) {
+    public boolean charTyped(CharacterEvent input) {
         if (picker != null) return picker.charTyped(input);
         if (studio != null) return studio.charTyped(input);
         if (enchPicker != null) return enchPicker.charTyped(input);
         if (focus == NBT) {
             boolean typed = nbtBox.charTyped(input);
-            v.components = nbtBox.getText();
+            v.components = nbtBox.getValue();
             readNbt();
             return typed;
         }
-        TextFieldWidget f = widget(focus);
+        EditBox f = widget(focus);
         boolean used = f != null && f.charTyped(input);
         readForm();
         return used;
     }
 
     private void bump(int which, int delta) {
-        TextFieldWidget f = widget(which);
+        EditBox f = widget(which);
         if (f == null) return;
         int now = 0;
         try {
-            String s = f.getText().trim();
+            String s = f.getValue().trim();
             if (!s.isEmpty()) now = Integer.parseInt(s);
         } catch (NumberFormatException ignored) { }
         int next = now + delta;
         if (which == COUNT) next = Math.max(1, Math.min(99, next));
         else next = Math.max(0, next);
-        f.setText(String.valueOf(next));
-        f.setCursorToEnd(false);
+        f.setValue(String.valueOf(next));
+        f.moveCursorToEnd(false);
         focus = which;
         focusFields();
         readForm();
     }
 
     private void readForm() {
-        v.itemName = nameField.getText();
-        v.itemCount = Math.max(1, Math.min(99, (int) number(countField.getText(), 1)));
-        v.itemDamage = Math.max(0, (int) number(damageField.getText(), 0));
-        String model = modelField.getText().trim();
+        v.itemName = nameField.getValue();
+        v.itemCount = Math.max(1, Math.min(99, (int) number(countField.getValue(), 1)));
+        v.itemDamage = Math.max(0, (int) number(damageField.getValue(), 0));
+        String model = modelField.getValue().trim();
         v.modelData = model.isEmpty() ? -1 : Math.max(0, (int) number(model, -1));
-        v.components = nbtBox.getText();
+        v.components = nbtBox.getValue();
     }
 
     private static double number(String s, double fallback) {
@@ -955,16 +955,16 @@ public final class ItemStudio {
     }
 
     private void syncWidgets() {
-        nameField.setText(v.itemName);
-        countField.setText(String.valueOf(v.itemCount));
-        damageField.setText(v.itemDamage > 0 ? String.valueOf(v.itemDamage) : "");
-        modelField.setText(v.modelData >= 0 ? String.valueOf(v.modelData) : "");
+        nameField.setValue(v.itemName);
+        countField.setValue(String.valueOf(v.itemCount));
+        damageField.setValue(v.itemDamage > 0 ? String.valueOf(v.itemDamage) : "");
+        modelField.setValue(v.modelData >= 0 ? String.valueOf(v.modelData) : "");
         relayout();
     }
 
     private void sync() {
         syncWidgets();
-        nbtBox.setText(v.components);
+        nbtBox.setValue(v.components);
         lastSig = fieldSig();
     }
 

@@ -4,18 +4,18 @@ import com.xerocode.Backpack;
 import com.xerocode.Functions;
 import com.xerocode.Script;
 import com.xerocode.Search;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.ScreenRect;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 
 public final class BackpackPanel extends PickerPanel {
     public interface Taken { void apply(Backpack.Item item); }
@@ -35,7 +35,7 @@ public final class BackpackPanel extends PickerPanel {
     private final Ui.Bar bar = new Ui.Bar();
     private final Ui.Grab hold = new Ui.Grab();
 
-    private TextFieldWidget nameField;
+    private EditBox nameField;
     private String renameId = "";
     private String confirmId = "";
 
@@ -47,11 +47,11 @@ public final class BackpackPanel extends PickerPanel {
     private final CodeStage stage = new CodeStage(VIEW_MIN, VIEW_MAX, 1.0);
     private final BlockView.Look vlook = new BlockView.Look();
 
-    public BackpackPanel(TextRenderer tr, int screenW, int screenH, Taken done) {
+    public BackpackPanel(Font tr, int screenW, int screenH, Taken done) {
         this(tr, screenW, screenH, done, "", "");
     }
 
-    public BackpackPanel(TextRenderer tr, int screenW, int screenH, Taken done,
+    public BackpackPanel(Font tr, int screenW, int screenH, Taken done,
                          String takeLabel, String startId) {
         super(tr, screenW, screenH, Theme.ACCENT);
         this.done = done;
@@ -67,9 +67,9 @@ public final class BackpackPanel extends PickerPanel {
     @Override
     protected void layout() {
         int panelW = Ui.fitW(screenW, 660);
-        int measured = tr.getWidth("Всё") + 46;
+        int measured = tr.width("Всё") + 46;
         for (String c : Backpack.categories().keySet())
-            measured = Math.max(measured, tr.getWidth(c) + 46);
+            measured = Math.max(measured, tr.width(c) + 46);
         int rail = railW(panelW, measured);
         int det = Math.min(DET_WANT, panelW - rail - Math.min(LIST_MIN, panelW * 45 / 100));
         det = det < 150 ? 0 : det;
@@ -103,7 +103,7 @@ public final class BackpackPanel extends PickerPanel {
 
     @Override
     protected void refresh(boolean resetScroll) {
-        String q = search == null ? "" : search.getText().trim();
+        String q = search == null ? "" : search.getValue().trim();
         List<Backpack.Item> pool = new ArrayList<>();
         for (Backpack.Item i : Backpack.all())
             if (category == null || category.equals(i.category())) pool.add(i);
@@ -187,7 +187,7 @@ public final class BackpackPanel extends PickerPanel {
     }
 
     @Override
-    protected void drawBody(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         int lx = listX(), ly = bodyY(), lw = listW(), lh = bodyH();
         Draw.rect(ctx, lx, ly, lw, lh, Draw.opaque(Ui.WELL));
         if (hits.isEmpty()) { drawEmpty(ctx, lx, ly, lw, lh); return; }
@@ -203,7 +203,7 @@ public final class BackpackPanel extends PickerPanel {
                 lastMx, lastMy);
     }
 
-    private void drawRow(DrawContext ctx, Backpack.Item it, int i, int lx, int ry, int lw) {
+    private void drawRow(GuiGraphics ctx, Backpack.Item it, int i, int lx, int ry, int lw) {
         boolean on = it.id.equals(selected);
         if (on) {
             Draw.rect(ctx, lx, ry, lw, ROW_H, Draw.opaque(Ui.BTN_ON));
@@ -214,7 +214,7 @@ public final class BackpackPanel extends PickerPanel {
             Draw.rect(ctx, lx, ry, lw, ROW_H, Draw.opaque(Ui.WELL));
         }
         Draw.rect(ctx, lx + 4, ry + 4, 2, ROW_H - 8, Draw.opaque(Draw.shade(it.color(), -0.1f)));
-        ctx.drawItem(it.icon(), lx + 10, ry + 4);
+        ctx.renderItem(it.icon(), lx + 10, ry + 4);
 
         if (it.id.equals(renameId) && nameField != null) {
             int fx = lx + 30, fw = lw - 36;
@@ -228,7 +228,7 @@ public final class BackpackPanel extends PickerPanel {
         }
 
         String when = Backpack.when(it.at);
-        int whenW = when.isEmpty() ? 0 : tr.getWidth(when) + 8;
+        int whenW = when.isEmpty() ? 0 : tr.width(when) + 8;
         Draw.textFit(ctx, tr, it.name, lx + 30, ry + 4, lw - 36 - whenW,
                 on || i == hovered ? Theme.TEXT : Theme.TEXT_DIM, false);
         Draw.textFit(ctx, tr, it.subtitle(), lx + 30, ry + 14, lw - 36 - whenW,
@@ -237,7 +237,7 @@ public final class BackpackPanel extends PickerPanel {
             Draw.textRight(ctx, tr, when, lx + lw - 8, ry + 4, Theme.TEXT_FAINT, false);
     }
 
-    private void drawEmpty(DrawContext ctx, int lx, int ly, int lw, int lh) {
+    private void drawEmpty(GuiGraphics ctx, int lx, int ly, int lw, int lh) {
         boolean searching = !Backpack.all().isEmpty();
         int cy = ly + Math.max(10, lh / 2 - 26);
         Draw.glyph(ctx, Draw.PACK, lx + (lw - Draw.glyphW(Draw.PACK)) / 2, cy, Theme.LINE);
@@ -253,7 +253,7 @@ public final class BackpackPanel extends PickerPanel {
     }
 
     @Override
-    protected void drawDetails(DrawContext ctx) {
+    protected void drawDetails(GuiGraphics ctx) {
         if (viewing) { drawViewer(ctx); return; }
         thumbW = 0;
         if (!detailsFrame(ctx)) return;
@@ -301,7 +301,7 @@ public final class BackpackPanel extends PickerPanel {
         return preview;
     }
 
-    private void drawPreview(DrawContext ctx, Backpack.Item it, int px, int py, int pw, int ph) {
+    private void drawPreview(GuiGraphics ctx, Backpack.Item it, int px, int py, int pw, int ph) {
         if (pw < 30 || ph < 24) return;
         Layout l = previewOf(it);
         if (l.boxes.isEmpty()) return;
@@ -311,10 +311,10 @@ public final class BackpackPanel extends PickerPanel {
         int ox = px + Math.max(0, (pw - Math.round(b[2] * scale)) / 2);
         int oy = py + Math.max(0, Math.min(6, (ph - Math.round(b[3] * scale)) / 2));
 
-        ScreenRect area = new ScreenRect(px, py, pw, ph);
+        ScreenRectangle area = new ScreenRectangle(px, py, pw, ph);
         ctx.enableScissor(px, py, px + pw, py + ph);
         SmoothText.clip(area);
-        var m = ctx.getMatrices();
+        var m = ctx.pose();
         m.pushMatrix();
         m.translate(ox, oy);
         m.scale(scale, scale);
@@ -367,7 +367,7 @@ public final class BackpackPanel extends PickerPanel {
         stage.keepOnScreen(preview, 40);
     }
 
-    private int zoomLabelW() { return tr.getWidth("999%") + 4; }
+    private int zoomLabelW() { return tr.width("999%") + 4; }
 
     private int zoomLabelX() { return viewBtnX(0) - zoomLabelW() - 4; }
 
@@ -378,7 +378,7 @@ public final class BackpackPanel extends PickerPanel {
 
     private int backW() { return Ui.buttonW(tr, Draw.CHEVRON_LEFT, "Назад"); }
 
-    private void drawViewer(DrawContext ctx) {
+    private void drawViewer(GuiGraphics ctx) {
         Backpack.Item it = chosen();
         if (it == null) { closeViewer(); return; }
         int vx = viewX(), vy = viewY(), vw = viewW();
@@ -414,7 +414,7 @@ public final class BackpackPanel extends PickerPanel {
 
         String said = vhover == null ? null : blockLine(vhover);
         if (said != null) {
-            int tw = Math.min(vw - 16, tr.getWidth(said) + 14);
+            int tw = Math.min(vw - 16, tr.width(said) + 14);
             int ty = stageY() + stageH() - 20;
             Draw.round(ctx, vx + 8, ty, tw, 15, 4, Draw.argb(0xD8, Ui.HEAD));
             Draw.roundOutline(ctx, vx + 8, ty, tw, 15, 4, Draw.argb(0x88, Ui.BORDER));
@@ -453,7 +453,7 @@ public final class BackpackPanel extends PickerPanel {
 
     private void commitRename() {
         if (!renaming()) { renameId = ""; nameField = null; return; }
-        Backpack.rename(byId(renameId), nameField.getText());
+        Backpack.rename(byId(renameId), nameField.getValue());
         renameId = "";
         nameField = null;
         previewId = "";
@@ -507,7 +507,7 @@ public final class BackpackPanel extends PickerPanel {
     }
 
     @Override
-    protected void drawFooterLeft(DrawContext ctx, int mouseX, int mouseY, int room) {
+    protected void drawFooterLeft(GuiGraphics ctx, int mouseX, int mouseY, int room) {
         int fy = footY2();
         if (!inspectButton()) { super.drawFooterLeft(ctx, mouseX, mouseY, room); return; }
         Ui.iconButton(ctx, mouseX, mouseY, x + PAD, fy, ICON, Draw.SEARCH, Ui.GHOST, true);
@@ -554,7 +554,7 @@ public final class BackpackPanel extends PickerPanel {
     }
 
     @Override
-    protected boolean bodyClicked(Click click, boolean doubled, int mx, int my) {
+    protected boolean bodyClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
         int fy = footY2(), room = footerRoom();
         if (inspectButton() && Ui.hit(mx, my, x + PAD, fy, ICON, BTN_H)) {
             openViewer();
@@ -595,7 +595,7 @@ public final class BackpackPanel extends PickerPanel {
     }
 
     @Override
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
         if (viewing && Ui.hit(mx, my, viewX(), viewY(), viewW(), bodyH()))
             return viewerClicked(mx, my, doubled);
@@ -604,7 +604,7 @@ public final class BackpackPanel extends PickerPanel {
     }
 
     @Override
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (stage.panning()) {
             stage.drag(dx, dy);
             stage.keepOnScreen(preview, 40);
@@ -635,7 +635,7 @@ public final class BackpackPanel extends PickerPanel {
     }
 
     @Override
-    protected boolean bodyKey(KeyInput in) {
+    protected boolean bodyKey(KeyEvent in) {
         if (viewing) {
             switch (in.key()) {
                 case GLFW.GLFW_KEY_ESCAPE -> closeViewer();
@@ -666,7 +666,7 @@ public final class BackpackPanel extends PickerPanel {
             case GLFW.GLFW_KEY_PAGE_UP -> { move(-rows); return true; }
             case GLFW.GLFW_KEY_F2 -> { startRename(chosen()); return true; }
             case GLFW.GLFW_KEY_DELETE -> {
-                if (search != null && search.isFocused() && !search.getText().isEmpty())
+                if (search != null && search.isFocused() && !search.getValue().isEmpty())
                     return false;
                 deleteChosen();
                 return true;
@@ -676,7 +676,7 @@ public final class BackpackPanel extends PickerPanel {
     }
 
     @Override
-    public boolean charTyped(CharInput in) {
+    public boolean charTyped(CharacterEvent in) {
         if (viewing) return true;
         if (renaming()) return nameField.charTyped(in);
         return super.charTyped(in);

@@ -1,8 +1,6 @@
 package com.xerocode.ui;
 
 import com.xerocode.XeroCode;
-import net.minecraft.client.MinecraftClient;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -12,6 +10,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import net.minecraft.client.Minecraft;
 
 public final class Audit {
     public static final int FILL = 0, TEXT = 1, GLYPH = 2, ITEM = 3;
@@ -75,8 +74,8 @@ public final class Audit {
 
     private static String screenName() {
         try {
-            MinecraftClient client = MinecraftClient.getInstance();
-            java.lang.reflect.Field f = MinecraftClient.class.getDeclaredField("field_1755");
+            Minecraft client = Minecraft.getInstance();
+            java.lang.reflect.Field f = Minecraft.class.getDeclaredField("field_1755");
             f.setAccessible(true);
             Object screen = f.get(client);
             return screen == null ? "мир" : screen.getClass().getSimpleName();
@@ -94,12 +93,12 @@ public final class Audit {
         if (!on) return;
         if (--frames > 0) return;
         on = false;
-        MinecraftClient client = MinecraftClient.getInstance();
-        int sw = client.getWindow() == null ? 0 : client.getWindow().getScaledWidth();
-        int sh = client.getWindow() == null ? 0 : client.getWindow().getScaledHeight();
+        Minecraft client = Minecraft.getInstance();
+        int sw = client.getWindow() == null ? 0 : client.getWindow().getGuiScaledWidth();
+        int sh = client.getWindow() == null ? 0 : client.getWindow().getGuiScaledHeight();
         last = look(sw, sh);
         try {
-            Path file = MinecraftClient.getInstance().runDirectory.toPath()
+            Path file = Minecraft.getInstance().gameDirectory.toPath()
                     .resolve("xerocode").resolve("audit.txt");
             Files.createDirectories(file.getParent());
             Files.writeString(file, last, StandardCharsets.UTF_8);

@@ -2,11 +2,6 @@ package com.xerocode.ui;
 
 import com.xerocode.Catalog;
 import com.xerocode.Search;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -14,6 +9,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.world.item.ItemStack;
 
 public final class CatalogPicker extends PickerPanel {
     public record Item(String id, String name, String category, String icon,
@@ -33,7 +33,7 @@ public final class CatalogPicker extends PickerPanel {
     public interface Extra {
         int height();
 
-        void render(DrawContext ctx, int x, int y, int w, int h, int mouseX, int mouseY,
+        void render(GuiGraphics ctx, int x, int y, int w, int h, int mouseX, int mouseY,
                     boolean flush);
 
         default void hover(String id) {}
@@ -46,7 +46,7 @@ public final class CatalogPicker extends PickerPanel {
 
         default void mouseReleased() {}
 
-        default boolean keyPressed(KeyInput in) { return false; }
+        default boolean keyPressed(KeyEvent in) { return false; }
 
         default String hint() { return null; }
     }
@@ -69,7 +69,7 @@ public final class CatalogPicker extends PickerPanel {
     private int rows;
     private final int stripH;
 
-    public CatalogPicker(TextRenderer tr, int screenW, int screenH, String title, int accent,
+    public CatalogPicker(Font tr, int screenW, int screenH, String title, int accent,
                          List<Item> items, Map<String, Integer> categories, String current,
                          Extra extra, Done done) {
         super(tr, screenW, screenH, accent);
@@ -89,8 +89,8 @@ public final class CatalogPicker extends PickerPanel {
     @Override
     protected void layout() {
         int panelW = Ui.fitW(screenW, 620);
-        int measured = tr.getWidth("Всё") + 46;
-        for (String c : this.categories.keySet()) measured = Math.max(measured, tr.getWidth(c) + 46);
+        int measured = tr.width("Всё") + 46;
+        for (String c : this.categories.keySet()) measured = Math.max(measured, tr.width(c) + 46);
         int rail = railW(panelW, measured);
         int det = Math.min(DET_W, panelW - rail - Math.min(LIST_MIN, panelW * 45 / 100));
         det = det < 120 ? 0 : det;
@@ -119,7 +119,7 @@ public final class CatalogPicker extends PickerPanel {
 
     @Override
     protected void refresh(boolean resetScroll) {
-        String q = search == null ? "" : search.getText().trim();
+        String q = search == null ? "" : search.getValue().trim();
         List<Item> pool = new ArrayList<>();
         for (Item i : all) if (category == null || category.equals(i.category())) pool.add(i);
         hits = q.isEmpty() ? pool
@@ -196,12 +196,12 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     @Override
-    protected void drawBody(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         drawList(ctx);
         drawStrip(ctx, mouseX, mouseY);
     }
 
-    private void drawStrip(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawStrip(GuiGraphics ctx, int mouseX, int mouseY) {
         if (extra == null) return;
         Ui.hairline(ctx, x + 1, bodyY() + bodyH(), w - 2);
         Item it = focused();
@@ -209,7 +209,7 @@ public final class CatalogPicker extends PickerPanel {
         extra.render(ctx, stripX(), stripY(), stripW(), stripBodyH(), mouseX, mouseY, true);
     }
 
-    private void drawList(DrawContext ctx) {
+    private void drawList(GuiGraphics ctx) {
         int lx = listX(), ly = bodyY(), lw = listW(), lh = bodyH();
         Draw.rect(ctx, lx, ly, lw, lh, Draw.opaque(Ui.WELL));
         ctx.enableScissor(lx, ly, lx + lw, ly + lh);
@@ -227,7 +227,7 @@ public final class CatalogPicker extends PickerPanel {
             } else if (i % 2 == 1) {
                 Draw.rect(ctx, lx, ry, lw, ROW_H, Draw.opaque(Ui.WELL));
             }
-            ctx.drawItem(it.picture(), lx + 6, ry + 1);
+            ctx.renderItem(it.picture(), lx + 6, ry + 1);
             String badge = it.badge();
             int badgeW = badge.isEmpty() ? 0 : Draw.badgeWidth(tr, badge) + 6;
             Draw.textFit(ctx, tr, it.name(), lx + 27, ry + 5, lw - 33 - badgeW,
@@ -247,7 +247,7 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     @Override
-    protected void drawDetails(DrawContext ctx) {
+    protected void drawDetails(GuiGraphics ctx) {
         if (!detailsFrame(ctx)) return;
         Item it = focused();
         if (it == null) {
@@ -302,7 +302,7 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     @Override
-    protected boolean bodyClicked(Click click, boolean doubled, int mx, int my) {
+    protected boolean bodyClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
         if (bar.grabbed(mx, my, ROW_H, maxScroll(), v -> scroll = v)) return true;
         int i = indexAt(mx, my);
         if (i >= 0) {
@@ -319,7 +319,7 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     @Override
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (bar.dragged(click.y(), ROW_H, maxScroll(), v -> scroll = v)) return true;
         if (extra != null && extra.mouseDragged((int) click.x(), stripX(), stripY(), stripW(),
                 stripBodyH())) return true;
@@ -338,7 +338,7 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     @Override
-    protected boolean bodyKey(KeyInput in) {
+    protected boolean bodyKey(KeyEvent in) {
         if (extra != null && extra.keyPressed(in)) return true;
         switch (in.key()) {
             case GLFW.GLFW_KEY_DOWN -> { move(1); return true; }

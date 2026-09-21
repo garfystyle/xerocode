@@ -3,6 +3,7 @@ package com.xerocode.ui;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.mojang.blaze3d.platform.InputConstants;
 import com.xerocode.Audio;
 import com.xerocode.Backpack;
 import com.xerocode.Catalog;
@@ -20,17 +21,6 @@ import com.xerocode.Stacks;
 import com.xerocode.Value;
 import com.xerocode.Values;
 import com.xerocode.XeroCode;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.ScreenRect;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.item.ItemStack;
-import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.File;
@@ -45,12 +35,22 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
 
 public final class EditorScreen extends Screen implements TopBar.Host {
     private final Script script;
     private final Palette palette = new Palette();
     private TopBar top;
-    private TextFieldWidget search;
+    private EditBox search;
 
     private double panX = 60, panY = 50, zoom = 1.0;
     private boolean viewRestored;
@@ -134,7 +134,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     public EditorScreen(Script script) {
-        super(Text.literal("XeroCode"));
+        super(Component.literal("XeroCode"));
         this.script = script;
         History.clear();
     }
@@ -182,7 +182,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return Math.abs(mx - Theme.PALETTE_W) <= 3;
     }
 
-    private void drawSplitter(DrawContext ctx, int mouseX) {
+    private void drawSplitter(GuiGraphics ctx, int mouseX) {
         if (!resizingPalette && !overSplitter(mouseX)) return;
         Draw.rect(ctx, Theme.PALETTE_W - 2, 0, 2, height, Draw.opaque(Theme.ACCENT));
         for (int i = -1; i <= 1; i++)
@@ -191,8 +191,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     @Override
     protected void init() {
-        if (top == null) top = new TopBar(textRenderer, this);
-        String text = search == null ? palette.query() : search.getText();
+        if (top == null) top = new TopBar(font, this);
+        String text = search == null ? palette.query() : search.getValue();
         if (!viewRestored) {
             viewRestored = true;
             panX = script.viewX;
@@ -202,14 +202,14 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (script.paletteW > 0) Theme.PALETTE_W = script.paletteW;
         Theme.PALETTE_W = Math.max(Theme.PALETTE_MIN_W,
                 Math.min(paletteLimit(), Theme.PALETTE_W));
-        search = Ui.field(textRenderer, Palette.searchTextX(), Palette.SEARCH_Y + 6,
+        search = Ui.field(font, Palette.searchTextX(), Palette.SEARCH_Y + 6,
                 Palette.searchTextW(), 10, "поиск блока…");
-        search.setDrawsBackground(false);
+        search.setBordered(false);
         search.setMaxLength(48);
-        search.setEditableColor(Draw.opaque(Theme.TEXT));
-        search.setChangedListener(palette::setQuery);
-        search.setText(text);
-        addSelectableChild(search);
+        search.setTextColor(Draw.opaque(Theme.TEXT));
+        search.setResponder(palette::setQuery);
+        search.setValue(text);
+        addWidget(search);
         palette.invalidate();
         if (script.fitOnOpen) {
             script.fitOnOpen = false;
@@ -228,7 +228,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     @Override
-    public boolean shouldPause() { return false; }
+    public boolean isPauseScreen() { return false; }
 
     private void toast(String message) {
         status = message;
@@ -257,7 +257,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void openFinder(String query) {
         closeOverlays();
         if (finder == null) {
-            finder = new FindPanel(textRenderer, script, width, height, this::jumpTo);
+            finder = new FindPanel(font, script, width, height, this::jumpTo);
             top.invalidate();
         }
         if (query != null) finder.setQuery(query);
@@ -342,10 +342,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return (int) (255 * (1 - age / 1800.0));
     }
 
-    private void drawFound(DrawContext ctx, double vx0, double vy0, double vx1, double vy1) {
+    private void drawFound(GuiGraphics ctx, double vx0, double vy0, double vx1, double vy1) {
         int ink = focusInk();
         if (found.isEmpty() && (focusNode == null || ink == 0)) return;
-        ScreenRect area = new ScreenRect(canvasLeft(), Theme.TOPBAR_H,
+        ScreenRectangle area = new ScreenRectangle(canvasLeft(), Theme.TOPBAR_H,
                 width - canvasLeft(), height - Theme.TOPBAR_H);
         Draw.batch(Batch.open(ctx, area, area, 512));
         int soft = Draw.mix(Theme.ACCENT, Theme.CANVAS, 0.3f);
@@ -368,11 +368,11 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return moving && coveredCache.contains(box.node);
     }
 
-    private void drawMoving(DrawContext ctx, ScreenRect area,
+    private void drawMoving(GuiGraphics ctx, ScreenRectangle area,
                             double vx0, double vy0, double vx1, double vy1) {
         if (!moving) return;
         int dx = (int) Math.round(moveDX), dy = (int) Math.round(moveDY);
-        var m = ctx.getMatrices();
+        var m = ctx.pose();
         m.pushMatrix();
         m.translate(dx, dy);
         double sx0 = vx0 - dx, sy0 = vy0 - dy, sx1 = vx1 - dx, sy1 = vy1 - dy;
@@ -384,13 +384,13 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         for (Piece p : pieces()) {
             Draw.batch(Batch.open(ctx, area, area, 512));
             for (Layout.Box box : p.boxes())
-                if (visible(box, sx0, sy0, sx1, sy1)) BlockView.block(ctx, textRenderer, box, look);
+                if (visible(box, sx0, sy0, sx1, sy1)) BlockView.block(ctx, font, box, look);
             Draw.batch(null);
         }
         m.popMatrix();
     }
 
-    private void edges(DrawContext ctx, List<int[]> segments, double dx, double dy, int argb,
+    private void edges(GuiGraphics ctx, List<int[]> segments, double dx, double dy, int argb,
                        double vx0, double vy0, double vx1, double vy1) {
         for (int[] s : segments) {
             double a = s[0] + dx, b = s[1] + dy, c = s[2] + dx, d = s[3] + dy;
@@ -401,8 +401,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
     }
 
-    private void drawOutlines(DrawContext ctx, List<Piece> list, double dx, double dy,
-                              ScreenRect area, double vx0, double vy0, double vx1, double vy1) {
+    private void drawOutlines(GuiGraphics ctx, List<Piece> list, double dx, double dy,
+                              ScreenRectangle area, double vx0, double vy0, double vx1, double vy1) {
         List<Piece> shown = null;
         int cap = 0;
         for (Piece p : list) {
@@ -422,9 +422,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Draw.batch(null);
     }
 
-    private void drawBand(DrawContext ctx) {
+    private void drawBand(GuiGraphics ctx) {
         if (!banding) return;
-        ScreenRect area = new ScreenRect(canvasLeft(), Theme.TOPBAR_H,
+        ScreenRectangle area = new ScreenRectangle(canvasLeft(), Theme.TOPBAR_H,
                 width - canvasLeft(), height - Theme.TOPBAR_H);
         Draw.batch(Batch.open(ctx, area, area, 16));
         int bx = toScreenX(Math.min(bandX0, bandX1)), by = toScreenY(Math.min(bandY0, bandY1));
@@ -436,7 +436,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Draw.batch(null);
     }
 
-    private void drawMap(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawMap(GuiGraphics ctx, int mouseX, int mouseY) {
         if (!Settings.minimap() || drag != null || script.roots.isEmpty()) { map.hide(); return; }
         map.frame(layout, layoutStamp, canvasLeft(), Theme.TOPBAR_H, canvasRight(), height);
         if (!map.shown()) return;
@@ -523,7 +523,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (layout == null || stamp != layoutStamp) {
             nodeCount = -1;
             Functions.rebuild(script);
-            layout = Layout.of(script, textRenderer);
+            layout = Layout.of(script, font);
             layoutStamp = stamp;
             if (!stampTaken) { savedStamp = script.codeHash(); stampTaken = true; }
         }
@@ -531,13 +531,13 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         Draw.batch(null);
         SmoothText.clip(null);
         if (settings != null && settings.consumeChanged()) {
             revision++;
             top.invalidate();
-            search.setEditableColor(Draw.opaque(Theme.TEXT));
+            search.setTextColor(Draw.opaque(Theme.TEXT));
         }
         Draw.rect(ctx, 0, 0, width, height, Draw.opaque(Theme.CANVAS));
         advancePan();
@@ -568,10 +568,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         drawGrid(ctx);
         if (script.roots.isEmpty() && drag == null) drawEmptyHint(ctx);
 
-        var m = ctx.getMatrices();
+        var m = ctx.pose();
         m.pushMatrix();
-        int gs = client != null && client.getWindow() != null
-                ? Math.max(1, client.getWindow().getScaleFactor()) : 1;
+        int gs = minecraft != null && minecraft.getWindow() != null
+                ? Math.max(1, minecraft.getWindow().getGuiScale()) : 1;
         double snapX = Math.round(panX * gs) / (double) gs;
         double snapY = Math.round(panY * gs) / (double) gs;
         m.translate((float) (canvasLeft() + snapX), (float) (Theme.TOPBAR_H + snapY));
@@ -580,7 +580,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         double vx0 = toCanvasX(canvasLeft()) - 8, vx1 = toCanvasX(width) + 8;
         double vy0 = toCanvasY(Theme.TOPBAR_H) - 8, vy1 = toCanvasY(height) + 8;
 
-        ScreenRect canvasArea = new ScreenRect(canvasLeft(), Theme.TOPBAR_H,
+        ScreenRectangle canvasArea = new ScreenRectangle(canvasLeft(), Theme.TOPBAR_H,
                 width - canvasLeft(), height - Theme.TOPBAR_H);
 
         SmoothText.clip(canvasArea);
@@ -601,7 +601,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             for (int i = chunk.from; i < chunk.to; i++) {
                 Layout.Box box = view.boxes.get(i);
                 if (!rides(box) && visible(box, vx0, vy0, vx1, vy1))
-                    BlockView.block(ctx, textRenderer, box, look);
+                    BlockView.block(ctx, font, box, look);
             }
             Draw.batch(null);
             if (moving || picked.isEmpty() || view != layout) continue;
@@ -628,36 +628,36 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (moving) drawOutlines(ctx, pieces(), Math.round(moveDX), Math.round(moveDY),
                 canvasArea, vx0, vy0, vx1, vy1);
         drawBand(ctx);
-        Peers.render(ctx, textRenderer, script, layout, canvasArea, canvasLeft(), Theme.TOPBAR_H,
+        Peers.render(ctx, font, script, layout, canvasArea, canvasLeft(), Theme.TOPBAR_H,
                 panX, panY, zoom, width, height);
         ctx.disableScissor();
         SmoothText.clip(null);
 
         drawMap(ctx, mouseX, mouseY);
         if (finder != null) finder.render(ctx, mouseX, mouseY, delta);
-        palette.render(ctx, textRenderer, mouseX, mouseY, height);
+        palette.render(ctx, font, mouseX, mouseY, height);
         search.render(ctx, mouseX, mouseY, delta);
-        Ui.placeholder(ctx, textRenderer, search);
+        Ui.placeholder(ctx, font, search);
         top.draw(ctx, mouseX, mouseY);
         drawSplitter(ctx, mouseX);
 
-        ctx.createNewRootLayer();
+        ctx.nextStratum();
         drawPocket(ctx, mouseX, mouseY);
         drawBar(ctx, mouseX, mouseY);
         drawToast(ctx);
         if (editor != null) editor.render(ctx, mouseX, mouseY, delta);
-        if (menu != null) menu.render(ctx, textRenderer, mouseX, mouseY);
+        if (menu != null) menu.render(ctx, font, mouseX, mouseY);
         else if (blockMenu != null) blockMenu.render(ctx, mouseX, mouseY);
         else if (!exitPrompt && settings == null && backpack == null && carry == null)
             drawTooltips(ctx, mouseX, mouseY);
         drawCarry(ctx, mouseX, mouseY);
         if (exitPrompt) drawExitPrompt(ctx, mouseX, mouseY);
         if (condPicker != null) {
-            ctx.createNewRootLayer();
+            ctx.nextStratum();
             condPicker.render(ctx, mouseX, mouseY, delta);
         }
         if (backpack != null) {
-            ctx.createNewRootLayer();
+            ctx.nextStratum();
             backpack.render(ctx, mouseX, mouseY, delta);
         }
         if (settings != null) settings.render(ctx, mouseX, mouseY, delta);
@@ -689,7 +689,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
     }
 
-    private void drawGrid(DrawContext ctx) {
+    private void drawGrid(GuiGraphics ctx) {
         int style = Settings.gridStyle();
         if (style == Settings.GRID_NONE) return;
         double step = 26 * zoom;
@@ -719,9 +719,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
     }
 
-    private void drawGridDots(DrawContext ctx, double step, double ox, double oy,
+    private void drawGridDots(GuiGraphics ctx, double step, double ox, double oy,
                               int faint, int strong) {
-        ScreenRect area = new ScreenRect(canvasLeft(), Theme.TOPBAR_H,
+        ScreenRectangle area = new ScreenRectangle(canvasLeft(), Theme.TOPBAR_H,
                 width - canvasLeft(), height - Theme.TOPBAR_H);
         Draw.batch(Batch.open(ctx, area, area, 4096));
         int i0 = (int) Math.floor((canvasLeft() - ox) / step);
@@ -743,30 +743,30 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Draw.batch(null);
     }
 
-    private void drawEmptyHint(DrawContext ctx) {
+    private void drawEmptyHint(GuiGraphics ctx) {
         int w = 250, h = 62;
         int x = canvasLeft() + (width - canvasLeft() - w) / 2, y = (height - h) / 2;
         Draw.round(ctx, x, y, w, h, 8, Draw.argb(0x50, Ui.PANEL));
         Draw.roundOutline(ctx, x, y, w, h, 8, Draw.argb(0x66, Ui.BORDER));
-        Draw.textFit(ctx, textRenderer, "Полотно пустое", x + 20, y + 16, w - 40, Theme.TEXT_DIM, false);
-        Draw.textFit(ctx, textRenderer, "перетащи сюда событие из палитры", x + 20, y + 30, w - 40,
+        Draw.textFit(ctx, font, "Полотно пустое", x + 20, y + 16, w - 40, Theme.TEXT_DIM, false);
+        Draw.textFit(ctx, font, "перетащи сюда событие из палитры", x + 20, y + 30, w - 40,
                 Theme.TEXT_FAINT, false);
-        Draw.textFit(ctx, textRenderer, "или просто кликни по блоку в списке", x + 20, y + 42, w - 40,
+        Draw.textFit(ctx, font, "или просто кликни по блоку в списке", x + 20, y + 42, w - 40,
                 Theme.TEXT_FAINT, false);
     }
 
-    private void drawDragged(DrawContext ctx) {
+    private void drawDragged(GuiGraphics ctx) {
         int px = (int) Math.round(mouseCanvasX - dragOffX);
         int py = (int) Math.round(mouseCanvasY - dragOffY);
-        Layout l = Layout.ofChain(drag, px, py, textRenderer);
+        Layout l = Layout.ofChain(drag, px, py, font);
         for (Layout.Box b : l.boxes) BlockView.shadow(ctx, b);
-        for (Layout.Box b : l.boxes) BlockView.block(ctx, textRenderer, b, look);
+        for (Layout.Box b : l.boxes) BlockView.block(ctx, font, b, look);
     }
 
-    private void drawSnapMark(DrawContext ctx) {
+    private void drawSnapMark(GuiGraphics ctx) {
         int mx = ghost != null ? ghost.x : snap.x;
         int my = ghost != null ? ghost.y : snap.y;
-        Layout mark = Layout.ofChain(drag, mx, my, textRenderer);
+        Layout mark = Layout.ofChain(drag, mx, my, font);
         int ink = Draw.opaque(Theme.GHOST);
         for (Layout.Box b : mark.boxes) BlockView.ghost(ctx, b, ink);
     }
@@ -786,7 +786,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         FileDialog.open("Загрузить json", dir.toAbsolutePath() + File.separator,
                 new String[]{"*.json"}, "код JustMC (*.json)", file -> {
                     choosingFile = false;
-                    if (file == null || (client != null && client.currentScreen != this)) return;
+                    if (file == null || (minecraft != null && minecraft.screen != this)) return;
                     loadJson(file);
                 });
     }
@@ -815,7 +815,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         script.roots.clear();
         Importer.Result res;
         try {
-            res = Importer.importInto(script, handlers, textRenderer);
+            res = Importer.importInto(script, handlers, font);
         } catch (Throwable e) {
             XeroCode.LOG.error("[xerocode] импорт из {} упал", file, e);
             toast("код не разобрался, см. лог");
@@ -870,8 +870,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private static final double MIN_ZOOM = 0.25, MAX_ZOOM = 2.0;
 
     private double[] zoomSteps() {
-        int gs = client != null && client.getWindow() != null
-                ? Math.max(1, client.getWindow().getScaleFactor()) : 2;
+        int gs = minecraft != null && minecraft.getWindow() != null
+                ? Math.max(1, minecraft.getWindow().getGuiScale()) : 2;
         double base = 1.0 / gs;
         List<Double> out = new ArrayList<>();
         for (double k = 0.25; k <= gs * MAX_ZOOM + 1e-6; k += k < 1 ? 0.25 : 1) {
@@ -913,7 +913,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void fitView() {
         panAnim = false;
         if (script.roots.isEmpty()) { zoom = 1; panX = 60; panY = 50; toast("масштаб 100%"); return; }
-        Layout l = Layout.of(script, textRenderer);
+        Layout l = Layout.of(script, font);
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
         for (Layout.Box b : l.boxes) {
             minX = Math.min(minX, b.x);
@@ -932,7 +932,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private void openSettings() {
         closeOverlays();
-        settings = new SettingsPanel(textRenderer, width, height);
+        settings = new SettingsPanel(font, width, height);
     }
 
     private void closeSettings() {
@@ -949,12 +949,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         closeOverlays();
         rememberView();
         saveScript();
-        MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
+        Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         XeroCode.canvasClosed();
         mc.setScreen(null);
-        mc.inGameHud.setTitleTicks(3, 50, 10);
-        mc.inGameHud.setTitle(Text.literal("3D-кодинг"));
-        mc.inGameHud.setSubtitle(Text.literal(
+        mc.gui.setTimes(3, 50, 10);
+        mc.gui.setTitle(Component.literal("3D-кодинг"));
+        mc.gui.setSubtitle(Component.literal(
                 "код — блоками в мире · " + s.label(Settings.Hot.OPEN)
                         + " — вернуться в 2D"));
     }
@@ -972,17 +972,17 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         exitPrompt = true;
     }
 
-    private void drawExitPrompt(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawExitPrompt(GuiGraphics ctx, int mouseX, int mouseY) {
         Ui.dim(ctx, width, height);
         int x = exitX(), y = exitY();
         Ui.panel(ctx, x, y, exitW(), EXIT_H);
         Ui.headerStrip(ctx, x, y, exitW(), 26, Theme.ACCENT);
-        Draw.textFit(ctx, textRenderer, "СОХРАНИТЬ?", x + 14, y + (26 - Ui.TEXT_H) / 2 + 1,
+        Draw.textFit(ctx, font, "СОХРАНИТЬ?", x + 14, y + (26 - Ui.TEXT_H) / 2 + 1,
                 exitW() - 28, Theme.TEXT, false);
         Ui.hairline(ctx, x + 1, y + 26, exitW() - 2);
 
         int cx = x + 14, cw = exitW() - 28, cy = y + 26 + 14;
-        Draw.textFit(ctx, textRenderer, script.roots.isEmpty()
+        Draw.textFit(ctx, font, script.roots.isEmpty()
                         ? "Полотно пусто — очистить код в мире?"
                         : "Сохранить код в блоках JustMC?",
                 cx, cy, cw, Theme.TEXT, false);
@@ -991,7 +991,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         for (int i = EXIT_BUTTONS.length - 1; i >= 0; i--) {
             int bw = exitBtnW(i);
             bx -= bw;
-            Ui.button(ctx, textRenderer, mouseX, mouseY, bx, y + EXIT_H - 14 - EXIT_BTN_H, bw,
+            Ui.button(ctx, font, mouseX, mouseY, bx, y + EXIT_H - 14 - EXIT_BTN_H, bw,
                     EXIT_BTN_H, EXIT_BUTTONS[i], i == EXIT_SAVE ? Ui.ACCENT : Ui.GHOST);
             bx -= 6;
         }
@@ -1001,7 +1001,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private static final int EXIT_CANCEL = 0, EXIT_LEAVE = 1, EXIT_SAVE = 2;
 
     private int exitBtnW(int i) {
-        return Math.max(i == EXIT_CANCEL ? 70 : 80, Ui.buttonW(textRenderer, EXIT_BUTTONS[i]));
+        return Math.max(i == EXIT_CANCEL ? 70 : 80, Ui.buttonW(font, EXIT_BUTTONS[i]));
     }
 
     private boolean exitPromptClicked(double mx, double my) {
@@ -1026,13 +1026,13 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void leaveTo(String command) {
         rememberView();
         saveScript();
-        MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
+        Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         XeroCode.canvasClosed();
         if (XeroCode.RESTART.equals(command)) {
             XeroCode.restart();
             return;
         }
-        if (mc.getNetworkHandler() != null) mc.getNetworkHandler().sendChatCommand(command);
+        if (mc.getConnection() != null) mc.getConnection().sendCommand(command);
         XeroCode.cover("play".equals(command) ? "Запуск мира…" : "Режим строительства…", null);
     }
 
@@ -1040,25 +1040,25 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         closeOverlays();
         rememberView();
         saveScript();
-        MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
+        Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         mc.setScreen(new ExportScreen(script, this, exitCommand));
     }
 
-    private void drawToast(DrawContext ctx) {
+    private void drawToast(GuiGraphics ctx) {
         if (status.isEmpty()) return;
         long age = System.currentTimeMillis() - statusAt;
         if (age > 2600) { status = ""; return; }
         int a = age > 2100 ? (int) (255 * (1 - (age - 2100) / 500.0)) : 255;
         a = Math.max(0, Math.min(255, a));
-        int w = textRenderer.getWidth(status) + 24;
+        int w = font.width(status) + 24;
         int x = canvasLeft() + (width - canvasLeft() - w) / 2;
         int y = height - 34 - (barShown() ? BAR_H + 6 : 0);
         Draw.round(ctx, x, y, w, 20, 6, Draw.argb(a * 0xE0 / 255, Ui.HEAD));
         Draw.roundOutline(ctx, x, y, w, 20, 6, Draw.argb(a * 0x80 / 255, Ui.BORDER));
-        ctx.drawText(textRenderer, status, x + 12, y + 6, Draw.argb(a, Theme.TEXT), false);
+        ctx.drawString(font, status, x + 12, y + 6, Draw.argb(a, Theme.TEXT), false);
     }
 
-    private void drawTooltips(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawTooltips(GuiGraphics ctx, int mouseX, int mouseY) {
         if (editor != null && editor.contains(mouseX, mouseY)) return;
 
         if (mouseY < Theme.TOPBAR_H && mouseX >= canvasLeft()) {
@@ -1070,10 +1070,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             if (e == null) return;
             if (e.action != null) actionTooltip(ctx, e.action, mouseX, mouseY);
             else if (e.category != null) {
-                List<Text> lines = new ArrayList<>();
-                lines.add(Text.literal(e.category.name));
-                lines.add(Text.literal("§8" + e.category.count() + " действий"));
-                ctx.drawTooltip(textRenderer, lines, mouseX, mouseY);
+                List<Component> lines = new ArrayList<>();
+                lines.add(Component.literal(e.category.name));
+                lines.add(Component.literal("§8" + e.category.count() + " действий"));
+                ctx.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY);
             }
             return;
         }
@@ -1082,79 +1082,79 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             actionTooltip(ctx, hoverBox.node.action, hoverBox.node, mouseX, mouseY);
     }
 
-    private void chipTooltip(DrawContext ctx, int mouseX, int mouseY) {
-        List<Text> lines = new ArrayList<>();
+    private void chipTooltip(GuiGraphics ctx, int mouseX, int mouseY) {
+        List<Component> lines = new ArrayList<>();
         if (hoverChip.isPlus()) {
-            lines.add(Text.literal("Добавить параметр"));
-            lines.add(Text.literal("§8станет строчной переменной с этим именем"));
+            lines.add(Component.literal("Добавить параметр"));
+            lines.add(Component.literal("§8станет строчной переменной с этим именем"));
         } else if (hoverChip.isCell()) {
             Value p = hoverChip.value;
-            lines.add(Text.literal(p == null || p.name.isBlank() ? "параметр без имени" : p.name));
+            lines.add(Component.literal(p == null || p.name.isBlank() ? "параметр без имени" : p.name));
             if (p != null) {
-                lines.add(Text.literal("§8принимает: §7" + p.paramNote()));
+                lines.add(Component.literal("§8принимает: §7" + p.paramNote()));
                 if (Value.ENUM.equals(p.typeKey)) {
                     StringBuilder sb = new StringBuilder();
                     for (Value.Elem e : p.elements) {
                         if (sb.length() > 0) sb.append(", ");
                         sb.append(e.name);
                     }
-                    if (sb.length() > 0) lines.add(Text.literal("§8варианты: §7" + sb));
+                    if (sb.length() > 0) lines.add(Component.literal("§8варианты: §7" + sb));
                 }
             }
-            lines.add(Text.literal("§8ЛКМ — правка, ПКМ — удалить"));
+            lines.add(Component.literal("§8ЛКМ — правка, ПКМ — удалить"));
             if (!chipValues(hoverBox, hoverChip).isEmpty())
-                lines.add(Text.literal("§8" + copyHint()));
+                lines.add(Component.literal("§8" + copyHint()));
         } else if (hoverChip.isCondition()) {
             Script.Node cond = hoverBox.node.cond;
-            lines.add(Text.literal(cond == null ? "Условие не выбрано" : cond.action.name));
+            lines.add(Component.literal(cond == null ? "Условие не выбрано" : cond.action.name));
             if (cond == null) {
-                lines.add(Text.literal("§8блок работает по вложенному условию"));
+                lines.add(Component.literal("§8блок работает по вложенному условию"));
             } else {
-                lines.add(Text.literal("§8" + (cond.action.category == null
+                lines.add(Component.literal("§8" + (cond.action.category == null
                         ? "" : cond.action.category.name)
                         + (cond.inverted() ? " §8· §7НЕ" : "")));
                 for (String line : describe(cond.action.description))
-                    lines.add(Text.literal("§7" + line));
+                    lines.add(Component.literal("§7" + line));
             }
-            lines.add(Text.literal("§8ЛКМ — выбрать условие, ПКМ — НЕ"));
+            lines.add(Component.literal("§8ЛКМ — выбрать условие, ПКМ — НЕ"));
         } else if (hoverChip.isArg()) {
             Catalog.Arg arg = Layout.chipNode(hoverBox.node).args().get(hoverChip.argIndex);
-            lines.add(Text.literal(arg.purpose));
-            lines.add(Text.literal("§8слот: §7" + arg.type
+            lines.add(Component.literal(arg.purpose));
+            lines.add(Component.literal("§8слот: §7" + arg.type
                     + (arg.list ? " §8· до " + arg.capacity + " значений" : "")));
             Value v = hoverChip.value;
             if (v != null) {
-                lines.add(Text.literal("§8значение: §7" + Values.kindName(v.type)
+                lines.add(Component.literal("§8значение: §7" + Values.kindName(v.type)
                         + (v.note().isEmpty() ? "" : " §8· " + v.note())));
                 if (Value.GAME_VALUE.equals(v.type)) {
                     Values.GameValue g = Values.gameValue(v.gameValue);
                     if (g != null) {
-                        for (String line : describe(g.description)) lines.add(Text.literal("§7" + line));
+                        for (String line : describe(g.description)) lines.add(Component.literal("§7" + line));
                         if (!g.returns.isEmpty())
-                            lines.add(Text.literal("§8возвращает: §7" + g.returns
+                            lines.add(Component.literal("§8возвращает: §7" + g.returns
                                     + (g.returnsNote.isEmpty() ? "" : " §8— " + g.returnsNote)));
                     }
                 }
             }
-            lines.add(Text.literal("§8ЛКМ — значение, ПКМ — очистить"));
+            lines.add(Component.literal("§8ЛКМ — значение, ПКМ — очистить"));
             if (!chipValues(hoverBox, hoverChip).isEmpty())
-                lines.add(Text.literal("§8" + copyHint()));
+                lines.add(Component.literal("§8" + copyHint()));
         } else {
             Script.Node owner = Layout.chipNode(hoverBox.node);
             Catalog.Setting s = owner.settings().get(hoverChip.settingIndex);
-            lines.add(Text.literal(s.label));
+            lines.add(Component.literal(s.label));
             Value bound = owner.markerVar(hoverChip.settingIndex);
             if (bound != null && !bound.name.isBlank()) {
                 Values.Scope sc = Values.scope(bound.scope);
-                lines.add(Text.literal("§8привязана к переменной: §7" + bound.name
+                lines.add(Component.literal("§8привязана к переменной: §7" + bound.name
                         + (sc == null ? "" : " §8· " + sc.name())));
-                lines.add(Text.literal("§8по умолчанию: §7"
+                lines.add(Component.literal("§8по умолчанию: §7"
                         + owner.marker(hoverChip.settingIndex)));
             } else {
-                lines.add(Text.literal("§8" + s.options.size() + " вариантов"));
+                lines.add(Component.literal("§8" + s.options.size() + " вариантов"));
             }
         }
-        ctx.drawTooltip(textRenderer, lines, mouseX, mouseY);
+        ctx.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY);
     }
 
     private static final int TOOLTIP_W = 260;
@@ -1171,7 +1171,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             StringBuilder line = new StringBuilder();
             for (String word : piece.split(" ")) {
                 String next = line.isEmpty() ? word : line + " " + word;
-                if (!line.isEmpty() && textRenderer.getWidth(next) > room) {
+                if (!line.isEmpty() && font.width(next) > room) {
                     out.add(line.toString());
                     line = new StringBuilder(word);
                 } else {
@@ -1183,56 +1183,56 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return out;
     }
 
-    private void actionTooltip(DrawContext ctx, Catalog.Action a, int mouseX, int mouseY) {
+    private void actionTooltip(GuiGraphics ctx, Catalog.Action a, int mouseX, int mouseY) {
         actionTooltip(ctx, a, null, mouseX, mouseY);
     }
 
-    private void actionTooltip(DrawContext ctx, Catalog.Action a, Script.Node node,
+    private void actionTooltip(GuiGraphics ctx, Catalog.Action a, Script.Node node,
                                int mouseX, int mouseY) {
-        List<Text> lines = new ArrayList<>();
-        lines.add(Text.literal(a.name));
+        List<Component> lines = new ArrayList<>();
+        lines.add(Component.literal(a.name));
         if (a.category != null)
-            lines.add(Text.literal("§8" + a.category.name
+            lines.add(Component.literal("§8" + a.category.name
                     + (a.subcategory == null ? "" : " / " + a.subcategory)));
-        for (String line : describe(a.description)) lines.add(Text.literal("§7" + line));
-        if (a.unavailable) lines.add(Text.literal("§eНедоступно в этом мире"));
+        for (String line : describe(a.description)) lines.add(Component.literal("§7" + line));
+        if (a.unavailable) lines.add(Component.literal("§eНедоступно в этом мире"));
         if (!a.args.isEmpty()) {
-            lines.add(Text.literal("§fАргументы:"));
+            lines.add(Component.literal("§fАргументы:"));
             for (Catalog.Arg g : a.args)
-                lines.add(Text.literal("§8• §7" + g.purpose + " §8— " + g.type
+                lines.add(Component.literal("§8• §7" + g.purpose + " §8— " + g.type
                         + (g.list ? " (до " + g.capacity + ")" : "")));
         }
         if (!a.settings.isEmpty()) {
-            lines.add(Text.literal("§fНастройки:"));
+            lines.add(Component.literal("§fНастройки:"));
             for (Catalog.Setting s : a.settings)
-                lines.add(Text.literal("§8• §7" + s.label + " §8= " + s.def));
+                lines.add(Component.literal("§8• §7" + s.label + " §8= " + s.def));
         }
         if (node != null && node.cond != null) {
-            lines.add(Text.literal("§fУсловие:"));
-            lines.add(Text.literal("§8• §7" + (node.cond.inverted() ? "НЕ " : "")
+            lines.add(Component.literal("§fУсловие:"));
+            lines.add(Component.literal("§8• §7" + (node.cond.inverted() ? "НЕ " : "")
                     + node.cond.action.name));
             for (Catalog.Arg g : node.cond.action.args)
-                lines.add(Text.literal("§8• §7" + g.purpose + " §8— " + g.type));
+                lines.add(Component.literal("§8• §7" + g.purpose + " §8— " + g.type));
         } else if (node != null && Mapping.hasConditional(a)) {
-            lines.add(Text.literal("§eУсловие не выбрано"));
+            lines.add(Component.literal("§eУсловие не выбрано"));
         }
         if (node != null && (node.declares() || node.invokes())) functionTooltip(lines, node);
         if (node != null) {
             int target = node.settingIndex(Catalog.TARGET);
             int invert = node.settingIndex(Catalog.INVERT);
             if (target >= 0)
-                lines.add(Text.literal("§fЦель: §7" + node.marker(target)));
+                lines.add(Component.literal("§fЦель: §7" + node.marker(target)));
             if (invert >= 0 && Catalog.INVERT_ON.equals(node.marker(invert)))
-                lines.add(Text.literal("§fУсловие: §cНЕ выполнено"));
+                lines.add(Component.literal("§fУсловие: §cНЕ выполнено"));
             if (target >= 0 || invert >= 0)
-                lines.add(Text.literal("§8ПКМ — "
+                lines.add(Component.literal("§8ПКМ — "
                         + (target >= 0 ? "цель" : "") + (target >= 0 && invert >= 0 ? " и " : "")
                         + (invert >= 0 ? "«НЕ»" : "")));
         }
-        ctx.drawTooltip(textRenderer, lines, mouseX, mouseY);
+        ctx.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY);
     }
 
-    private void functionTooltip(List<Text> lines, Script.Node node) {
+    private void functionTooltip(List<Component> lines, Script.Node node) {
         boolean declares = node.declares();
         String name = declares ? Functions.nameOf(node) : Functions.targetOf(node);
         Script.Node decl = node;
@@ -1240,7 +1240,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             Functions.Known known = Functions.of(script);
             Functions.Signature s = (node.isStart() ? known.processes() : known.functions()).get(name);
             if (s == null) {
-                lines.add(Text.literal(name.isBlank()
+                lines.add(Component.literal(name.isBlank()
                         ? "§eФункция не выбрана"
                         : "§eНа полотне нет " + (node.isStart() ? "процесса" : "функции") + " «"
                                 + name + "»"));
@@ -1248,33 +1248,33 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             }
             decl = s.declaration();
             String shown = Layout.titleOf(s);
-            lines.add(Text.literal("§f" + shown));
-            if (!shown.equals(name)) lines.add(Text.literal("§8" + name));
+            lines.add(Component.literal("§f" + shown));
+            if (!shown.equals(name)) lines.add(Component.literal("§8" + name));
         }
         if (declares) {
             Value display = Functions.displayOf(decl);
             if (display != null)
-                lines.add(Text.literal("§8отображается как §7"
+                lines.add(Component.literal("§8отображается как §7"
                         + McText.plain(display.text, display.parsing).trim()));
         }
         List<Value> params = Functions.parametersOf(decl);
         if (params.isEmpty()) {
-            lines.add(Text.literal("§8без параметров"));
+            lines.add(Component.literal("§8без параметров"));
         } else {
-            lines.add(Text.literal("§fПараметры:"));
+            lines.add(Component.literal("§fПараметры:"));
             for (Value p : params)
-                lines.add(Text.literal("§8• §7" + (p.name.isBlank() ? "без имени" : p.name)
+                lines.add(Component.literal("§8• §7" + (p.name.isBlank() ? "без имени" : p.name)
                         + " §8— " + p.paramNote()));
         }
         List<String> desc = Layout.descAll(decl);
         if (!desc.isEmpty()) {
-            lines.add(Text.literal("§fОписание:"));
-            for (String d : desc) lines.add(Text.literal("§7" + d));
+            lines.add(Component.literal("§fОписание:"));
+            for (String d : desc) lines.add(Component.literal("§7" + d));
         }
     }
 
     @Override
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         double mx = click.x(), my = click.y();
         int button = click.button();
 
@@ -1363,13 +1363,13 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return canvasClicked(mx, my, button, click.modifiers());
     }
 
-    private boolean paletteClicked(Click click, boolean doubled) {
+    private boolean paletteClicked(MouseButtonEvent click, boolean doubled) {
         double mx = click.x(), my = click.y();
         search.setFocused(false);
         if (finder != null) finder.blur();
         if (my < Palette.HEADER_H) {
-            if (Palette.hitSearchClear(mx, my) && !search.getText().isEmpty()) {
-                search.setText("");
+            if (Palette.hitSearchClear(mx, my) && !search.getValue().isEmpty()) {
+                search.setValue("");
                 return true;
             }
             if (my >= Palette.SEARCH_Y && my < Palette.SEARCH_Y + Theme.SEARCH_H) {
@@ -1382,7 +1382,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
         if (palette.barPress(mx, my)) return true;
         if (palette.hitCrumb(mx, my)) {
-            if (!search.getText().isEmpty()) search.setText("");
+            if (!search.getValue().isEmpty()) search.setValue("");
             else palette.openCategory(-1);
             return true;
         }
@@ -1461,8 +1461,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     private boolean spaceHeld() {
-        return client != null && client.getWindow() != null
-                && InputUtil.isKeyPressed(client.getWindow(), GLFW.GLFW_KEY_SPACE);
+        return minecraft != null && minecraft.getWindow() != null
+                && InputConstants.isKeyDown(minecraft.getWindow(), GLFW.GLFW_KEY_SPACE);
     }
 
     private void startBand(int mode) {
@@ -1609,7 +1609,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (bound) items.add(new Menu.Item("Отвязать переменную", true, Draw.CROSS));
         int current = Math.max(0, s.options.indexOf(node.marker(settingIndex)));
         menu = Menu.picker(width, height, toScreenX(chip.x), toScreenY(chip.y + Layout.CHIP_H) + 2,
-                textRenderer, s.label, items, current, i -> {
+                font, s.label, items, current, i -> {
                     if (i == bindAt) { bindMarker(node, settingIndex, chip); return; }
                     if (i == unbindAt) {
                         pushUndo();
@@ -1630,7 +1630,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         String label = node.settings().get(settingIndex).label;
         editorUndo = snapshot();
         editor = ValueEditor.forCell(start, "Настройка «" + label + "»", Value.VARIABLE,
-                textRenderer, toScreenX(chip.x), toScreenY(chip.y + Layout.CHIP_H) + 2,
+                font, toScreenX(chip.x), toScreenY(chip.y + Layout.CHIP_H) + 2,
                 width, height, namesUsed(false), namesUsed(true),
                 edited -> node.bindMarker(settingIndex, edited));
     }
@@ -1645,7 +1645,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
         if (items.isEmpty()) { toast("для этого блока условий нет"); return; }
         String current = wrapper.cond == null ? "" : Catalog.keyOf(wrapper.cond.action);
-        condPicker = new CatalogPicker(textRenderer, width, height, "Условие блока",
+        condPicker = new CatalogPicker(font, width, height, "Условие блока",
                 wrapper.action.category == null ? Theme.ACCENT : wrapper.action.category.color,
                 items, null, current, null, id -> {
                     Catalog.Action chosen = Catalog.byKey(id);
@@ -1675,7 +1675,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             if (own != null) icon = Stacks.preview(own);
         }
 
-        BlockMenu m = new BlockMenu(width, height, mx, my, textRenderer, icon, title, subtitle,
+        BlockMenu m = new BlockMenu(width, height, mx, my, font, icon, title, subtitle,
                 a.category == null ? Theme.ACCENT : a.category.color);
 
         int target = node.settingIndex(Catalog.TARGET);
@@ -1767,7 +1767,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void openValue(Script.Node node, int argIndex, int sx, int sy,
                            boolean add, int select) {
         editorUndo = snapshot();
-        ValueEditor open = new ValueEditor(node, argIndex, textRenderer, sx, sy, width, height,
+        ValueEditor open = new ValueEditor(node, argIndex, font, sx, sy, width, height,
                 namesUsed(false), namesUsed(true));
         if (add) open.addCell();
         else if (select >= 0) open.select(select);
@@ -1801,7 +1801,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         int current = names.indexOf(chosen);
         String title = (call.isStart() ? "ПРОЦЕССЫ ПОЛОТНА" : "ФУНКЦИИ ПОЛОТНА")
                 + (skipped == 0 ? "" : "  ·  СКРЫТО " + skipped);
-        menu = Menu.picker(width, height, mx, my, textRenderer, title, items, current, i -> {
+        menu = Menu.picker(width, height, mx, my, font, title, items, current, i -> {
                     if (i >= names.size()) {
                         openValue(call, Catalog.CALL_NAME, mx, my, false, -1);
                         return;
@@ -1818,7 +1818,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void chooseTarget(Script.Node node, int settingIndex, int mx, int my) {
         Catalog.Setting s = node.settings().get(settingIndex);
         int current = Math.max(0, s.options.indexOf(node.marker(settingIndex)));
-        menu = Menu.options(width, height, mx, my, textRenderer, s.label, s.options, current,
+        menu = Menu.options(width, height, mx, my, font, s.label, s.options, current,
                 i -> {
                     pushUndo();
                     node.markers.put(settingIndex, s.options.get(i));
@@ -1913,12 +1913,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         rememberView();
         saveScript();
         XeroCode.canvasClosed();
-        client.setScreen(new MarketScreen(script, this));
+        minecraft.setScreen(new MarketScreen(script, this));
     }
 
     private void openBackpack() {
         closeOverlays();
-        backpack = new BackpackPanel(textRenderer, width, height, this::takeFromBackpack);
+        backpack = new BackpackPanel(font, width, height, this::takeFromBackpack);
     }
 
     private void takeFromBackpack(Backpack.Item item) {
@@ -2341,7 +2341,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         rememberView();
         saveScript();
         XeroCode.canvasClosed();
-        MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
+        Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         mc.setScreen(back);
     }
 
@@ -2383,22 +2383,22 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         String said = barText();
         int stamp = said.hashCode() * 31 + barRoom() * 7 + barActs().length;
         if (stamp == compactStamp) return compact;
-        int w = 26 + textRenderer.getWidth(said);
-        for (String s : barActs()) w += Ui.buttonW(textRenderer, s) + 6;
+        int w = 26 + font.width(said);
+        for (String s : barActs()) w += Ui.buttonW(font, s) + 6;
         compactStamp = stamp;
         compact = w > barRoom();
         return compact;
     }
 
     private int barBtnW(int i) {
-        return barCompact() ? 16 : Ui.buttonW(textRenderer, barActs()[i]);
+        return barCompact() ? 16 : Ui.buttonW(font, barActs()[i]);
     }
 
     private int barW() {
         String said = barText();
         int stamp = said.hashCode() * 31 + barRoom() * 7 + barActs().length;
         if (stamp == barStamp) return barWidth;
-        int w = 26 + textRenderer.getWidth(said);
+        int w = 26 + font.width(said);
         for (int i = 0; i < barActs().length; i++) w += barBtnW(i) + 6;
         barStamp = stamp;
         barWidth = Math.min(w, Math.max(120, barRoom()));
@@ -2415,7 +2415,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return right - barBtnW(i);
     }
 
-    private void drawBar(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawBar(GuiGraphics ctx, int mouseX, int mouseY) {
         if (!barShown()) return;
         int bw = barW(), bx = barX(), by = barY(), by2 = by + (BAR_H - 16) / 2;
         boolean module = modulePick(), small = barCompact();
@@ -2427,10 +2427,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         for (int i = 0; i < acts.length; i++) {
             if (small) Ui.iconButton(ctx, mouseX, mouseY, barBtnX(i), by2, 16, icons[i],
                     barKind(i), barOn(i));
-            else Ui.button(ctx, textRenderer, mouseX, mouseY, barBtnX(i), by2, barBtnW(i), 16,
+            else Ui.button(ctx, font, mouseX, mouseY, barBtnX(i), by2, barBtnW(i), 16,
                     acts[i], barKind(i), barOn(i));
         }
-        Draw.textFit(ctx, textRenderer, barText(), bx + 10, by + (BAR_H - Ui.TEXT_H) / 2,
+        Draw.textFit(ctx, font, barText(), bx + 10, by + (BAR_H - Ui.TEXT_H) / 2,
                 barBtnX(0) - bx - 16, Theme.TEXT_DIM, false);
     }
 
@@ -2477,7 +2477,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return drag != null && Ui.hit(mx, my, pocketX(), pocketY(), pocketW(), POCKET_H);
     }
 
-    private void drawPocket(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawPocket(GuiGraphics ctx, int mouseX, int mouseY) {
         if (drag == null) return;
         int px = pocketX(), py = pocketY(), pw = pocketW();
         boolean hot = overPocket(mouseX, mouseY);
@@ -2491,9 +2491,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         int tx = gx + Draw.glyphW(Draw.PACK) + 8;
         int room = px + pw - 9 - tx;
         if (room < 34) return;
-        Draw.textFit(ctx, textRenderer, "В РЮКЗАК", tx, py + 8, room,
+        Draw.textFit(ctx, font, "В РЮКЗАК", tx, py + 8, room,
                 hot ? Theme.TEXT : Theme.TEXT_DIM, false);
-        Draw.textFit(ctx, textRenderer, hot ? "отпусти — уберу" : "перетащи сюда", tx, py + 19,
+        Draw.textFit(ctx, font, hot ? "отпусти — уберу" : "перетащи сюда", tx, py + 19,
                 room, Theme.TEXT_FAINT, false);
     }
 
@@ -2620,7 +2620,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             on[i] = picks.get(i).top();
         }
         int sx = toScreenX(chip.x), sy = toScreenY(chip.y + Layout.CHIP_H) + 3;
-        menu = Menu.multi(width, height, sx, sy, textRenderer, "ЧТО СКОПИРОВАТЬ", items, on,
+        menu = Menu.multi(width, height, sx, sy, font, "ЧТО СКОПИРОВАТЬ", items, on,
                 "Копировать", picked -> {
                     if (picked.isEmpty()) return;
                     List<Value> out = new ArrayList<>(picked.size());
@@ -2789,9 +2789,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private static final int CARRY_MAX = 4;
     private static final int CARRY_MAX_W = 190, CARRY_GAP = 2, CARRY_MORE_H = 11;
 
-    private void drawCarry(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawCarry(GuiGraphics ctx, int mouseX, int mouseY) {
         if (carry == null) return;
-        ctx.createNewRootLayer();
+        ctx.nextStratum();
         int shown = Math.min(carry.size(), CARRY_MAX);
         String more = carry.size() > shown ? "и ещё " + (carry.size() - shown) : null;
 
@@ -2799,10 +2799,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         for (int i = 0; i < shown; i++) {
             Value v = carry.get(i);
             String note = v.note();
-            w = Math.max(w, Layout.CHIP_INK_X + textRenderer.getWidth(v.label()) + 7
-                    + (note.isEmpty() ? 0 : textRenderer.getWidth(note) + 6));
+            w = Math.max(w, Layout.CHIP_INK_X + font.width(v.label()) + 7
+                    + (note.isEmpty() ? 0 : font.width(note) + 6));
         }
-        if (more != null) w = Math.max(w, textRenderer.getWidth(more) + 22);
+        if (more != null) w = Math.max(w, font.width(more) + 22);
         w = Math.max(Layout.CHIP_MIN_W, Math.min(CARRY_MAX_W, w));
 
         int step = Layout.CHIP_H + CARRY_GAP;
@@ -2815,12 +2815,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
         for (int i = 0; i < shown; i++) carryPill(ctx, carry.get(i), x, y + i * step, w);
         if (more != null)
-            Draw.textFit(ctx, textRenderer, more, x + Layout.CHIP_INK_X,
+            Draw.textFit(ctx, font, more, x + Layout.CHIP_INK_X,
                     y + shown * step + 1, w - Layout.CHIP_INK_X - 4, Theme.TEXT_DIM, true);
         if (!carryHeld) carryBadge(ctx, x - 8, y - 8);
     }
 
-    private void carryPill(DrawContext ctx, Value v, int x, int y, int w) {
+    private void carryPill(GuiGraphics ctx, Value v, int x, int y, int w) {
         int tc = v.color();
         int ink = Draw.isLight(tc) ? 0x141821 : 0xFFFFFF;
 
@@ -2834,24 +2834,24 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         int right = x + w - 6;
         String note = v.note();
         if (!note.isEmpty()) {
-            int nw = textRenderer.getWidth(note);
+            int nw = font.width(note);
             if (right - nw - textX > 24) {
-                Draw.text(ctx, textRenderer, note, right - nw, y + 4,
+                Draw.text(ctx, font, note, right - nw, y + 4,
                         Draw.shade(tc, -0.42f), false);
                 right -= nw + 4;
             }
         }
-        Draw.textFit(ctx, textRenderer, v.label(), textX, y + 4, right - textX, ink, false);
+        Draw.textFit(ctx, font, v.label(), textX, y + 4, right - textX, ink, false);
     }
 
-    private void carryBadge(DrawContext ctx, int x, int y) {
+    private void carryBadge(GuiGraphics ctx, int x, int y) {
         Draw.round(ctx, x, y, 11, 11, 3, Draw.opaque(Theme.ACCENT));
         Draw.roundOutline(ctx, x, y, 11, 11, 3, Draw.opaque(Draw.shade(Theme.ACCENT, -0.45f)));
         Draw.glyph(ctx, Draw.PLUS, x + 3, y + 3, Theme.ON_ACCENT);
     }
 
     @Override
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (menu != null && menu.mouseDragged(click.y())) return true;
         if (blockMenu != null && blockMenu.mouseDragged(click.y())) return true;
         if (palette.barDragging()) { palette.barDrag(click.y(), height); return true; }
@@ -2900,7 +2900,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     @Override
-    public boolean mouseReleased(Click click) {
+    public boolean mouseReleased(MouseButtonEvent click) {
         palette.barRelease();
         if (menu != null) menu.mouseReleased();
         if (blockMenu != null) blockMenu.mouseReleased();
@@ -2991,7 +2991,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 && ghost.same(snap.target, snap.index, snap.width, snap.height))
             return ghostLayout;
         Layout.Ghost g = new Layout.Ghost(snap.target, snap.index, snap.width, snap.height);
-        Layout built = Layout.of(script, textRenderer, g);
+        Layout built = Layout.of(script, font, g);
         if (!g.placed) { dropGhost(); return layout; }
         ghost = g;
         ghostLayout = built;
@@ -3011,8 +3011,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (drag == null || drag.isEmpty()) return null;
         boolean hat = drag.get(0).isHat();
         double px = mouseCanvasX - dragOffX, py = mouseCanvasY - dragOffY;
-        int payloadW = Layout.ofChain(drag, 0, 0, textRenderer).boxes.get(0).w;
-        int payloadH = Layout.chainHeight(drag, textRenderer);
+        int payloadW = Layout.ofChain(drag, 0, 0, font).boxes.get(0).w;
+        int payloadH = Layout.chainHeight(drag, font);
 
         Snap best = null;
         double bestDist = 44;
@@ -3049,7 +3049,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     @Override
-    public boolean keyPressed(KeyInput input) {
+    public boolean keyPressed(KeyEvent input) {
         int key = input.key();
         if (condPicker != null) {
             condPicker.keyPressed(input);
@@ -3093,7 +3093,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
         if (search.isFocused()) {
             if (key == GLFW.GLFW_KEY_ESCAPE) {
-                if (!search.getText().isEmpty()) search.setText("");
+                if (!search.getValue().isEmpty()) search.setValue("");
                 else search.setFocused(false);
                 return true;
             }
@@ -3114,7 +3114,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 return true;
             }
             if (palette.hasCrumb()) {
-                if (!search.getText().isEmpty()) search.setText("");
+                if (!search.getValue().isEmpty()) search.setValue("");
                 else palette.openCategory(-1);
                 return true;
             }
@@ -3174,7 +3174,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     @Override
-    public boolean charTyped(CharInput input) {
+    public boolean charTyped(CharacterEvent input) {
         if (condPicker != null) { condPicker.charTyped(input); return true; }
         if (backpack != null) { backpack.charTyped(input); return true; }
         if (settings != null) { settings.charTyped(input); return true; }
@@ -3182,7 +3182,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (editor != null) return editor.charTyped(input);
         if (finder != null && finder.focused()) return finder.charTyped(input);
         if (!search.isFocused()) {
-            String s = input.asString();
+            String s = input.codepointAsString();
             if (s != null && !s.isBlank()) {
                 search.setFocused(true);
                 setFocused(search);
@@ -3192,12 +3192,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     @Override
-    public void close() {
+    public void onClose() {
         closeOverlays();
         rememberView();
         saveScript();
         XeroCode.canvasClosed();
-        super.close();
+        super.onClose();
     }
 
     public void rememberView() {

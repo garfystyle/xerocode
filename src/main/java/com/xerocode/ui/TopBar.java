@@ -3,13 +3,12 @@ package com.xerocode.ui;
 import com.xerocode.Backpack;
 import com.xerocode.History;
 import com.xerocode.Settings;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.ScreenRect;
-import net.minecraft.text.Text;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.network.chat.Component;
 
 final class TopBar {
     static final int NONE = 0;
@@ -40,7 +39,7 @@ final class TopBar {
         boolean joinLeft, joinRight;
     }
 
-    private final TextRenderer tr;
+    private final Font tr;
     private final Host host;
 
     private final List<Btn> hidden = new ArrayList<>();
@@ -48,7 +47,7 @@ final class TopBar {
     private int stamp = Integer.MIN_VALUE;
     private boolean zoomLabelShown = true;
 
-    TopBar(TextRenderer tr, Host host) {
+    TopBar(Font tr, Host host) {
         this.tr = tr;
         this.host = host;
     }
@@ -64,7 +63,7 @@ final class TopBar {
         b.label = label;
         b.tip = tip;
         b.w = 8 + (icon == null ? 0 : Draw.glyphW(icon) + (label == null ? 0 : 5))
-                + (label == null ? 0 : tr.getWidth(label)) + 8;
+                + (label == null ? 0 : tr.width(label)) + 8;
         return b;
     }
 
@@ -184,7 +183,7 @@ final class TopBar {
         }
 
         boolean zoomShown = find(right, ZOOM_OUT) != null && zoomLabelShown;
-        int zoomLabelW = zoomShown ? tr.getWidth("999%") + 6 : 0;
+        int zoomLabelW = zoomShown ? tr.width("999%") + 6 : 0;
         int total = zoomLabelW + gear.w + (right.isEmpty() ? 0 : 11);
         for (Btn b : right) total += b.w + (b.separatorAfter ? 11 : 4);
         int rx = host.width() - 12 - (infoShown() ? infoWidth() + 12 : 0) - total;
@@ -211,7 +210,7 @@ final class TopBar {
 
     private String infoText() { return "блоков: " + host.blocks(); }
 
-    private int infoWidth() { return tr.getWidth(infoText()); }
+    private int infoWidth() { return tr.width(infoText()); }
 
     private static boolean over(Btn b, double mx, double my) {
         return mx >= b.x && mx < b.x + b.w && my >= 6 && my < 24;
@@ -242,22 +241,22 @@ final class TopBar {
                 i -> { if (i >= 0 && i < acts.size()) pick.accept(acts.get(i).id); });
     }
 
-    boolean tooltip(DrawContext ctx, int mouseX, int mouseY) {
+    boolean tooltip(GuiGraphics ctx, int mouseX, int mouseY) {
         for (Btn b : buttons()) {
             if (!over(b, mouseX, mouseY)) continue;
-            List<Text> tip = new ArrayList<>();
+            List<Component> tip = new ArrayList<>();
             String[] parts = b.tip.split("\n");
-            tip.add(Text.literal(parts[0]));
-            for (int i = 1; i < parts.length; i++) tip.add(Text.literal("§7" + parts[i]));
-            ctx.drawTooltip(tr, tip, mouseX, mouseY);
+            tip.add(Component.literal(parts[0]));
+            for (int i = 1; i < parts.length; i++) tip.add(Component.literal("§7" + parts[i]));
+            ctx.setComponentTooltipForNextFrame(tr, tip, mouseX, mouseY);
             return true;
         }
         return false;
     }
 
-    void draw(DrawContext ctx, int mouseX, int mouseY) {
+    void draw(GuiGraphics ctx, int mouseX, int mouseY) {
         int left = host.left(), room = host.width() - left;
-        ScreenRect area = new ScreenRect(left, 0, room, Theme.TOPBAR_H);
+        ScreenRectangle area = new ScreenRectangle(left, 0, room, Theme.TOPBAR_H);
         Draw.batch(Batch.open(ctx, null, area, 512));
         Draw.rect(ctx, left, 0, room, Theme.TOPBAR_H, Draw.opaque(Theme.PANEL));
         Draw.rect(ctx, left, Theme.TOPBAR_H - 1, room, 1, Draw.opaque(Theme.LINE));
@@ -283,7 +282,7 @@ final class TopBar {
             Draw.textRight(ctx, tr, infoText(), host.width() - 12, 11, Theme.TEXT_FAINT, false);
     }
 
-    private void drawButton(DrawContext ctx, Btn b, int mouseX, int mouseY,
+    private void drawButton(GuiGraphics ctx, Btn b, int mouseX, int mouseY,
                             boolean outlined, int r) {
         boolean hover = b.enabled && over(b, mouseX, mouseY);
         boolean joined = b.joinLeft || b.joinRight;
@@ -312,7 +311,7 @@ final class TopBar {
         if (b.separatorAfter) Draw.rect(ctx, b.x + b.w + 5, 8, 1, 14, Draw.opaque(Theme.LINE));
         if (b.id != ZOOM_OUT || !zoomLabelShown) return;
         String z = Math.round(host.zoom() * 100) + "%";
-        Draw.text(ctx, tr, z, b.x + b.w + 4 + (tr.getWidth("999%") + 6 - tr.getWidth(z)) / 2,
+        Draw.text(ctx, tr, z, b.x + b.w + 4 + (tr.width("999%") + 6 - tr.width(z)) / 2,
                 11, Theme.TEXT_DIM, false);
     }
 }

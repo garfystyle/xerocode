@@ -6,13 +6,12 @@ import com.xerocode.Sync;
 import com.xerocode.XeroCode;
 import com.xerocode.Publish;
 import com.xerocode.Script;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.client.gui.screen.Screen;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.BlockPos;
 
 public final class ExportScreen extends DialogScreen {
     private enum Phase { CONFIRM, RUNNING, DONE }
@@ -51,9 +50,9 @@ public final class ExportScreen extends DialogScreen {
             failure = e.getClass().getSimpleName();
             XeroCode.LOG.error("[xerocode] сборка кода не удалась", e);
         }
-        MinecraftClient mc = mc();
-        sync = Sync.state(script, mc.world);
-        worldLines = Sync.worldLines(mc.world);
+        Minecraft mc = mc();
+        sync = Sync.state(script, mc.level);
+        worldLines = Sync.worldLines(mc.level);
         if (risky()) { phase = Phase.CONFIRM; return; }
         begin();
     }
@@ -86,21 +85,21 @@ public final class ExportScreen extends DialogScreen {
         return paragraphRows(confirmWhat(), bodyW()) * ROW + GAP + ROW;
     }
 
-    private void drawConfirm(DrawContext ctx, int mouseX, int mouseY, int x, int y, int w) {
+    private void drawConfirm(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
         int at = y + paragraph(ctx, confirmWhat(), x, y, w, Theme.TEXT) * ROW + GAP;
-        Draw.textFit(ctx, textRenderer, confirmCounts(), x, at, w,
+        Draw.textFit(ctx, font, confirmCounts(), x, at, w,
                 worldLines > canvasLines() ? Theme.DANGER : Theme.TEXT_DIM, false);
         rowButtons(ctx, mouseX, mouseY, x, w, new int[]{Ui.GHOST, Ui.ACCENT, Ui.DANGER},
                 CANCEL, RELOAD, SEND);
     }
 
-    private MinecraftClient mc() { return client == null ? MinecraftClient.getInstance() : client; }
+    private Minecraft mc() { return minecraft == null ? Minecraft.getInstance() : minecraft; }
 
     private void reread() {
-        MinecraftClient mc = mc();
-        if (mc.world == null) { close(); return; }
-        List<BlockPos> lines = Codespace.lines(mc.world);
-        if (lines.isEmpty()) { close(); return; }
+        Minecraft mc = mc();
+        if (mc.level == null) { onClose(); return; }
+        List<BlockPos> lines = Codespace.lines(mc.level);
+        if (lines.isEmpty()) { onClose(); return; }
         mc.setScreen(new ImportScreen(script, lines, ImportScreen.Mode.RELOAD));
     }
 
@@ -134,15 +133,15 @@ public final class ExportScreen extends DialogScreen {
     }
 
     @Override
-    protected void drawBody(DrawContext ctx, int mouseX, int mouseY, int x, int y, int w) {
+    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
         if (phase == Phase.CONFIRM) { drawConfirm(ctx, mouseX, mouseY, x, y, w); return; }
         if (phase == Phase.RUNNING) drawRunning(ctx, x, y, w);
         else drawDone(ctx, x, y, w);
         buttons(ctx, mouseX, mouseY, x, w, button(), null);
     }
 
-    private void drawRunning(DrawContext ctx, int x, int y, int w) {
-        Draw.textFit(ctx, textRenderer, "Загрузка кода…", x, y, w, Theme.TEXT, false);
+    private void drawRunning(GuiGraphics ctx, int x, int y, int w) {
+        Draw.textFit(ctx, font, "Загрузка кода…", x, y, w, Theme.TEXT, false);
 
         int by = y + ROW + 8;
         barTrack(ctx, x, by, w);
@@ -156,7 +155,7 @@ public final class ExportScreen extends DialogScreen {
                         + " · " + code.report().blocks + " блоков";
         if (job != null && code != null && code.report().lines > 0)
             note += "   ·   " + job.bytes() / 1024 + " КБ";
-        Draw.textFit(ctx, textRenderer, note, x, by + BAR_H + 6, w, Theme.TEXT_FAINT, false);
+        Draw.textFit(ctx, font, note, x, by + BAR_H + 6, w, Theme.TEXT_FAINT, false);
     }
 
     private List<String> doneLines() {
@@ -183,13 +182,13 @@ public final class ExportScreen extends DialogScreen {
         return lines;
     }
 
-    private void drawDone(DrawContext ctx, int x, int y, int w) {
+    private void drawDone(GuiGraphics ctx, int x, int y, int w) {
         List<String> lines = doneLines();
         for (int i = 0; i < lines.size(); i++) {
             int color = i == 0 ? Theme.TEXT
                     : i == 1 && failed() ? Theme.DANGER
                     : i == lines.size() - 1 ? Theme.TEXT_FAINT : Theme.TEXT_DIM;
-            Draw.textFit(ctx, textRenderer, lines.get(i), x, y + ROW * i, w, color, false);
+            Draw.textFit(ctx, font, lines.get(i), x, y + ROW * i, w, color, false);
         }
     }
 
@@ -197,7 +196,7 @@ public final class ExportScreen extends DialogScreen {
     protected boolean onClick(double mx, double my) {
         if (phase == Phase.CONFIRM) {
             int hit = hitRow(mx, my, bodyX(), bodyW(), CANCEL, RELOAD, SEND);
-            if (hit == 0) { close(); return true; }
+            if (hit == 0) { onClose(); return true; }
             if (hit == 1) { reread(); return true; }
             if (hit == 2) { phase = Phase.RUNNING; begin(); return true; }
             return false;
@@ -217,21 +216,21 @@ public final class ExportScreen extends DialogScreen {
 
     @Override
     protected void onEscape() {
-        if (phase == Phase.CONFIRM) { close(); return; }
+        if (phase == Phase.CONFIRM) { onClose(); return; }
         if (phase == Phase.RUNNING) stop();
         else finish();
     }
 
     private void begin() {
         if (code == null) { phase = Phase.DONE; return; }
-        MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
-        String world = mc.world == null ? "canvas" : Codespace.worldId(mc.world);
+        Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
+        String world = mc.level == null ? "canvas" : Codespace.worldId(mc.level);
         job = Publish.start(code.json(), world, true);
     }
 
     private void stop() {
         if (job != null) job.cancel();
-        close();
+        onClose();
     }
 
     @Override
@@ -256,20 +255,20 @@ public final class ExportScreen extends DialogScreen {
     }
 
     private void finish() {
-        MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
+        Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         if (exitTo == null) { mc.setScreen(parent); return; }
         XeroCode.canvasClosed();
         if (XeroCode.RESTART.equals(exitTo)) {
             XeroCode.restart();
             return;
         }
-        if (mc.getNetworkHandler() != null) mc.getNetworkHandler().sendChatCommand(exitTo);
+        if (mc.getConnection() != null) mc.getConnection().sendCommand(exitTo);
         XeroCode.cover("build".equals(exitTo) ? "Режим строительства…" : "Запуск мира…", null);
     }
 
     @Override
-    public void close() {
-        MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
+    public void onClose() {
+        Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         mc.setScreen(parent);
     }
 }

@@ -4,18 +4,18 @@ import com.xerocode.Blocks;
 import com.xerocode.Catalog;
 import com.xerocode.Search;
 import com.xerocode.Stacks;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.world.item.ItemStack;
 
 public final class BlockStudio extends PickerPanel {
     public interface Done { void apply(String id); }
@@ -33,7 +33,7 @@ public final class BlockStudio extends PickerPanel {
     private final Ui.Bar bar = new Ui.Bar();
     private int cols, rows;
 
-    public BlockStudio(TextRenderer tr, int screenW, int screenH, int accent,
+    public BlockStudio(Font tr, int screenW, int screenH, int accent,
                        String current, Done done) {
         super(tr, screenW, screenH, accent);
         this.done = done;
@@ -77,8 +77,8 @@ public final class BlockStudio extends PickerPanel {
     @Override
     protected void layout() {
         int panelW = Ui.fitW(screenW, 700);
-        int measured = tr.getWidth("Мой инвентарь") + 46;
-        for (Rail r : rails) measured = Math.max(measured, tr.getWidth(r.name()) + 46);
+        int measured = tr.width("Мой инвентарь") + 46;
+        for (Rail r : rails) measured = Math.max(measured, tr.width(r.name()) + 46);
         int rail = railW(panelW, measured);
         int det = Math.min(DET_W, panelW - rail - Math.min(GRID_MIN, panelW * 45 / 100));
         det = det < 130 ? 0 : det;
@@ -102,7 +102,7 @@ public final class BlockStudio extends PickerPanel {
 
     @Override
     protected void refresh(boolean resetScroll) {
-        String q = search == null ? "" : search.getText().trim();
+        String q = search == null ? "" : search.getValue().trim();
         shown = q.isEmpty() ? pool()
                 : Search.rank(pool(), q, 4000,
                         e -> new Search.Fields(e.name(), e.id(), e.category(), ""));
@@ -167,7 +167,7 @@ public final class BlockStudio extends PickerPanel {
     }
 
     @Override
-    protected void drawBody(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         int gx = gridX(), gy = gridY(), gw = cols * CELL, gh = rows * CELL;
         Draw.round(ctx, gx - 3, gy - 3, gw + 6, gh + 6, Ui.R_SM, Draw.opaque(Ui.WELL));
         int chosen = indexOfSelected();
@@ -182,7 +182,7 @@ public final class BlockStudio extends PickerPanel {
                 } else if (i == hovered) {
                     Draw.round(ctx, cx, cy, CELL, CELL, 3, Draw.opaque(Ui.BTN_HOVER));
                 }
-                ctx.drawItem(shown.get(i).icon(), cx + 1, cy + 1);
+                ctx.renderItem(shown.get(i).icon(), cx + 1, cy + 1);
             }
         }
         if (shown.isEmpty())
@@ -195,7 +195,7 @@ public final class BlockStudio extends PickerPanel {
     }
 
     @Override
-    protected void drawDetails(DrawContext ctx) {
+    protected void drawDetails(GuiGraphics ctx) {
         if (!detailsFrame(ctx)) return;
         Blocks.Entry it = focused();
         if (it == null) {
@@ -222,12 +222,12 @@ public final class BlockStudio extends PickerPanel {
     private boolean canHand() { return Blocks.of(held()) != null; }
 
     private static ItemStack held() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        return client.player == null ? ItemStack.EMPTY : client.player.getMainHandStack();
+        Minecraft client = Minecraft.getInstance();
+        return client.player == null ? ItemStack.EMPTY : client.player.getMainHandItem();
     }
 
     @Override
-    protected void drawFooterLeft(DrawContext ctx, int mouseX, int mouseY, int room) {
+    protected void drawFooterLeft(GuiGraphics ctx, int mouseX, int mouseY, int room) {
         int fw = handW();
         if (fw + 8 > room) {
             super.drawFooterLeft(ctx, mouseX, mouseY, room);
@@ -268,7 +268,7 @@ public final class BlockStudio extends PickerPanel {
     }
 
     @Override
-    protected boolean bodyClicked(Click click, boolean doubled, int mx, int my) {
+    protected boolean bodyClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
         if (bar.grabbed(mx, my, CELL, maxScroll(), v -> scroll = v)) return true;
         if (my >= footY() && Ui.hit(mx, my, x + PAD, footY2(), handW(), 16)) {
             takeFromHand();
@@ -287,7 +287,7 @@ public final class BlockStudio extends PickerPanel {
         Blocks.Entry e = Blocks.entry(id);
         if (e == null) return;
         tab = 0;
-        if (search != null) search.setText("");
+        if (search != null) search.setValue("");
         refresh(true);
         selected = e;
         scrollToSelected();
@@ -300,7 +300,7 @@ public final class BlockStudio extends PickerPanel {
     }
 
     @Override
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (bar.dragged(click.y(), CELL, maxScroll(), v -> scroll = v)) return true;
         return super.mouseDragged(click, dx, dy);
     }
@@ -312,7 +312,7 @@ public final class BlockStudio extends PickerPanel {
     }
 
     @Override
-    protected boolean bodyKey(KeyInput in) {
+    protected boolean bodyKey(KeyEvent in) {
         switch (in.key()) {
             case GLFW.GLFW_KEY_RIGHT -> { move(1); return true; }
             case GLFW.GLFW_KEY_LEFT -> { move(-1); return true; }

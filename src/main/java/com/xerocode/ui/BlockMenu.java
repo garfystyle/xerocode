@@ -1,14 +1,14 @@
 package com.xerocode.ui;
 
 import com.xerocode.Settings;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.world.item.ItemStack;
 
 public final class BlockMenu {
     public static final class Row {
@@ -40,7 +40,7 @@ public final class BlockMenu {
     private static final int EDGE = 9, CARET_W = 8;
     private static final int MIN_W = 176, MAX_W = 340;
 
-    private final TextRenderer tr;
+    private final Font tr;
     private final int screenW, screenH, wantX, wantY;
     private final ItemStack stack;
     private final String title, subtitle;
@@ -55,7 +55,7 @@ public final class BlockMenu {
     private boolean closed;
     private final Ui.Bar bar = new Ui.Bar();
 
-    public BlockMenu(int screenW, int screenH, int x, int y, TextRenderer tr,
+    public BlockMenu(int screenW, int screenH, int x, int y, Font tr,
                      ItemStack stack, String title, String subtitle, int accent) {
         this.screenW = screenW; this.screenH = screenH;
         this.wantX = x; this.wantY = y;
@@ -77,11 +77,11 @@ public final class BlockMenu {
     }
 
     public BlockMenu open() {
-        int need = 16 + 6 + Math.max(tr.getWidth(title), tr.getWidth(subtitle)) + EDGE + ICON_X;
+        int need = 16 + 6 + Math.max(tr.width(title), tr.width(subtitle)) + EDGE + ICON_X;
         for (Row r : rows) {
             String right = r.right();
-            need = Math.max(need, INK_X + tr.getWidth(r.label) + 14
-                    + (right.isEmpty() ? 0 : tr.getWidth(right))
+            need = Math.max(need, INK_X + tr.width(r.label) + 14
+                    + (right.isEmpty() ? 0 : tr.width(right))
                     + (r.caret ? CARET_W : 0) + EDGE);
         }
         w = Math.max(Math.min(MIN_W, screenW - 6), Math.min(Math.min(MAX_W, screenW - 6), need));
@@ -146,7 +146,7 @@ public final class BlockMenu {
         r.act.run();
     }
 
-    public void render(DrawContext ctx, int mouseX, int mouseY) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY) {
         if (mouseX != lastMx || mouseY != lastMy) {
             lastMx = mouseX;
             lastMy = mouseY;
@@ -163,7 +163,7 @@ public final class BlockMenu {
 
         int textX = x + ICON_X;
         if (!stack.isEmpty()) {
-            ctx.drawItem(stack, x + ICON_X - 1, y + (HEAD_H - 16) / 2);
+            ctx.renderItem(stack, x + ICON_X - 1, y + (HEAD_H - 16) / 2);
             textX = x + ICON_X + 16 + 6;
         }
         int room = x + w - EDGE - textX;
@@ -203,7 +203,7 @@ public final class BlockMenu {
             if (!note.isEmpty()) {
                 String cut = Draw.fit(tr, note, Math.max(0, (right - x - INK_X) / 2));
                 Draw.textRight(ctx, tr, cut, right, ry + 4, side, false);
-                right -= tr.getWidth(cut) + 10;
+                right -= tr.width(cut) + 10;
             }
             Draw.textFit(ctx, tr, r.label, x + INK_X, ry + 4, right - x - INK_X, ink, false);
         }
@@ -234,7 +234,7 @@ public final class BlockMenu {
         return true;
     }
 
-    public boolean keyPressed(KeyInput input) {
+    public boolean keyPressed(KeyEvent input) {
         int key = input.key();
         if (key == GLFW.GLFW_KEY_ESCAPE) { closed = true; return true; }
         if (key == GLFW.GLFW_KEY_DOWN) { move(1); return true; }

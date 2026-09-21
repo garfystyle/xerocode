@@ -8,13 +8,12 @@ import com.xerocode.Settings;
 import com.xerocode.Stacks;
 import com.xerocode.Value;
 import com.xerocode.Values;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.item.ItemStack;
-import net.minecraft.text.OrderedText;
-import net.minecraft.text.Text;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.gui.Font;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.item.ItemStack;
 
 public final class Layout {
     public static final int PAD = 7;
@@ -51,10 +50,10 @@ public final class Layout {
         public int x, y, w;
         int row;
 
-        public OrderedText count;
-        public OrderedText note;
+        public FormattedCharSequence count;
+        public FormattedCharSequence note;
         public int countW, noteW;
-        public OrderedText fitted;
+        public FormattedCharSequence fitted;
         public ItemStack icon = ItemStack.EMPTY;
 
         public boolean filled;
@@ -83,19 +82,19 @@ public final class Layout {
     }
 
     public static final class Card {
-        public OrderedText name;
+        public FormattedCharSequence name;
         public int nameX, nameY, nameW;
         public int scale = 1;
         public boolean named;
         public int idH;
-        public OrderedText kind;
+        public FormattedCharSequence kind;
         public int kindX, kindY, kindW;
-        public OrderedText verb;
+        public FormattedCharSequence verb;
         public int verbX, verbW;
-        public OrderedText id;
+        public FormattedCharSequence id;
         public int idX, idY, idW;
         public boolean missing;
-        public final List<OrderedText> desc = new ArrayList<>();
+        public final List<FormattedCharSequence> desc = new ArrayList<>();
         public int descX, descY, descW;
         public ItemStack icon = ItemStack.EMPTY;
         public int iconX, iconY, iconSize = 16;
@@ -135,8 +134,8 @@ public final class Layout {
         public final boolean nested;
         public final int x, y, hatH;
         public int w, headerH, totalH;
-        public OrderedText title;
-        public OrderedText target;
+        public FormattedCharSequence title;
+        public FormattedCharSequence target;
         public int targetX, targetW;
         public int targetSetting = -1;
         public Card card;
@@ -239,11 +238,11 @@ public final class Layout {
         return null;
     }
 
-    public static Layout of(Script script, TextRenderer tr) {
+    public static Layout of(Script script, Font tr) {
         return of(script, tr, null);
     }
 
-    public static Layout of(Script script, TextRenderer tr, Ghost ghost) {
+    public static Layout of(Script script, Font tr, Ghost ghost) {
         Layout l = new Layout();
         l.ghost = ghost;
         for (Script.Root r : script.roots) {
@@ -268,13 +267,13 @@ public final class Layout {
         chunks.add(new Chunk(from, boxes.size(), x0, y0, x1, y1));
     }
 
-    public static Layout ofChain(List<Script.Node> chain, int x, int y, TextRenderer tr) {
+    public static Layout ofChain(List<Script.Node> chain, int x, int y, Font tr) {
         Layout l = new Layout();
         l.chain(chain, null, false, x, y, tr);
         return l;
     }
 
-    public static int chainHeight(List<Script.Node> chain, TextRenderer tr) {
+    public static int chainHeight(List<Script.Node> chain, Font tr) {
         if (chain.isEmpty()) return 0;
         return new Layout().chain(chain, null, false, 0, 0, tr);
     }
@@ -292,7 +291,7 @@ public final class Layout {
     }
 
     private int chain(List<Script.Node> chain, Script.Root root, boolean nested,
-                      int x, int y, TextRenderer tr) {
+                      int x, int y, Font tr) {
         List<Box> mine = new ArrayList<>();
         int cy = y;
         for (int i = 0; i < chain.size(); i++) {
@@ -346,7 +345,7 @@ public final class Layout {
         return (n.cond.inverted() ? INVERT_PREFIX : "") + n.cond.action.name;
     }
 
-    private static void measure(Box box, TextRenderer tr) {
+    private static void measure(Box box, Font tr) {
         Script.Node outer = box.node;
         Script.Node n = chipNode(outer);
         Catalog.Action a = outer.action;
@@ -361,14 +360,14 @@ public final class Layout {
             box.targetSetting = outer.settingIndex(Catalog.TARGET);
             target = box.targetSetting < 0 ? null : outer.marker(box.targetSetting);
             if (target != null && Catalog.TARGET_DEFAULT.equals(target)) target = null;
-            box.targetW = target == null ? 0 : tr.getWidth(target) + TARGET_GAP;
-            titleW = 20 + tr.getWidth(name) + (a.unavailable ? 10 : 0) + box.targetW;
+            box.targetW = target == null ? 0 : tr.width(target) + TARGET_GAP;
+            titleW = 20 + tr.width(name) + (a.unavailable ? 10 : 0) + box.targetW;
         }
 
         List<Chip> chips = new ArrayList<>();
         if (Mapping.hasConditional(a)) {
             String text = conditionText(outer);
-            Chip c = new Chip(-1, -1, 15 + tr.getWidth(text) + 7);
+            Chip c = new Chip(-1, -1, 15 + tr.width(text) + 7);
             c.condition = true;
             c.fitted = Draw.ordered(Draw.fit(tr, text, c.w - 15 - 7));
             chips.add(c);
@@ -422,7 +421,7 @@ public final class Layout {
             if (target != null) {
                 int room = box.w - PAD * 2 - 20 - (a.unavailable ? 9 : 0);
                 String fitted = Draw.fit(tr, target, room);
-                box.targetW = tr.getWidth(fitted) + TARGET_GAP;
+                box.targetW = tr.width(fitted) + TARGET_GAP;
                 box.target = Draw.ordered(fitted);
                 box.targetX = box.x + box.w - PAD - (a.unavailable ? 10 : 0)
                         - (box.targetW - TARGET_GAP);
@@ -449,7 +448,7 @@ public final class Layout {
         }
     }
 
-    private static int measureCard(Box box, TextRenderer tr) {
+    private static int measureCard(Box box, Font tr) {
         Script.Node n = box.node;
         Card c = box.card;
         boolean declares = n.declares();
@@ -467,14 +466,14 @@ public final class Layout {
         c.idRaw = !shown.isEmpty() && c.named ? id : null;
 
         int need = c.iconSize + (declares ? 4 : 3)
-                + Math.min(NAME_MAX, tr.getWidth(c.nameRaw) * c.scale);
-        if (c.idRaw != null) need += ID_GAP + Math.min(ID_MAX, tr.getWidth(c.idRaw));
+                + Math.min(NAME_MAX, tr.width(c.nameRaw) * c.scale);
+        if (c.idRaw != null) need += ID_GAP + Math.min(ID_MAX, tr.width(c.idRaw));
         if (declares) {
             c.kindRaw = n.isProcess() ? "ПРОЦЕСС" : "ФУНКЦИЯ";
-            need += TARGET_GAP + tr.getWidth(c.kindRaw);
+            need += TARGET_GAP + tr.width(c.kindRaw);
         } else {
             c.verbRaw = n.isStart() ? "Запустить" : "Вызвать";
-            need += tr.getWidth(c.verbRaw) + 5;
+            need += tr.width(c.verbRaw) + 5;
             c.missing = c.named && n.dynArgs == null;
             if (c.missing) need += 9;
         }
@@ -485,7 +484,7 @@ public final class Layout {
         if (declares) {
             c.descRaws.addAll(descAll(n));
             for (String s : c.descRaws)
-                need = Math.max(need, Math.min(MAX_W - PAD * 2, tr.getWidth(s)));
+                need = Math.max(need, Math.min(MAX_W - PAD * 2, tr.width(s)));
         }
         c.headH = c.idH + c.descRaws.size() * DESC_H + (declares ? SEP_H : 0);
         return need;
@@ -513,7 +512,7 @@ public final class Layout {
         return out;
     }
 
-    private static void placeCard(Box box, TextRenderer tr) {
+    private static void placeCard(Box box, Font tr) {
         Card c = box.card;
         int left = box.x + PAD;
         int top = box.y + box.hatH;
@@ -525,13 +524,13 @@ public final class Layout {
         int textX = left + c.iconSize + (big ? 4 : 3);
         if (c.verbRaw != null) {
             c.verb = Draw.ordered(c.verbRaw);
-            c.verbW = tr.getWidth(c.verbRaw);
+            c.verbW = tr.width(c.verbRaw);
             c.verbX = textX;
             textX += c.verbW + 5;
         }
         int right = box.x + box.w - PAD;
         if (c.kindRaw != null) {
-            c.kindW = tr.getWidth(c.kindRaw);
+            c.kindW = tr.width(c.kindRaw);
             c.kindX = right - c.kindW;
             c.kindY = inkY;
             right = c.kindX - TARGET_GAP;
@@ -541,19 +540,19 @@ public final class Layout {
         c.idW = 0;
         int idRoom = 0;
         if (c.idRaw != null) {
-            int want = Math.min(ID_MAX, tr.getWidth(c.idRaw));
-            if (tr.getWidth(c.nameRaw) * c.scale + ID_GAP + want <= right - textX) idRoom = want;
+            int want = Math.min(ID_MAX, tr.width(c.idRaw));
+            if (tr.width(c.nameRaw) * c.scale + ID_GAP + want <= right - textX) idRoom = want;
         }
         String name = Draw.fit(tr, c.nameRaw,
                 Math.max(8, (right - textX - (idRoom == 0 ? 0 : idRoom + ID_GAP)) / c.scale));
         c.name = Draw.ordered(name);
-        c.nameW = tr.getWidth(name) * c.scale;
+        c.nameW = tr.width(name) * c.scale;
         c.nameX = textX;
         c.nameY = big ? top + (c.idH - 8 * c.scale) / 2 : inkY;
         if (idRoom > 0) {
             String id = Draw.fit(tr, c.idRaw, idRoom);
             c.id = Draw.ordered(id);
-            c.idW = tr.getWidth(id);
+            c.idW = tr.width(id);
             c.idX = c.nameX + c.nameW + ID_GAP;
             c.idY = c.nameY + (8 * c.scale - 8);
         }
@@ -565,15 +564,15 @@ public final class Layout {
         if (!c.descRaws.isEmpty()) {
             int room = Math.max(24, box.w - PAD * 2);
             for (String raw : c.descRaws)
-                c.desc.addAll(tr.wrapLines(Text.literal(raw), room));
-            for (OrderedText l : c.desc) c.descW = Math.max(c.descW, tr.getWidth(l));
+                c.desc.addAll(tr.split(Component.literal(raw), room));
+            for (FormattedCharSequence l : c.desc) c.descW = Math.max(c.descW, tr.width(l));
             cy += c.desc.size() * DESC_H;
         }
         c.headH = c.idH + c.desc.size() * DESC_H + (c.scale > 1 ? SEP_H : 0);
         c.sepY = big ? cy + 2 : 0;
     }
 
-    private static void paramChips(Script.Node n, List<Chip> out, TextRenderer tr) {
+    private static void paramChips(Script.Node n, List<Chip> out, Font tr) {
         List<Value> params = n.values.get(Catalog.FN_PARAMS);
         if (params == null) return;
         for (int i = 0; i < params.size(); i++) {
@@ -586,7 +585,7 @@ public final class Layout {
         }
     }
 
-    private static void paramLabel(Chip c, Value p, TextRenderer tr) {
+    private static void paramLabel(Chip c, Value p, Font tr) {
         boolean marker = Value.ENUM.equals(p.typeKey);
         String label = (p.name.isBlank() ? "без имени" : p.name)
                 + (Value.PLURAL.equals(p.typeKey) ? "[]" : "")
@@ -597,10 +596,10 @@ public final class Layout {
         int tc = marker ? MARKER_PARAM_COLOR
                 : Catalog.TYPE_COLORS.getOrDefault(Catalog.typeOfParam(p), 0xD8D8D8);
 
-        c.noteW = note.isEmpty() ? 0 : tr.getWidth(note);
+        c.noteW = note.isEmpty() ? 0 : tr.width(note);
         c.note = note.isEmpty() ? null : Draw.ordered(note);
         c.w = Math.max(CHIP_MIN_W, Math.min(CHIP_MAX_W,
-                CHIP_INK_X + tr.getWidth(label) + 7 + (note.isEmpty() ? 0 : c.noteW + 6)));
+                CHIP_INK_X + tr.width(label) + 7 + (note.isEmpty() ? 0 : c.noteW + 6)));
         c.fitted = Draw.ordered(Draw.fit(tr, label,
                 c.w - 6 - CHIP_INK_X - (note.isEmpty() ? 0 : c.noteW + 4)));
 
@@ -614,13 +613,13 @@ public final class Layout {
         c.ink = Draw.isLight(tc) ? 0x141821 : 0xFFFFFF;
     }
 
-    private static void plusChip(Box box, List<Chip> out, TextRenderer tr) {
+    private static void plusChip(Box box, List<Chip> out, Font tr) {
         Script.Node n = box.node;
         if (!n.declares()) return;
         List<Value> params = n.values.get(Catalog.FN_PARAMS);
         if (params != null && params.size() >= Catalog.MAX_PARAMS) return;
         String label = "параметр";
-        Chip c = new Chip(Catalog.FN_PARAMS, -1, -1, true, 16 + tr.getWidth(label) + 7);
+        Chip c = new Chip(Catalog.FN_PARAMS, -1, -1, true, 16 + tr.width(label) + 7);
         c.fitted = Draw.ordered(label);
         boolean grad = Settings.gradient();
         c.border = Draw.opaque(Draw.shade(0xB8C2D4, -0.62f));
@@ -680,11 +679,11 @@ public final class Layout {
         return filled + "/" + a.capacity;
     }
 
-    private static void label(Chip c, Script.Node n, TextRenderer tr) {
+    private static void label(Chip c, Script.Node n, Font tr) {
         String count = argCount(n, c.argIndex);
         String note = argNote(n, c.argIndex);
-        c.countW = count == null ? 0 : tr.getWidth(count);
-        c.noteW = note.isEmpty() ? 0 : tr.getWidth(note);
+        c.countW = count == null ? 0 : tr.width(count);
+        c.noteW = note.isEmpty() ? 0 : tr.width(note);
         c.count = count == null ? null : Draw.ordered(count);
         c.note = note.isEmpty() ? null : Draw.ordered(note);
         int right = c.w - 6;
@@ -695,7 +694,7 @@ public final class Layout {
         int room = right - (withItem ? CHIP_ITEM_INK_X : CHIP_INK_X);
 
         if (v != null && Value.TEXT.equals(v.type))
-            c.fitted = McText.fit(tr, McText.runs(v.text, v.parsing), room).asOrderedText();
+            c.fitted = McText.fit(tr, McText.runs(v.text, v.parsing), room).getVisualOrderText();
         else
             c.fitted = Draw.ordered(Draw.fit(tr, argText(n, c.argIndex), room));
         if (withItem) c.icon = Stacks.preview(v);
@@ -721,12 +720,12 @@ public final class Layout {
                 : Draw.shade(Theme.TEXT_FAINT, -0.15f);
     }
 
-    private static int argChipWidth(Script.Node n, int i, TextRenderer tr, boolean withItem) {
-        int w = (withItem ? CHIP_ITEM_INK_X : CHIP_INK_X) + tr.getWidth(argText(n, i)) + 7;
+    private static int argChipWidth(Script.Node n, int i, Font tr, boolean withItem) {
+        int w = (withItem ? CHIP_ITEM_INK_X : CHIP_INK_X) + tr.width(argText(n, i)) + 7;
         String note = argNote(n, i);
-        if (!note.isEmpty()) w += tr.getWidth(note) + 6;
+        if (!note.isEmpty()) w += tr.width(note) + 6;
         String count = argCount(n, i);
-        if (count != null) w += tr.getWidth(count) + 8;
+        if (count != null) w += tr.width(count) + 8;
         return Math.max(CHIP_MIN_W, Math.min(CHIP_MAX_W, w));
     }
 
@@ -753,8 +752,8 @@ public final class Layout {
         return Mapping.elseCondId(n.action) == null ? name : ELSE_IF_PREFIX + name;
     }
 
-    private static int markerChipWidth(Script.Node n, int i, TextRenderer tr) {
-        int w = (markerBound(n, i) ? 13 : 8) + tr.getWidth(markerText(n, i)) + 6 + 5 + 6;
+    private static int markerChipWidth(Script.Node n, int i, Font tr) {
+        int w = (markerBound(n, i) ? 13 : 8) + tr.width(markerText(n, i)) + 6 + 5 + 6;
         return Math.max(CHIP_MIN_W, Math.min(CHIP_MAX_W, w));
     }
 

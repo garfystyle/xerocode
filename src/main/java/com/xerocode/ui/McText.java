@@ -3,25 +3,24 @@ package com.xerocode.ui;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Style;
-import net.minecraft.text.Text;
-import net.minecraft.text.TextCodecs;
-import net.minecraft.text.TextColor;
-import net.minecraft.util.Formatting;
-
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Function;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.gui.Font;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ComponentSerialization;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TextColor;
 
 public final class McText {
     public record Run(String text, Style style) {}
 
-    public record Colour(char code, String name, int rgb, Formatting formatting) {}
+    public record Colour(char code, String name, int rgb, ChatFormatting formatting) {}
 
     public record Deco(char code, String mini, String label, String title) {}
 
@@ -29,9 +28,9 @@ public final class McText {
 
     static {
         for (char c : "0123456789abcdef".toCharArray()) {
-            Formatting f = Formatting.byCode(c);
-            if (f == null || f.getColorValue() == null) continue;
-            COLOURS.add(new Colour(c, f.getName(), f.getColorValue(), f));
+            ChatFormatting f = ChatFormatting.getByCode(c);
+            if (f == null || f.getColor() == null) continue;
+            COLOURS.add(new Colour(c, f.getName(), f.getColor(), f));
         }
     }
 
@@ -182,7 +181,7 @@ public final class McText {
         };
     }
 
-    public static List<Run> runsOf(Text text) {
+    public static List<Run> runsOf(Component text) {
         List<Run> out = new ArrayList<>();
         if (text == null) return out;
         text.visit((style, str) -> {
@@ -192,15 +191,15 @@ public final class McText {
         return out;
     }
 
-    public static String from(Text text, String parsing) {
+    public static String from(Component text, String parsing) {
         return write(runsOf(text), parsing);
     }
 
-    public static Text preview(String raw, String parsing) {
+    public static Component preview(String raw, String parsing) {
         List<Run> runs = runs(raw, parsing);
-        if (runs.isEmpty()) return Text.empty();
-        MutableText out = Text.empty();
-        for (Run r : runs) out.append(Text.literal(r.text()).setStyle(r.style()));
+        if (runs.isEmpty()) return Component.empty();
+        MutableComponent out = Component.empty();
+        for (Run r : runs) out.append(Component.literal(r.text()).setStyle(r.style()));
         return out;
     }
 
@@ -210,10 +209,10 @@ public final class McText {
         buf.setLength(0);
     }
 
-    private static Style applyLegacy(Style style, Formatting f) {
-        if (f == Formatting.RESET) return Style.EMPTY;
+    private static Style applyLegacy(Style style, ChatFormatting f) {
+        if (f == ChatFormatting.RESET) return Style.EMPTY;
         if (f.isColor()) return Style.EMPTY.withColor(f);
-        return style.withFormatting(f);
+        return style.applyFormat(f);
     }
 
     private static List<Run> legacyRuns(String s) {
@@ -234,7 +233,7 @@ public final class McText {
                         continue;
                     }
                 }
-                Formatting f = Formatting.byCode(next);
+                ChatFormatting f = ChatFormatting.getByCode(next);
                 if (f != null) {
                     push(out, buf, style);
                     style = applyLegacy(style, f);
@@ -400,7 +399,7 @@ public final class McText {
         return switch (name) {
             case "bold", "b" -> style.withBold(on);
             case "italic", "i", "em" -> style.withItalic(on);
-            case "underlined", "u" -> style.withUnderline(on);
+            case "underlined", "u" -> style.withUnderlined(on);
             case "strikethrough", "st" -> style.withStrikethrough(on);
             case "obfuscated", "obf" -> style.withObfuscated(on);
             default -> null;
@@ -410,7 +409,7 @@ public final class McText {
     private static List<Run> jsonRuns(String s) {
         try {
             JsonElement el = JsonParser.parseString(s);
-            Text t = TextCodecs.CODEC.parse(JsonOps.INSTANCE, el).result().orElse(null);
+            Component t = ComponentSerialization.CODEC.parse(JsonOps.INSTANCE, el).result().orElse(null);
             if (t != null) {
                 List<Run> out = new ArrayList<>();
                 t.visit((style, str) -> {
@@ -420,7 +419,7 @@ public final class McText {
                 return out;
             }
         } catch (Throwable ignored) { }
-        return List.of(new Run(s, Style.EMPTY.withColor(Formatting.DARK_GRAY)));
+        return List.of(new Run(s, Style.EMPTY.withColor(ChatFormatting.DARK_GRAY)));
     }
 
     public static String convert(String raw, String from, String to) {
@@ -447,30 +446,30 @@ public final class McText {
         return writePlain(runs(raw, parsing));
     }
 
-    public static Text fit(TextRenderer tr, List<Run> runs, int maxWidth) {
-        MutableText out = Text.empty();
+    public static Component fit(Font tr, List<Run> runs, int maxWidth) {
+        MutableComponent out = Component.empty();
         if (maxWidth <= 0) return out;
         int total = 0;
-        for (Run r : runs) total += tr.getWidth(r.text());
+        for (Run r : runs) total += tr.width(r.text());
         if (total <= maxWidth) {
-            for (Run r : runs) out.append(Text.literal(r.text()).setStyle(r.style()));
+            for (Run r : runs) out.append(Component.literal(r.text()).setStyle(r.style()));
             return out;
         }
-        int room = maxWidth - tr.getWidth("…");
+        int room = maxWidth - tr.width("…");
         int used = 0;
         for (Run r : runs) {
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < r.text().length(); i++) {
-                int cw = tr.getWidth(String.valueOf(r.text().charAt(i)));
+                int cw = tr.width(String.valueOf(r.text().charAt(i)));
                 if (used + cw > room) {
-                    if (sb.length() > 0) out.append(Text.literal(sb.toString()).setStyle(r.style()));
-                    out.append(Text.literal("…"));
+                    if (sb.length() > 0) out.append(Component.literal(sb.toString()).setStyle(r.style()));
+                    out.append(Component.literal("…"));
                     return out;
                 }
                 sb.append(r.text().charAt(i));
                 used += cw;
             }
-            out.append(Text.literal(sb.toString()).setStyle(r.style()));
+            out.append(Component.literal(sb.toString()).setStyle(r.style()));
         }
         return out;
     }
@@ -488,14 +487,14 @@ public final class McText {
 
     private static String legacyColour(TextColor c) {
         for (Colour k : COLOURS)
-            if (c.getRgb() == k.rgb()) return "&" + k.code();
-        return "&#" + String.format("%06x", c.getRgb() & 0xFFFFFF);
+            if (c.getValue() == k.rgb()) return "&" + k.code();
+        return "&#" + String.format("%06x", c.getValue() & 0xFFFFFF);
     }
 
     private static String miniColour(TextColor c) {
         for (Colour k : COLOURS)
-            if (c.getRgb() == k.rgb()) return "<" + k.name() + ">";
-        return "<#" + String.format("%06x", c.getRgb() & 0xFFFFFF) + ">";
+            if (c.getValue() == k.rgb()) return "<" + k.name() + ">";
+        return "<#" + String.format("%06x", c.getValue() & 0xFFFFFF) + ">";
     }
 
     private static String write(List<Run> runs, String reset, boolean colourResets,
@@ -506,7 +505,7 @@ public final class McText {
             Style now = r.style();
             if (dropped(prev, now)) { sb.append(reset); prev = Style.EMPTY; }
             TextColor pc = prev.getColor(), nc = now.getColor();
-            if (nc != null && (pc == null || pc.getRgb() != nc.getRgb())) {
+            if (nc != null && (pc == null || pc.getValue() != nc.getValue())) {
                 sb.append(colour.apply(nc));
                 if (colourResets) prev = Style.EMPTY.withColor(nc);
             }
@@ -541,9 +540,9 @@ public final class McText {
 
     private static String writeJson(List<Run> runs) {
         try {
-            MutableText t = Text.empty();
-            for (Run r : runs) t.append(Text.literal(r.text()).setStyle(r.style()));
-            JsonElement el = TextCodecs.CODEC.encodeStart(JsonOps.INSTANCE, t).result().orElse(null);
+            MutableComponent t = Component.empty();
+            for (Run r : runs) t.append(Component.literal(r.text()).setStyle(r.style()));
+            JsonElement el = ComponentSerialization.CODEC.encodeStart(JsonOps.INSTANCE, t).result().orElse(null);
             if (el != null) return el.toString();
         } catch (Throwable ignored) { }
         return writePlain(runs);

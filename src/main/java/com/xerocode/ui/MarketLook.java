@@ -2,18 +2,18 @@ package com.xerocode.ui;
 
 import com.google.gson.JsonObject;
 import com.xerocode.Market;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.input.KeyInput;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 import org.lwjgl.glfw.GLFW;
 
 public final class MarketLook implements MarketScreen.Panel {
     private static final int HEAD = 22, ICON = 16;
 
     private final MarketScreen owner;
-    private final TextRenderer tr;
+    private final Font tr;
     private final Market.Module module;
     private final BlockView.Look look = new BlockView.Look();
     private final CodeStage stage = new CodeStage(0.2, 3.0, 1.4);
@@ -23,7 +23,7 @@ public final class MarketLook implements MarketScreen.Panel {
 
     public MarketLook(MarketScreen owner, Market.Module module, JsonObject payload) {
         this.owner = owner;
-        this.tr = MinecraftClient.getInstance().textRenderer;
+        this.tr = Minecraft.getInstance().font;
         this.module = module;
         this.code = new ModuleCode(module.id, tr);
         code.adopt(payload);
@@ -43,7 +43,7 @@ public final class MarketLook implements MarketScreen.Panel {
     }
 
     @Override
-    public void draw(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void draw(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         mx = mouseX;
         my = mouseY;
         Draw.rect(ctx, x, y, w, h, Draw.opaque(Theme.CANVAS));
@@ -62,7 +62,7 @@ public final class MarketLook implements MarketScreen.Panel {
         drawHead(ctx, mouseX, mouseY);
     }
 
-    private int zoomW() { return tr.getWidth("999%") + 4; }
+    private int zoomW() { return tr.width("999%") + 4; }
 
     private int btnX(int i) { return x + w - 8 - ICON * (3 - i) - 3 * (2 - i); }
 
@@ -70,7 +70,7 @@ public final class MarketLook implements MarketScreen.Panel {
 
     private int packX() { return btnX(0) - zoomW() - 8 - packW(); }
 
-    private void drawHead(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawHead(GuiGraphics ctx, int mouseX, int mouseY) {
         Draw.rect(ctx, x, y, w, HEAD, Draw.opaque(Ui.RAIL));
         Ui.hairline(ctx, x, y + HEAD, w);
         int ty = y + (HEAD - Ui.TEXT_H) / 2;
@@ -107,7 +107,7 @@ public final class MarketLook implements MarketScreen.Panel {
     }
 
     @Override
-    public boolean click(Click click, boolean doubled) {
+    public boolean click(MouseButtonEvent click, boolean doubled) {
         double atX = click.x(), atY = click.y();
         if (atY < y + HEAD) {
             if (Ui.hit(atX, atY, btnX(0), y + 3, ICON, ICON)) { stage.step(1 / 1.12); return true; }
@@ -125,7 +125,7 @@ public final class MarketLook implements MarketScreen.Panel {
     private void refit() { stage.fit(code.layout(), 12); }
 
     @Override
-    public boolean drag(Click click, double dx, double dy) {
+    public boolean drag(MouseButtonEvent click, double dx, double dy) {
         if (!stage.panning()) return false;
         stage.drag(dx, dy);
         return true;
@@ -141,7 +141,7 @@ public final class MarketLook implements MarketScreen.Panel {
     }
 
     @Override
-    public boolean key(KeyInput in) {
+    public boolean key(KeyEvent in) {
         switch (in.key()) {
             case GLFW.GLFW_KEY_0, GLFW.GLFW_KEY_KP_0 -> refit();
             case GLFW.GLFW_KEY_EQUAL, GLFW.GLFW_KEY_KP_ADD -> stage.step(1.12);

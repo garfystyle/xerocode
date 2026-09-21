@@ -5,8 +5,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.xerocode.ui.Layout;
-import net.minecraft.client.font.TextRenderer;
-
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashSet;
@@ -14,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.client.gui.Font;
 
 public final class Importer {
     public static final class Result {
@@ -77,11 +76,11 @@ public final class Importer {
         return node.raw;
     }
 
-    public static Result importInto(Script script, JsonArray handlers, TextRenderer tr) {
+    public static Result importInto(Script script, JsonArray handlers, Font tr) {
         return importInto(script, handlers, tr, 40);
     }
 
-    public static Result importInto(Script script, JsonArray handlers, TextRenderer tr, int startX) {
+    public static Result importInto(Script script, JsonArray handlers, Font tr, int startX) {
         Result result = new Result();
         int x = startX, y = 40, columnW = 0;
 

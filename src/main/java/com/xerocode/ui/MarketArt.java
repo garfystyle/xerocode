@@ -2,21 +2,20 @@ package com.xerocode.ui;
 
 import com.xerocode.Market;
 import com.xerocode.MarketImage;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.network.ClientPlayNetworkHandler;
-import net.minecraft.client.network.PlayerListEntry;
-import net.minecraft.entity.player.SkinTextures;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.PlayerSkinDrawer;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
-
 import java.util.HashMap;
 import java.util.Map;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.PlayerFaceRenderer;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.client.multiplayer.PlayerInfo;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.player.PlayerSkin;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 public final class MarketArt {
     public static final int PATTERNS = 6;
@@ -43,7 +42,7 @@ public final class MarketArt {
         try {
             Identifier key = Identifier.tryParse(id);
             if (key != null) {
-                var item = Registries.ITEM.getOptionalValue(key).orElse(null);
+                var item = BuiltInRegistries.ITEM.getOptional(key).orElse(null);
                 if (item != null && item != Items.AIR) made = new ItemStack(item);
             }
         } catch (Throwable ignored) {
@@ -54,36 +53,36 @@ public final class MarketArt {
 
     public static String refOf(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return "";
-        return "item:" + Registries.ITEM.getId(stack.getItem());
+        return "item:" + BuiltInRegistries.ITEM.getKey(stack.getItem());
     }
 
     private static Identifier skinOf(String nick) {
         if (nick == null || nick.isBlank()) return null;
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         try {
             if (client.player != null
                     && nick.equalsIgnoreCase(client.player.getGameProfile().name()))
                 return pathOf(client.player.getSkin());
-            ClientPlayNetworkHandler net = client.getNetworkHandler();
+            ClientPacketListener net = client.getConnection();
             if (net == null) return null;
-            PlayerListEntry seen = net.getPlayerListEntry(nick);
+            PlayerInfo seen = net.getPlayerInfo(nick);
             if (seen == null)
-                for (PlayerListEntry one : net.getPlayerList())
+                for (PlayerInfo one : net.getOnlinePlayers())
                     if (nick.equalsIgnoreCase(one.getProfile().name())) {
                         seen = one;
                         break;
                     }
-            return seen == null ? null : pathOf(seen.getSkinTextures());
+            return seen == null ? null : pathOf(seen.getSkin());
         } catch (Throwable e) {
             return null;
         }
     }
 
-    private static Identifier pathOf(SkinTextures skin) {
+    private static Identifier pathOf(PlayerSkin skin) {
         return skin == null || skin.body() == null ? null : skin.body().texturePath();
     }
 
-    private static boolean picture(DrawContext ctx, String ref, int x, int y, int w, int h,
+    private static boolean picture(GuiGraphics ctx, String ref, int x, int y, int w, int h,
                                   boolean crop) {
         MarketImage.Shot shot = MarketImage.get(ref);
         if (shot == null || shot.w <= 0 || shot.h <= 0) return false;
@@ -99,7 +98,7 @@ public final class MarketArt {
             }
         }
         ctx.enableScissor(x, y, x + w, y + h);
-        ctx.drawTexture(RenderPipelines.GUI_TEXTURED, shot.id, dx, dy, 0f, 0f, dw, dh,
+        ctx.blit(RenderPipelines.GUI_TEXTURED, shot.id, dx, dy, 0f, 0f, dw, dh,
                 shot.w, shot.h, shot.w, shot.h);
         ctx.disableScissor();
         return true;
@@ -125,7 +124,7 @@ public final class MarketArt {
                 Math.max(0, Math.min(PATTERNS - 1, pattern)));
     }
 
-    public static void banner(DrawContext ctx, String ref, int x, int y, int w, int h,
+    public static void banner(GuiGraphics ctx, String ref, int x, int y, int w, int h,
                               int fallback, int tl, int tr, int br, int bl, int around) {
         if (w <= 0 || h <= 0) return;
         if (!picture(ctx, ref, x, y, w, h, true)) {
@@ -135,7 +134,7 @@ public final class MarketArt {
         if (around != 0) Draw.notch(ctx, x, y, w, h, tl, tr, br, bl, around);
     }
 
-    private static void paint(DrawContext ctx, int x, int y, int w, int h,
+    private static void paint(GuiGraphics ctx, int x, int y, int w, int h,
                               int from, int to, int pattern) {
         switch (pattern) {
             case 0 -> Draw.rect(ctx, x, y, w, h, Draw.opaque(from));
@@ -164,13 +163,13 @@ public final class MarketArt {
         }
     }
 
-    public static void avatar(DrawContext ctx, String ref, int x, int y, int size,
-                              int fallback, String initials, TextRenderer tr) {
+    public static void avatar(GuiGraphics ctx, String ref, int x, int y, int size,
+                              int fallback, String initials, Font tr) {
         avatar(ctx, ref, "", x, y, size, fallback, initials, tr);
     }
 
-    public static void avatar(DrawContext ctx, String ref, String nick, int x, int y, int size,
-                              int fallback, String initials, TextRenderer tr) {
+    public static void avatar(GuiGraphics ctx, String ref, String nick, int x, int y, int size,
+                              int fallback, String initials, Font tr) {
         int r = Math.max(2, size / 4);
         int rim = Draw.shade(fallback, -0.55f);
         int in = Math.max(1, r - 1);
@@ -181,7 +180,7 @@ public final class MarketArt {
             if (live != null) {
                 Draw.round(ctx, x + 1, y + 1, size - 2, size - 2, in,
                         Draw.opaque(Draw.shade(fallback, -0.35f)));
-                PlayerSkinDrawer.draw(ctx, live, x + 1, y + 1, size - 2, true, false, -1);
+                PlayerFaceRenderer.draw(ctx, live, x + 1, y + 1, size - 2, true, false, -1);
                 shown = true;
             }
         }
@@ -208,8 +207,8 @@ public final class MarketArt {
                 Draw.readable(fallback), false);
     }
 
-    public static void moduleIcon(DrawContext ctx, Market.Module module, int x, int y, int size,
-                                  TextRenderer tr) {
+    public static void moduleIcon(GuiGraphics ctx, Market.Module module, int x, int y, int size,
+                                  Font tr) {
         avatar(ctx, module.icon, x, y, size, catColor(module.cat), module.name, tr);
     }
 
@@ -221,7 +220,7 @@ public final class MarketArt {
         return when.isEmpty() ? facts : when + " · " + facts;
     }
 
-    public static void card(DrawContext ctx, TextRenderer tr, Market.Module m,
+    public static void card(GuiGraphics ctx, Font tr, Market.Module m,
                             int x, int y, int w, boolean hot, boolean stats) {
         int face = hot ? Ui.BTN_HOVER : Ui.PANEL;
         Draw.card(ctx, x, y, w, CARD_H, Ui.R, Draw.opaque(face),
@@ -249,7 +248,7 @@ public final class MarketArt {
 
         int head = author(ctx, tr, m.author, m.authorIcon, tx, y + CARD_BANNER + 29, 9);
         int tick = m.authorOk ? Draw.glyphW(Draw.CHECK) + 3 : 0;
-        int nameW = Math.min(room - head - tick, tr.getWidth(m.author));
+        int nameW = Math.min(room - head - tick, tr.width(m.author));
         Draw.textFit(ctx, tr, m.author, tx + head, y + CARD_BANNER + 30, room - head - tick,
                 Theme.TEXT_FAINT, false);
         if (m.authorOk)
@@ -270,17 +269,17 @@ public final class MarketArt {
         stat(ctx, tr, right - 6, by, Draw.GRAB, m.downloads, Theme.TEXT_FAINT);
     }
 
-    public static int stat(DrawContext ctx, TextRenderer tr, int right, int y,
+    public static int stat(GuiGraphics ctx, Font tr, int right, int y,
                            String[] icon, int value, int ink) {
         String text = String.valueOf(value);
-        int tw = tr.getWidth(text);
+        int tw = tr.width(text);
         Draw.text(ctx, tr, text, right - tw, y, ink, false);
         int gx = right - tw - 3 - Draw.glyphW(icon);
         Draw.glyph(ctx, icon, gx, y, ink);
         return gx;
     }
 
-    public static void skeleton(DrawContext ctx, int x, int y, int w, int seed) {
+    public static void skeleton(GuiGraphics ctx, int x, int y, int w, int seed) {
         Draw.card(ctx, x, y, w, CARD_H, Ui.R, Draw.opaque(Ui.PANEL), Draw.opaque(Ui.LINE));
         Draw.round(ctx, x + 1, y + 1, w - 2, CARD_BANNER, Ui.R - 1,
                 Draw.opaque(Draw.mix(Ui.PANEL, Ui.LINE, 0.7f)));
@@ -295,13 +294,13 @@ public final class MarketArt {
         Draw.round(ctx, x + 8, y + CARD_H - 13, 34, 6, 2, faint);
     }
 
-    public static int author(DrawContext ctx, TextRenderer tr, String nick, String icon,
+    public static int author(GuiGraphics ctx, Font tr, String nick, String icon,
                              int x, int y, int size) {
         avatar(ctx, icon, nick, x, y, size, 0x6E7C93, nick, tr);
         return size + 4;
     }
 
-    public static int tick(DrawContext ctx, int x, int y, boolean on) {
+    public static int tick(GuiGraphics ctx, int x, int y, boolean on) {
         if (!on) return 0;
         Draw.glyph(ctx, Draw.CHECK, x, y, Theme.OK);
         return Draw.glyphW(Draw.CHECK) + 3;

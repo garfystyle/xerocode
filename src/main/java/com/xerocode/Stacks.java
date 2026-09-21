@@ -3,42 +3,41 @@ package com.xerocode;
 import com.xerocode.ui.McText;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.serialization.DataResult;
+import net.minecraft.ChatFormatting;
 import net.minecraft.SharedConstants;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.component.ComponentChanges;
-import net.minecraft.component.ComponentType;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.CustomModelDataComponent;
-import net.minecraft.component.type.ItemEnchantmentsComponent;
-import net.minecraft.component.type.LoreComponent;
-import net.minecraft.component.type.TooltipDisplayComponent;
-import net.minecraft.enchantment.Enchantment;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemGroup;
-import net.minecraft.item.ItemGroups;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.tooltip.TooltipType;
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
+import net.minecraft.core.component.DataComponentPatch;
+import net.minecraft.core.component.DataComponentType;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.NbtSizeTracker;
-import net.minecraft.nbt.StringNbtReader;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.Registry;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.RegistryOps;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Style;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Identifier;
+import net.minecraft.nbt.Tag;
+import net.minecraft.nbt.TagParser;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.RegistryOps;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.Unit;
-
+import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.world.item.CreativeModeTabs;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.component.CustomModelData;
+import net.minecraft.world.item.component.ItemLore;
+import net.minecraft.world.item.component.TooltipDisplay;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
@@ -54,7 +53,7 @@ import java.util.Optional;
 public final class Stacks {
     public record Entry(ItemStack stack, String id, String name) {
         static Entry of(ItemStack stack) {
-            return new Entry(stack, idOf(stack), stack.getName().getString());
+            return new Entry(stack, idOf(stack), stack.getHoverName().getString());
         }
     }
 
@@ -75,9 +74,9 @@ public final class Stacks {
             "minecraft:enchantment_glint_override", "minecraft:tooltip_display");
 
     public static void refresh() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        ClientWorld world = client.world;
-        Object token = world == null ? null : world.getRegistryManager();
+        Minecraft client = Minecraft.getInstance();
+        ClientLevel world = client.level;
+        Object token = world == null ? null : world.registryAccess();
         if (!TABS.isEmpty() && token == built) return;
 
         TABS.clear();
@@ -89,27 +88,27 @@ public final class Stacks {
         if (world == null) { fallback(); return; }
 
         try {
-            ItemGroups.updateDisplayContext(world.getEnabledFeatures(), true,
-                    world.getRegistryManager());
+            CreativeModeTabs.tryRebuildTabContents(world.enabledFeatures(), true,
+                    world.registryAccess());
         } catch (Exception e) {
             XeroCode.LOG.warn("[xerocode] could not update the creative display context", e);
         }
 
-        for (ItemGroup group : ItemGroups.getGroups()) {
-            if (group.getType() != ItemGroup.Type.CATEGORY) continue;
+        for (CreativeModeTab group : CreativeModeTabs.allTabs()) {
+            if (group.getType() != CreativeModeTab.Type.CATEGORY) continue;
             List<Entry> entries = entries(stacksOf(group));
             if (!entries.isEmpty())
-                TABS.add(new Tab(group.getDisplayName().getString(), group.getIcon(), entries));
+                TABS.add(new Tab(group.getDisplayName().getString(), group.getIconItem(), entries));
         }
-        ALL.addAll(entries(stacksOf(ItemGroups.getSearchGroup())));
+        ALL.addAll(entries(stacksOf(CreativeModeTabs.searchTab())));
         if (ALL.isEmpty()) for (Tab t : TABS) ALL.addAll(t.entries());
         if (ALL.isEmpty()) fallback();
     }
 
     private static void fallback() {
         List<ItemStack> stacks = new ArrayList<>();
-        for (Item item : Registries.ITEM) {
-            ItemStack st = item.getDefaultStack();
+        for (Item item : BuiltInRegistries.ITEM) {
+            ItemStack st = item.getDefaultInstance();
             if (!st.isEmpty()) stacks.add(st);
         }
         ALL.addAll(entries(stacks));
@@ -117,9 +116,9 @@ public final class Stacks {
             TABS.add(new Tab("Все предметы", ALL.get(0).stack(), new ArrayList<>(ALL)));
     }
 
-    private static Collection<ItemStack> stacksOf(ItemGroup group) {
+    private static Collection<ItemStack> stacksOf(CreativeModeTab group) {
         try {
-            return group.getDisplayStacks();
+            return group.getDisplayItems();
         } catch (Exception e) {
             return List.of();
         }
@@ -136,12 +135,12 @@ public final class Stacks {
     public static List<Entry> all() { return ALL; }
 
     public static List<Entry> inventory() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        ClientPlayerEntity player = client.player;
+        Minecraft client = Minecraft.getInstance();
+        LocalPlayer player = client.player;
         List<Entry> out = new ArrayList<>();
         if (player == null) return out;
-        List<ItemStack> stacks = new ArrayList<>(player.getInventory().getMainStacks());
-        stacks.add(player.getOffHandStack());
+        List<ItemStack> stacks = new ArrayList<>(player.getInventory().getNonEquipmentItems());
+        stacks.add(player.getOffhandItem());
         for (ItemStack st : stacks) if (!st.isEmpty()) out.add(Entry.of(st.copy()));
         return out;
     }
@@ -153,11 +152,11 @@ public final class Stacks {
 
     public static List<Ench> enchantments() {
         if (!ENCHANTS.isEmpty()) return ENCHANTS;
-        Registry<Enchantment> reg = registry(RegistryKeys.ENCHANTMENT);
+        Registry<Enchantment> reg = registry(Registries.ENCHANTMENT);
         if (reg == null) return ENCHANTS;
-        for (Map.Entry<RegistryKey<Enchantment>, Enchantment> e : reg.getEntrySet()) {
+        for (Map.Entry<ResourceKey<Enchantment>, Enchantment> e : reg.entrySet()) {
             Enchantment ench = e.getValue();
-            ENCHANTS.add(new Ench(e.getKey().getValue().toString(),
+            ENCHANTS.add(new Ench(e.getKey().identifier().toString(),
                     ench.description().getString(),
                     "максимальный уровень " + ench.getMaxLevel(), ench.getMaxLevel()));
         }
@@ -171,40 +170,40 @@ public final class Stacks {
     }
 
     public static String enchLabel(String id, int level) {
-        RegistryEntry<Enchantment> entry = enchEntry(id);
+        Holder<Enchantment> entry = enchEntry(id);
         if (entry == null) {
             Ench e = ench(id);
             return (e == null ? id : e.name()) + " " + level;
         }
-        return Enchantment.getName(entry, level).getString();
+        return Enchantment.getFullname(entry, level).getString();
     }
 
-    private static RegistryEntry<Enchantment> enchEntry(String id) {
-        Registry<Enchantment> reg = registry(RegistryKeys.ENCHANTMENT);
+    private static Holder<Enchantment> enchEntry(String id) {
+        Registry<Enchantment> reg = registry(Registries.ENCHANTMENT);
         Identifier ident = id == null ? null : Identifier.tryParse(id);
         if (reg == null || ident == null) return null;
-        return reg.getEntry(ident).orElse(null);
+        return reg.get(ident).orElse(null);
     }
 
-    private static <T> Registry<T> registry(RegistryKey<? extends Registry<? extends T>> key) {
-        ClientWorld world = MinecraftClient.getInstance().world;
+    private static <T> Registry<T> registry(ResourceKey<? extends Registry<? extends T>> key) {
+        ClientLevel world = Minecraft.getInstance().level;
         if (world == null) return null;
-        return world.getRegistryManager().getOptional(key).orElse(null);
+        return world.registryAccess().lookup(key).orElse(null);
     }
 
     public static ItemStack fromServer(String encoded) {
         if (encoded == null || encoded.isEmpty()) return null;
-        MinecraftClient client = MinecraftClient.getInstance();
-        ClientWorld world = client == null ? null : client.world;
+        Minecraft client = Minecraft.getInstance();
+        ClientLevel world = client == null ? null : client.level;
         if (world == null) return null;
         try {
             byte[] raw = Base64.getDecoder().decode(encoded);
             boolean zeros = true;
             for (byte b : raw) if (b != 0) { zeros = false; break; }
             if (zeros) return null;
-            NbtCompound nbt = NbtIo.readCompressed(
-                    new ByteArrayInputStream(raw), NbtSizeTracker.ofUnlimitedBytes());
-            RegistryOps<NbtElement> ops = RegistryOps.of(NbtOps.INSTANCE, world.getRegistryManager());
+            CompoundTag nbt = NbtIo.readCompressed(
+                    new ByteArrayInputStream(raw), NbtAccounter.unlimitedHeap());
+            RegistryOps<Tag> ops = RegistryOps.create(NbtOps.INSTANCE, world.registryAccess());
             return ItemStack.CODEC.parse(ops, nbt).result().orElse(null);
         } catch (Exception e) {
             return null;
@@ -232,12 +231,12 @@ public final class Stacks {
         try {
             ItemStack stack = build(v);
             if (stack.isEmpty()) return null;
-            RegistryOps<NbtElement> ops = ops();
+            RegistryOps<Tag> ops = ops();
             if (ops == null) return null;
-            NbtElement encoded = ItemStack.CODEC.encodeStart(ops, stack).result().orElse(null);
-            if (!(encoded instanceof NbtCompound nbt)) return null;
-            nbt.putInt(SharedConstants.DATA_VERSION_KEY,
-                    SharedConstants.getGameVersion().dataVersion().id());
+            Tag encoded = ItemStack.CODEC.encodeStart(ops, stack).result().orElse(null);
+            if (!(encoded instanceof CompoundTag nbt)) return null;
+            nbt.putInt(SharedConstants.DATA_VERSION_TAG,
+                    SharedConstants.getCurrentVersion().dataVersion().version());
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             NbtIo.writeCompressed(nbt, out);
             return Base64.getEncoder().encodeToString(out.toByteArray());
@@ -248,20 +247,20 @@ public final class Stacks {
     }
 
     public static String idOf(ItemStack stack) {
-        return Registries.ITEM.getId(stack.getItem()).toString();
+        return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
     }
 
     public static ItemStack stack(String id) {
         Identifier ident = id == null || id.isEmpty() ? null : Identifier.tryParse(id);
         if (ident == null) return ItemStack.EMPTY;
-        return Registries.ITEM.getOptionalValue(ident).map(ItemStack::new).orElse(ItemStack.EMPTY);
+        return BuiltInRegistries.ITEM.getOptional(ident).map(ItemStack::new).orElse(ItemStack.EMPTY);
     }
 
     public static String itemName(String id) {
         String cached = NAMES.get(id);
         if (cached != null) return cached;
         ItemStack st = stack(id);
-        String name = st.isEmpty() ? id : st.getName().getString();
+        String name = st.isEmpty() ? id : st.getHoverName().getString();
         NAMES.put(id, name);
         return name;
     }
@@ -280,83 +279,83 @@ public final class Stacks {
         st.setCount(Math.max(1, Math.min(99, v.itemCount)));
 
         try {
-            ComponentChanges extra = extras(v.components);
-            if (!extra.isEmpty()) st.applyChanges(extra);
+            DataComponentPatch extra = extras(v.components);
+            if (!extra.isEmpty()) st.applyComponentsAndValidate(extra);
         } catch (RuntimeException ignored) {
         }
 
         if (!v.itemName.isEmpty())
-            st.set(DataComponentTypes.CUSTOM_NAME, styled(v.itemName, v.itemParsing, false));
+            st.set(DataComponents.CUSTOM_NAME, styled(v.itemName, v.itemParsing, false));
         if (!v.lore.isEmpty()) {
-            List<Text> lines = new ArrayList<>();
+            List<Component> lines = new ArrayList<>();
             for (String line : v.lore) lines.add(styled(line, v.itemParsing, true));
-            st.set(DataComponentTypes.LORE, new LoreComponent(lines));
+            st.set(DataComponents.LORE, new ItemLore(lines));
         }
         if (!v.enchants.isEmpty()) {
-            ItemEnchantmentsComponent.Builder b =
-                    new ItemEnchantmentsComponent.Builder(ItemEnchantmentsComponent.DEFAULT);
+            ItemEnchantments.Mutable b =
+                    new ItemEnchantments.Mutable(ItemEnchantments.EMPTY);
             for (Value.Ench e : v.enchants) {
-                RegistryEntry<Enchantment> entry = enchEntry(e.id);
+                Holder<Enchantment> entry = enchEntry(e.id);
                 if (entry != null) b.set(entry, Math.max(1, e.level));
             }
-            ItemEnchantmentsComponent comp = b.build();
-            if (!comp.isEmpty()) st.set(DataComponentTypes.ENCHANTMENTS, comp);
+            ItemEnchantments comp = b.toImmutable();
+            if (!comp.isEmpty()) st.set(DataComponents.ENCHANTMENTS, comp);
         }
-        if (v.unbreakable) st.set(DataComponentTypes.UNBREAKABLE, Unit.INSTANCE);
-        if (v.itemDamage > 0) st.set(DataComponentTypes.DAMAGE, v.itemDamage);
+        if (v.unbreakable) st.set(DataComponents.UNBREAKABLE, Unit.INSTANCE);
+        if (v.itemDamage > 0) st.set(DataComponents.DAMAGE, v.itemDamage);
         if (v.modelData >= 0)
-            st.set(DataComponentTypes.CUSTOM_MODEL_DATA, new CustomModelDataComponent(
+            st.set(DataComponents.CUSTOM_MODEL_DATA, new CustomModelData(
                     List.of((float) v.modelData), List.of(), List.of(), List.of()));
-        if (v.glint != 0) st.set(DataComponentTypes.ENCHANTMENT_GLINT_OVERRIDE, v.glint == 1);
+        if (v.glint != 0) st.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, v.glint == 1);
         if (v.hideTooltip || !v.hidden.isEmpty()) {
-            LinkedHashSet<ComponentType<?>> hide = new LinkedHashSet<>();
+            LinkedHashSet<DataComponentType<?>> hide = new LinkedHashSet<>();
             for (String id : v.hidden) {
-                ComponentType<?> type = componentType(id);
+                DataComponentType<?> type = componentType(id);
                 if (type != null) hide.add(type);
             }
-            st.set(DataComponentTypes.TOOLTIP_DISPLAY,
-                    new TooltipDisplayComponent(v.hideTooltip, hide));
+            st.set(DataComponents.TOOLTIP_DISPLAY,
+                    new TooltipDisplay(v.hideTooltip, hide));
         }
         return st;
     }
 
-    private static Text styled(String raw, String parsing, boolean lore) {
+    private static Component styled(String raw, String parsing, boolean lore) {
         Style style = Style.EMPTY.withItalic(false);
-        if (lore) style = style.withColor(Formatting.GRAY);
-        MutableText out = Text.empty().setStyle(style);
+        if (lore) style = style.withColor(ChatFormatting.GRAY);
+        MutableComponent out = Component.empty().setStyle(style);
         for (McText.Run run : McText.runs(raw, parsing))
-            out.append(Text.literal(run.text()).setStyle(run.style()));
+            out.append(Component.literal(run.text()).setStyle(run.style()));
         return out;
     }
 
     public static void read(Value v, ItemStack stack) {
         v.itemId = idOf(stack);
         v.itemCount = Math.max(1, stack.getCount());
-        apply(v, stack.getComponentChanges());
-        NbtCompound nbt = encode(stack.getComponentChanges());
+        apply(v, stack.getComponentsPatch());
+        CompoundTag nbt = encode(stack.getComponentsPatch());
         v.components = nbt == null || nbt.isEmpty() ? "" : nbt.toString();
     }
 
     public static void readText(Value v) {
-        NbtCompound nbt = compound(v.components);
+        CompoundTag nbt = compound(v.components);
         if (nbt == null) return;
-        NbtCompound mine = new NbtCompound();
+        CompoundTag mine = new CompoundTag();
         for (String key : MODELLED) {
-            NbtElement el = nbt.get(key);
+            Tag el = nbt.get(key);
             if (el != null) mine.put(key, el);
         }
-        ComponentChanges changes = decode(mine);
+        DataComponentPatch changes = decode(mine);
         if (changes == null) return;
         apply(v, changes);
     }
 
     @SuppressWarnings("unchecked")
-    private static <T> Optional<T> got(ComponentChanges changes, ComponentType<? extends T> type) {
+    private static <T> Optional<T> got(DataComponentPatch changes, DataComponentType<? extends T> type) {
         Optional<? extends T> value = changes.get(type);
         return value == null ? Optional.empty() : (Optional<T>) value;
     }
 
-    private static void apply(Value v, ComponentChanges changes) {
+    private static void apply(Value v, DataComponentPatch changes) {
         v.itemName = "";
         v.lore.clear();
         v.enchants.clear();
@@ -368,50 +367,50 @@ public final class Stacks {
         v.hidden.clear();
         if (changes.isEmpty()) return;
 
-        got(changes, DataComponentTypes.CUSTOM_NAME)
+        got(changes, DataComponents.CUSTOM_NAME)
                 .ifPresent(name -> v.itemName = McText.from(name, v.itemParsing));
-        got(changes, DataComponentTypes.LORE).ifPresent(lore -> {
-            for (Text line : lore.lines()) v.lore.add(McText.from(line, v.itemParsing));
+        got(changes, DataComponents.LORE).ifPresent(lore -> {
+            for (Component line : lore.lines()) v.lore.add(McText.from(line, v.itemParsing));
         });
-        got(changes, DataComponentTypes.ENCHANTMENTS).ifPresent(ench -> {
-            for (var e : ench.getEnchantmentEntries()) {
-                String id = e.getKey().getKey().map(k -> k.getValue().toString()).orElse(null);
+        got(changes, DataComponents.ENCHANTMENTS).ifPresent(ench -> {
+            for (var e : ench.entrySet()) {
+                String id = e.getKey().unwrapKey().map(k -> k.identifier().toString()).orElse(null);
                 if (id != null) v.enchants.add(new Value.Ench(id, e.getIntValue()));
             }
         });
-        v.unbreakable = got(changes, DataComponentTypes.UNBREAKABLE).isPresent();
-        got(changes, DataComponentTypes.DAMAGE).ifPresent(damage -> v.itemDamage = damage);
-        got(changes, DataComponentTypes.CUSTOM_MODEL_DATA).ifPresent(model -> {
+        v.unbreakable = got(changes, DataComponents.UNBREAKABLE).isPresent();
+        got(changes, DataComponents.DAMAGE).ifPresent(damage -> v.itemDamage = damage);
+        got(changes, DataComponents.CUSTOM_MODEL_DATA).ifPresent(model -> {
             if (model.floats().size() == 1 && model.flags().isEmpty()
                     && model.strings().isEmpty() && model.colors().isEmpty())
                 v.modelData = Math.max(0, (int) model.floats().get(0).floatValue());
         });
-        got(changes, DataComponentTypes.ENCHANTMENT_GLINT_OVERRIDE)
+        got(changes, DataComponents.ENCHANTMENT_GLINT_OVERRIDE)
                 .ifPresent(glint -> v.glint = glint ? 1 : 2);
-        got(changes, DataComponentTypes.TOOLTIP_DISPLAY).ifPresent(tip -> {
+        got(changes, DataComponents.TOOLTIP_DISPLAY).ifPresent(tip -> {
             v.hideTooltip = tip.hideTooltip();
-            for (ComponentType<?> type : tip.hiddenComponents()) {
-                Identifier id = Registries.DATA_COMPONENT_TYPE.getId(type);
+            for (DataComponentType<?> type : tip.hiddenComponents()) {
+                Identifier id = BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(type);
                 if (id != null) v.hidden.add(id.toString());
             }
         });
     }
 
-    private static ComponentType<?> componentType(String id) {
+    private static DataComponentType<?> componentType(String id) {
         Identifier ident = id == null ? null : Identifier.tryParse(id);
         return ident == null ? null
-                : Registries.DATA_COMPONENT_TYPE.getOptionalValue(ident).orElse(null);
+                : BuiltInRegistries.DATA_COMPONENT_TYPE.getOptional(ident).orElse(null);
     }
 
-    public static List<Text> tooltip(ItemStack stack) {
+    public static List<Component> tooltip(ItemStack stack) {
         if (stack.isEmpty()) return List.of();
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         try {
-            Item.TooltipContext ctx = client.world == null
-                    ? Item.TooltipContext.DEFAULT : Item.TooltipContext.create(client.world);
-            return stack.getTooltip(ctx, client.player, TooltipType.BASIC);
+            Item.TooltipContext ctx = client.level == null
+                    ? Item.TooltipContext.EMPTY : Item.TooltipContext.of(client.level);
+            return stack.getTooltipLines(ctx, client.player, TooltipFlag.NORMAL);
         } catch (Exception e) {
-            return List.of(stack.getName());
+            return List.of(stack.getHoverName());
         }
     }
 
@@ -432,60 +431,60 @@ public final class Stacks {
         return String.join(" · ", parts);
     }
 
-    private static RegistryOps<NbtElement> ops() {
-        ClientWorld world = MinecraftClient.getInstance().world;
+    private static RegistryOps<Tag> ops() {
+        ClientLevel world = Minecraft.getInstance().level;
         if (world == null) return null;
-        return RegistryOps.of(NbtOps.INSTANCE, world.getRegistryManager());
+        return RegistryOps.create(NbtOps.INSTANCE, world.registryAccess());
     }
 
-    public static ComponentChanges components(String snbt) {
-        if (snbt == null || snbt.isBlank()) return ComponentChanges.EMPTY;
-        NbtCompound nbt;
+    public static DataComponentPatch components(String snbt) {
+        if (snbt == null || snbt.isBlank()) return DataComponentPatch.EMPTY;
+        CompoundTag nbt;
         try {
-            nbt = StringNbtReader.readCompound(snbt);
+            nbt = TagParser.parseCompoundFully(snbt);
         } catch (CommandSyntaxException e) {
             throw new IllegalArgumentException(e.getRawMessage().getString(), e);
         }
-        RegistryOps<NbtElement> ops = ops();
+        RegistryOps<Tag> ops = ops();
         if (ops == null) throw new IllegalArgumentException("нет мира — компоненты не разобрать");
-        DataResult<ComponentChanges> parsed = ComponentChanges.CODEC.parse(ops, nbt);
+        DataResult<DataComponentPatch> parsed = DataComponentPatch.CODEC.parse(ops, nbt);
         if (parsed.error().isPresent())
             throw new IllegalArgumentException(parsed.error().get().message());
-        return parsed.result().orElse(ComponentChanges.EMPTY);
+        return parsed.result().orElse(DataComponentPatch.EMPTY);
     }
 
-    private static NbtCompound compound(String snbt) {
-        if (snbt == null || snbt.isBlank()) return new NbtCompound();
+    private static CompoundTag compound(String snbt) {
+        if (snbt == null || snbt.isBlank()) return new CompoundTag();
         try {
-            return StringNbtReader.readCompound(snbt);
+            return TagParser.parseCompoundFully(snbt);
         } catch (CommandSyntaxException e) {
             return null;
         }
     }
 
-    private static ComponentChanges decode(NbtCompound nbt) {
-        RegistryOps<NbtElement> ops = ops();
+    private static DataComponentPatch decode(CompoundTag nbt) {
+        RegistryOps<Tag> ops = ops();
         if (ops == null) return null;
-        return ComponentChanges.CODEC.parse(ops, nbt).result().orElse(null);
+        return DataComponentPatch.CODEC.parse(ops, nbt).result().orElse(null);
     }
 
-    public static ComponentChanges extras(String snbt) {
-        NbtCompound nbt = compound(snbt);
-        if (nbt == null) return ComponentChanges.EMPTY;
+    public static DataComponentPatch extras(String snbt) {
+        CompoundTag nbt = compound(snbt);
+        if (nbt == null) return DataComponentPatch.EMPTY;
         for (String key : MODELLED) nbt.remove(key);
-        ComponentChanges changes = decode(nbt);
-        return changes == null ? ComponentChanges.EMPTY : changes;
+        DataComponentPatch changes = decode(nbt);
+        return changes == null ? DataComponentPatch.EMPTY : changes;
     }
 
-    private static NbtCompound encode(ComponentChanges changes) {
-        RegistryOps<NbtElement> ops = ops();
+    private static CompoundTag encode(DataComponentPatch changes) {
+        RegistryOps<Tag> ops = ops();
         if (ops == null) return null;
-        NbtElement el = ComponentChanges.CODEC.encodeStart(ops, changes).result().orElse(null);
-        return el instanceof NbtCompound c ? c : null;
+        Tag el = DataComponentPatch.CODEC.encodeStart(ops, changes).result().orElse(null);
+        return el instanceof CompoundTag c ? c : null;
     }
 
     public static String print(Value v) {
-        NbtCompound nbt = encode(build(v).getComponentChanges());
+        CompoundTag nbt = encode(build(v).getComponentsPatch());
         return nbt == null ? "" : nbt.toString();
     }
 
@@ -500,7 +499,7 @@ public final class Stacks {
         memoCount = 0;
         if (snbt == null || snbt.isBlank()) return;
         try {
-            memoCount = StringNbtReader.readCompound(snbt).getSize();
+            memoCount = TagParser.parseCompoundFully(snbt).size();
             components(snbt);
         } catch (CommandSyntaxException e) {
             memoError = e.getRawMessage().getString();
@@ -521,10 +520,10 @@ public final class Stacks {
     }
 
     public static int extraCount(String snbt) {
-        NbtCompound nbt = compound(snbt);
+        CompoundTag nbt = compound(snbt);
         if (nbt == null) return 0;
         for (String key : MODELLED) nbt.remove(key);
-        return nbt.getSize();
+        return nbt.size();
     }
 
     public static ItemStack preview(Value v) {
@@ -547,9 +546,9 @@ public final class Stacks {
 
     public static String indent(String snbt) {
         if (snbt == null || snbt.isBlank()) return snbt;
-        NbtCompound before;
+        CompoundTag before;
         try {
-            before = StringNbtReader.readCompound(snbt);
+            before = TagParser.parseCompoundFully(snbt);
         } catch (CommandSyntaxException e) {
             return snbt;
         }
@@ -584,7 +583,7 @@ public final class Stacks {
         out.append("\n}");
         String result = out.toString();
         try {
-            return StringNbtReader.readCompound(result).equals(before) ? result : snbt;
+            return TagParser.parseCompoundFully(result).equals(before) ? result : snbt;
         } catch (CommandSyntaxException e) {
             return snbt;
         }

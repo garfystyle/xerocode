@@ -1,16 +1,16 @@
 package com.xerocode.ui;
 
 import com.xerocode.Placeholders;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.text.StringVisitable;
-import net.minecraft.text.Style;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.network.chat.FormattedText;
+import net.minecraft.network.chat.Style;
 
 public final class Complete {
     private static final int ROW_H = 12, PAD = 3, ROWS = 7, MAX_HITS = 40;
@@ -19,8 +19,8 @@ public final class Complete {
     private final List<Placeholders.Item> hits = new ArrayList<>();
     private final List<String> desc = new ArrayList<>();
 
-    private TextFieldWidget field;
-    private TextRenderer tr;
+    private EditBox field;
+    private Font tr;
     private int screenW, screenH;
     private int start = -1;
     private int sel, scroll;
@@ -36,21 +36,21 @@ public final class Complete {
         hits.clear();
     }
 
-    public void update(TextFieldWidget f, TextRenderer tr, int screenW, int screenH) {
+    public void update(EditBox f, Font tr, int screenW, int screenH) {
         this.tr = tr;
         this.screenW = screenW;
         this.screenH = screenH;
         rescan(f);
     }
 
-    private void rescan(TextFieldWidget f) {
+    private void rescan(EditBox f) {
         field = f;
         hits.clear();
         start = -1;
         if (f == null || !f.isFocused()) { dismissed = -1; return; }
 
-        String text = f.getText();
-        int cursor = Math.max(0, Math.min(f.getCursor(), text.length()));
+        String text = f.getValue();
+        int cursor = Math.max(0, Math.min(f.getCursorPosition(), text.length()));
         int p = tokenStart(text, cursor);
         if (p < 0) { dismissed = -1; return; }
         if (dismissed == p) return;
@@ -66,7 +66,7 @@ public final class Complete {
     private void wrapDesc(String text, int room) {
         desc.clear();
         if (text.isBlank()) return;
-        for (StringVisitable line : tr.getTextHandler().wrapLines(text.trim(), room, Style.EMPTY)) {
+        for (FormattedText line : tr.getSplitter().splitLines(text.trim(), room, Style.EMPTY)) {
             if (desc.size() < DESC_LINES) { desc.add(line.getString()); continue; }
             int last = DESC_LINES - 1;
             desc.set(last, Draw.fit(tr, desc.get(last) + " " + line.getString(), room));
@@ -93,8 +93,8 @@ public final class Complete {
     private void place() {
         int textW = MIN_W;
         for (Placeholders.Item it : hits)
-            textW = Math.max(textW, tr.getWidth(it.insert())
-                    + tr.getWidth(Placeholders.categoryName(it.category())) + 22);
+            textW = Math.max(textW, tr.width(it.insert())
+                    + tr.width(Placeholders.categoryName(it.category())) + 22);
         w = Math.min(Math.min(MAX_W, Math.max(40, screenW - 4)), textW);
 
         int rows = Math.min(ROWS, hits.size());
@@ -111,7 +111,7 @@ public final class Complete {
         y = below + h > screenH - 2 ? Math.max(2, field.getY() - h - 2) : below;
     }
 
-    public boolean keyPressed(KeyInput input) {
+    public boolean keyPressed(KeyEvent input) {
         if (!active()) return false;
         int key = input.key();
         if (key == GLFW.GLFW_KEY_ESCAPE) {
@@ -137,16 +137,16 @@ public final class Complete {
 
     private void accept() {
         Placeholders.Item pick = hits.get(sel);
-        String text = field.getText();
-        int cursor = Math.max(0, Math.min(field.getCursor(), text.length()));
+        String text = field.getValue();
+        int cursor = Math.max(0, Math.min(field.getCursorPosition(), text.length()));
         String made = text.substring(0, start) + pick.insert() + text.substring(cursor);
-        field.setText(made);
-        if (!field.getText().equals(made)) {
-            field.setText(text);
-            field.setCursor(cursor, false);
+        field.setValue(made);
+        if (!field.getValue().equals(made)) {
+            field.setValue(text);
+            field.moveCursorTo(cursor, false);
             return;
         }
-        field.setCursor(start + pick.caret(), false);
+        field.moveCursorTo(start + pick.caret(), false);
         start = -1;
         hits.clear();
         rescan(field);
@@ -174,7 +174,7 @@ public final class Complete {
         return scroll + rel / ROW_H;
     }
 
-    public void render(DrawContext ctx, TextRenderer tr, int mouseX, int mouseY) {
+    public void render(GuiGraphics ctx, Font tr, int mouseX, int mouseY) {
         if (!active()) return;
         Draw.shadow(ctx, x, y, w, h, 4);
         Draw.card(ctx, x, y, w, h, 4, Draw.opaque(Ui.PANEL), Draw.opaque(Theme.ACCENT));
@@ -197,7 +197,7 @@ public final class Complete {
             int tagW = 0;
             if (firstOfKind) {
                 String tag = Placeholders.categoryName(it.category());
-                tagW = tr.getWidth(tag);
+                tagW = tr.width(tag);
                 Draw.text(ctx, tr, Draw.ordered(tag), right - tagW, ry + 2,
                         on ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
             }

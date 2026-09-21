@@ -2,8 +2,6 @@ package com.xerocode;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import net.minecraft.client.MinecraftClient;
-
 import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
@@ -19,6 +17,7 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import net.minecraft.client.Minecraft;
 
 public final class MarketId {
     private static final Base64.Encoder URL = Base64.getUrlEncoder().withoutPadding();
@@ -54,7 +53,7 @@ public final class MarketId {
     }
 
     public static Path file() {
-        Path base = home != null ? home : MinecraftClient.getInstance().runDirectory.toPath();
+        Path base = home != null ? home : Minecraft.getInstance().gameDirectory.toPath();
         return base.resolve("xerocode/market-id.json");
     }
 

@@ -4,17 +4,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.PotionContentsComponent;
-import net.minecraft.entity.effect.StatusEffect;
-import net.minecraft.entity.effect.StatusEffectInstance;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.util.Identifier;
-
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +13,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import net.minecraft.core.Holder;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.alchemy.PotionContents;
 
 public final class Pickers {
     private static final Map<String, ItemStack> POTION_ITEMS = new HashMap<>();
@@ -34,12 +32,12 @@ public final class Pickers {
         ItemStack stack = new ItemStack(Items.POTION);
         try {
             Identifier id = Identifier.tryParse(effectId);
-            RegistryEntry.Reference<StatusEffect> entry = id == null ? null
-                    : Registries.STATUS_EFFECT.getEntry(id).orElse(null);
+            Holder.Reference<MobEffect> entry = id == null ? null
+                    : BuiltInRegistries.MOB_EFFECT.get(id).orElse(null);
             if (entry != null)
-                stack.set(DataComponentTypes.POTION_CONTENTS, new PotionContentsComponent(
+                stack.set(DataComponents.POTION_CONTENTS, new PotionContents(
                         Optional.empty(), Optional.empty(),
-                        List.of(new StatusEffectInstance(entry, 1)), Optional.empty()));
+                        List.of(new MobEffectInstance(entry, 1)), Optional.empty()));
         } catch (RuntimeException ignored) {
         }
         POTION_ITEMS.put(effectId, stack);

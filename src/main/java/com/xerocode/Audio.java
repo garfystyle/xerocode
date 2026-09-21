@@ -1,14 +1,14 @@
 package com.xerocode;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.sound.OggAudioStream;
-import net.minecraft.client.sound.Sound;
-import net.minecraft.client.sound.SoundManager;
-import net.minecraft.client.sound.WeightedSoundSet;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.sounds.Sound;
+import net.minecraft.client.sounds.JOrbisAudioStream;
+import net.minecraft.client.sounds.SoundManager;
+import net.minecraft.client.sounds.WeighedSoundEvents;
+import net.minecraft.resources.Identifier;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.RandomSource;
 import net.minecraft.util.Util;
-import net.minecraft.util.math.random.Random;
 import org.lwjgl.openal.AL10;
 import org.lwjgl.openal.AL11;
 
@@ -140,16 +140,16 @@ public final class Audio {
     }
 
     public static void mix(double volume, double pitchValue, String channel) {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         float slider = 1;
         if (client.options != null) {
-            SoundCategory category;
+            SoundSource category;
             try {
-                category = SoundCategory.valueOf(channel == null ? "MASTER" : channel);
+                category = SoundSource.valueOf(channel == null ? "MASTER" : channel);
             } catch (IllegalArgumentException e) {
-                category = SoundCategory.MASTER;
+                category = SoundSource.MASTER;
             }
-            slider = client.options.getSoundVolume(category);
+            slider = client.options.getFinalSoundSourceVolume(category);
         }
         float g = (float) Math.max(0, Math.min(2, volume)) * slider;
         float p = (float) Math.max(0.5, Math.min(2, pitchValue));
@@ -171,28 +171,28 @@ public final class Audio {
         Identifier file = fileOf(id);
         if (file == null) { state = State.MISSING; return; }
         jobFor = id;
-        job = CompletableFuture.supplyAsync(() -> decode(file), Util.getMainWorkerExecutor());
+        job = CompletableFuture.supplyAsync(() -> decode(file), Util.backgroundExecutor());
     }
 
     private static Identifier fileOf(String soundId) {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         Identifier ident = Identifier.tryParse(soundId);
         if (ident == null || client.getSoundManager() == null) return null;
-        WeightedSoundSet set = client.getSoundManager().get(ident);
+        WeighedSoundEvents set = client.getSoundManager().getSoundEvent(ident);
         if (set == null) return null;
-        Sound sound = set.getSound(Random.create());
-        if (sound != null && sound.getRegistrationType() == Sound.RegistrationType.SOUND_EVENT) {
-            WeightedSoundSet inner = client.getSoundManager().get(sound.getIdentifier());
-            sound = inner == null ? null : inner.getSound(Random.create());
+        Sound sound = set.getSound(RandomSource.create());
+        if (sound != null && sound.getType() == Sound.Type.SOUND_EVENT) {
+            WeighedSoundEvents inner = client.getSoundManager().getSoundEvent(sound.getLocation());
+            sound = inner == null ? null : inner.getSound(RandomSource.create());
         }
-        if (sound == null || sound == SoundManager.MISSING_SOUND) return null;
-        return sound.getLocation();
+        if (sound == null || sound == SoundManager.EMPTY_SOUND) return null;
+        return sound.getPath();
     }
 
     private static Pcm decode(Identifier file) {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         try (InputStream in = client.getResourceManager().open(file);
-             OggAudioStream ogg = new OggAudioStream(in)) {
+             JOrbisAudioStream ogg = new JOrbisAudioStream(in)) {
             AudioFormat format = ogg.getFormat();
             ByteBuffer data = ogg.readAll();
             int channels = Math.max(1, format.getChannels());

@@ -1,34 +1,34 @@
 package com.xerocode.ui;
 
 import com.mojang.blaze3d.pipeline.RenderPipeline;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.ScreenRect;
-import net.minecraft.client.gui.render.state.SimpleGuiElementRenderState;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.texture.TextureSetup;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.gui.render.TextureSetup;
+import net.minecraft.client.gui.render.state.GuiElementRenderState;
+import net.minecraft.client.renderer.RenderPipelines;
 import org.joml.Matrix3x2f;
 import org.joml.Matrix3x2fc;
 
-public final class Batch implements SimpleGuiElementRenderState {
+public final class Batch implements GuiElementRenderState {
     private static final int STRIDE = 6;
 
     private final Matrix3x2f pose;
-    private final ScreenRect scissor;
-    private final ScreenRect bounds;
+    private final ScreenRectangle scissor;
+    private final ScreenRectangle bounds;
     private int[] data;
     private int count;
 
-    private Batch(Matrix3x2fc pose, ScreenRect scissor, ScreenRect bounds, int capacity) {
+    private Batch(Matrix3x2fc pose, ScreenRectangle scissor, ScreenRectangle bounds, int capacity) {
         this.pose = new Matrix3x2f(pose);
         this.scissor = scissor;
         this.bounds = bounds;
         this.data = new int[capacity * STRIDE];
     }
 
-    public static Batch open(DrawContext ctx, ScreenRect scissor, ScreenRect bounds, int capacity) {
-        Batch batch = new Batch(ctx.getMatrices(), scissor, bounds, capacity);
-        ctx.state.addSimpleElement(batch);
+    public static Batch open(GuiGraphics ctx, ScreenRectangle scissor, ScreenRectangle bounds, int capacity) {
+        Batch batch = new Batch(ctx.pose(), scissor, bounds, capacity);
+        ctx.guiRenderState.submitGuiElement(batch);
         return batch;
     }
 
@@ -52,18 +52,18 @@ public final class Batch implements SimpleGuiElementRenderState {
     public int size() { return count; }
 
     @Override
-    public void setupVertices(VertexConsumer vc) {
+    public void buildVertices(VertexConsumer vc) {
         if (count == 0) {
-            for (int k = 0; k < 4; k++) vc.vertex(pose, 0, 0).color(0);
+            for (int k = 0; k < 4; k++) vc.addVertexWith2DPose(pose, 0, 0).setColor(0);
             return;
         }
         for (int i = 0, at = 0; i < count; i++, at += STRIDE) {
             int x0 = data[at], y0 = data[at + 1], x1 = data[at + 2], y1 = data[at + 3];
             int top = data[at + 4], bottom = data[at + 5];
-            vc.vertex(pose, x0, y0).color(top);
-            vc.vertex(pose, x0, y1).color(bottom);
-            vc.vertex(pose, x1, y1).color(bottom);
-            vc.vertex(pose, x1, y0).color(top);
+            vc.addVertexWith2DPose(pose, x0, y0).setColor(top);
+            vc.addVertexWith2DPose(pose, x0, y1).setColor(bottom);
+            vc.addVertexWith2DPose(pose, x1, y1).setColor(bottom);
+            vc.addVertexWith2DPose(pose, x1, y0).setColor(top);
         }
     }
 
@@ -71,11 +71,11 @@ public final class Batch implements SimpleGuiElementRenderState {
     public RenderPipeline pipeline() { return RenderPipelines.GUI; }
 
     @Override
-    public TextureSetup textureSetup() { return TextureSetup.empty(); }
+    public TextureSetup textureSetup() { return TextureSetup.noTexture(); }
 
     @Override
-    public ScreenRect scissorArea() { return scissor; }
+    public ScreenRectangle scissorArea() { return scissor; }
 
     @Override
-    public ScreenRect bounds() { return bounds; }
+    public ScreenRectangle bounds() { return bounds; }
 }

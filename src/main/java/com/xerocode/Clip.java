@@ -4,10 +4,9 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import net.minecraft.client.MinecraftClient;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.Minecraft;
 
 public final class Clip {
     private static final String MARK = "xerocode";
@@ -112,8 +111,8 @@ public final class Clip {
 
     private static void write(String text) {
         try {
-            MinecraftClient client = MinecraftClient.getInstance();
-            if (client != null && client.keyboard != null) client.keyboard.setClipboard(text);
+            Minecraft client = Minecraft.getInstance();
+            if (client != null && client.keyboardHandler != null) client.keyboardHandler.setClipboard(text);
         } catch (Throwable e) {
             XeroCode.LOG.warn("[xerocode] буфер обмена недоступен", e);
         }
@@ -121,8 +120,8 @@ public final class Clip {
 
     private static String read() {
         try {
-            MinecraftClient client = MinecraftClient.getInstance();
-            return client == null || client.keyboard == null ? "" : client.keyboard.getClipboard();
+            Minecraft client = Minecraft.getInstance();
+            return client == null || client.keyboardHandler == null ? "" : client.keyboardHandler.getClipboard();
         } catch (Throwable e) {
             return "";
         }

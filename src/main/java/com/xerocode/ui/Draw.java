@@ -1,9 +1,9 @@
 package com.xerocode.ui;
 
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.item.ItemStack;
-import net.minecraft.text.OrderedText;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.item.ItemStack;
 
 public final class Draw {
     public static int argb(int a, int rgb) { return (a << 24) | (rgb & 0xFFFFFF); }
@@ -49,13 +49,13 @@ public final class Draw {
     public static void batch(Batch b) { batch = b; }
     public static Batch batch() { return batch; }
 
-    private static void quad(DrawContext ctx, int x0, int y0, int x1, int y1, int top, int bottom) {
+    private static void quad(GuiGraphics ctx, int x0, int y0, int x1, int y1, int top, int bottom) {
         if (batch != null) { batch.quad(x0, y0, x1, y1, top, bottom); return; }
         if (top == bottom) ctx.fill(x0, y0, x1, y1, top);
         else ctx.fillGradient(x0, y0, x1, y1, top, bottom);
     }
 
-    public static void rect(DrawContext ctx, int x, int y, int w, int h, int argb) {
+    public static void rect(GuiGraphics ctx, int x, int y, int w, int h, int argb) {
         if (w <= 0 || h <= 0) return;
         if (Audit.on()) Audit.note(Audit.FILL, x, y, w, h, "");
         quad(ctx, x, y, x + w, y + h, argb, argb);
@@ -68,29 +68,29 @@ public final class Draw {
         return (int) Math.round(r - dx);
     }
 
-    public static void roundRect(DrawContext ctx, int x, int y, int w, int h,
+    public static void roundRect(GuiGraphics ctx, int x, int y, int w, int h,
                                  int tl, int tr, int br, int bl, int argb) {
         roundRectGrad(ctx, x, y, w, h, tl, tr, br, bl, argb, argb);
     }
 
-    public static void round(DrawContext ctx, int x, int y, int w, int h, int r, int argb) {
+    public static void round(GuiGraphics ctx, int x, int y, int w, int h, int r, int argb) {
         roundRectGrad(ctx, x, y, w, h, r, r, r, r, argb, argb);
     }
 
-    public static void pill(DrawContext ctx, int x, int y, int w, int h, int argb) {
+    public static void pill(GuiGraphics ctx, int x, int y, int w, int h, int argb) {
         pillGrad(ctx, x, y, w, h, argb, argb);
     }
 
-    public static void pillGrad(DrawContext ctx, int x, int y, int w, int h, int top, int bottom) {
+    public static void pillGrad(GuiGraphics ctx, int x, int y, int w, int h, int top, int bottom) {
         int r = Math.min(h / 2, w / 2);
         roundRectGrad(ctx, x, y, w, h, r, r, r, r, top, bottom);
     }
 
-    public static void dot(DrawContext ctx, int x, int y, int argb) {
+    public static void dot(GuiGraphics ctx, int x, int y, int argb) {
         round(ctx, x, y, 4, 4, 2, argb);
     }
 
-    public static void roundRectGrad(DrawContext ctx, int x, int y, int w, int h,
+    public static void roundRectGrad(GuiGraphics ctx, int x, int y, int w, int h,
                                      int tl, int tr, int br, int bl, int top, int bottom) {
         if (Audit.on()) Audit.note(Audit.FILL, x, y, w, h, "");
         rows(ctx, x, y, w, h, tl, tr, br, bl, 0, h, top, bottom);
@@ -114,7 +114,7 @@ public final class Draw {
         return h <= 1 || top == bottom ? top : mixArgb(top, bottom, dy / (float) (h - 1));
     }
 
-    private static void rows(DrawContext ctx, int x, int y, int w, int h,
+    private static void rows(GuiGraphics ctx, int x, int y, int w, int h,
                              int tl, int tr, int br, int bl, int from, int to,
                              int top, int bottom) {
         if (w <= 0 || h <= 0 || to <= from) return;
@@ -135,7 +135,7 @@ public final class Draw {
         }
     }
 
-    public static void notch(DrawContext ctx, int x, int y, int w, int h,
+    public static void notch(GuiGraphics ctx, int x, int y, int w, int h,
                              int tl, int tr, int br, int bl, int argb) {
         if (w <= 0 || h <= 0) return;
         for (int dy = 0; dy < h; dy++) {
@@ -145,7 +145,7 @@ public final class Draw {
         }
     }
 
-    public static void hgrad(DrawContext ctx, int x, int y, int w, int h, int left, int right) {
+    public static void hgrad(GuiGraphics ctx, int x, int y, int w, int h, int left, int right) {
         if (w <= 0 || h <= 0) return;
         for (int i = 0; i < w; i++) {
             int c = w == 1 ? left : mixArgb(left, right, i / (float) (w - 1));
@@ -153,7 +153,7 @@ public final class Draw {
         }
     }
 
-    public static void roundVeil(DrawContext ctx, int x, int y, int w, int h, int r,
+    public static void roundVeil(GuiGraphics ctx, int x, int y, int w, int h, int r,
                                  int hx0, int hy0, int hx1, int hy1, int argb) {
         if (w <= 0 || h <= 0) return;
         for (int dy = 0; dy < h; dy++) {
@@ -169,7 +169,7 @@ public final class Draw {
         }
     }
 
-    public static void roundOutline(DrawContext ctx, int x, int y, int w, int h, int r, int argb) {
+    public static void roundOutline(GuiGraphics ctx, int x, int y, int w, int h, int r, int argb) {
         if (w <= 0 || h <= 0) return;
         int ri = Math.max(0, r - 1);
         for (int dy = 0; dy < h; dy++) {
@@ -192,7 +192,7 @@ public final class Draw {
         }
     }
 
-    public static void card(DrawContext ctx, int x, int y, int w, int h,
+    public static void card(GuiGraphics ctx, int x, int y, int w, int h,
                             int tl, int tr, int br, int bl,
                             int fillTop, int fillBottom, int border) {
         roundRect(ctx, x, y, w, h, tl, tr, br, bl, border);
@@ -201,12 +201,12 @@ public final class Draw {
                 Math.max(0, br - 1), Math.max(0, bl - 1), fillTop, fillBottom);
     }
 
-    public static void card(DrawContext ctx, int x, int y, int w, int h, int r,
+    public static void card(GuiGraphics ctx, int x, int y, int w, int h, int r,
                             int fill, int border) {
         card(ctx, x, y, w, h, r, r, r, r, fill, fill, border);
     }
 
-    public static void shadow(DrawContext ctx, int x, int y, int w, int h, int r) {
+    public static void shadow(GuiGraphics ctx, int x, int y, int w, int h, int r) {
         if (w <= 0 || h <= 0 || !com.xerocode.Settings.shadows()) return;
         int core = Theme.SHADOW, soft = Theme.SHADOW_SOFT;
         int i = Math.max(0, r - 1);
@@ -216,7 +216,7 @@ public final class Draw {
         rect(ctx, x + 1 + i, y + h + 2, w - i - 1, 1, soft);
     }
 
-    public static void blockShape(DrawContext ctx, int x, int y, int w, int h,
+    public static void blockShape(GuiGraphics ctx, int x, int y, int w, int h,
                                   int openFrom, int openTo,
                                   int fillTop, int fillBottom, int border) {
         if (w <= 0 || h <= 0) return;
@@ -228,50 +228,50 @@ public final class Draw {
             rect(ctx, openFrom, y + h - 1, openTo - openFrom, 1, fillBottom);
     }
 
-    public static void span(DrawContext ctx, int l, int r, int y, int hole0, int hole1, int argb) {
+    public static void span(GuiGraphics ctx, int l, int r, int y, int hole0, int hole1, int argb) {
         rect(ctx, l, y, Math.max(0, Math.min(hole0, r) - l), 1, argb);
         int right = Math.max(l, hole1);
         rect(ctx, right, y, Math.max(0, r - right), 1, argb);
     }
 
-    public static String fit(TextRenderer tr, String s, int maxWidth) {
+    public static String fit(Font tr, String s, int maxWidth) {
         if (maxWidth <= 0) return "";
-        if (tr.getWidth(s) <= maxWidth) return s;
-        int room = maxWidth - tr.getWidth("…");
+        if (tr.width(s) <= maxWidth) return s;
+        int room = maxWidth - tr.width("…");
         if (room <= 0) return "…";
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < s.length(); i++) {
-            if (tr.getWidth(sb.toString() + s.charAt(i)) > room) break;
+            if (tr.width(sb.toString() + s.charAt(i)) > room) break;
             sb.append(s.charAt(i));
         }
         return sb + "…";
     }
 
-    public static void textCenter(DrawContext ctx, TextRenderer tr, String s, int x, int y,
+    public static void textCenter(GuiGraphics ctx, Font tr, String s, int x, int y,
                                   int w, int room, int rgb, boolean shadow) {
         String t = fit(tr, s, room);
-        text(ctx, tr, t, x + (w - tr.getWidth(t)) / 2, y, rgb, shadow);
+        text(ctx, tr, t, x + (w - tr.width(t)) / 2, y, rgb, shadow);
     }
 
-    public static void text(DrawContext ctx, TextRenderer tr, String s, int x, int y,
+    public static void text(GuiGraphics ctx, Font tr, String s, int x, int y,
                             int rgb, boolean shadow) {
         int argb = opaque(rgb);
         if (Audit.on() && !s.isEmpty())
-            Audit.note(Audit.TEXT, x, y, tr.getWidth(s), Ui.TEXT_H, s);
-        if (!SmoothText.draw(ctx, tr, s, x, y, argb, shadow)) ctx.drawText(tr, s, x, y, argb, shadow);
+            Audit.note(Audit.TEXT, x, y, tr.width(s), Ui.TEXT_H, s);
+        if (!SmoothText.draw(ctx, tr, s, x, y, argb, shadow)) ctx.drawString(tr, s, x, y, argb, shadow);
     }
 
-    public static void text(DrawContext ctx, TextRenderer tr, OrderedText s, int x, int y,
+    public static void text(GuiGraphics ctx, Font tr, FormattedCharSequence s, int x, int y,
                             int rgb, boolean shadow) {
         int argb = opaque(rgb);
-        if (Audit.on()) Audit.note(Audit.TEXT, x, y, tr.getWidth(s), Ui.TEXT_H, "");
-        if (!SmoothText.draw(ctx, tr, s, x, y, argb, shadow)) ctx.drawText(tr, s, x, y, argb, shadow);
+        if (Audit.on()) Audit.note(Audit.TEXT, x, y, tr.width(s), Ui.TEXT_H, "");
+        if (!SmoothText.draw(ctx, tr, s, x, y, argb, shadow)) ctx.drawString(tr, s, x, y, argb, shadow);
     }
 
-    public static void textScaled(DrawContext ctx, TextRenderer tr, OrderedText s, int x, int y,
+    public static void textScaled(GuiGraphics ctx, Font tr, FormattedCharSequence s, int x, int y,
                                   int scale, int rgb, boolean shadow) {
         if (scale <= 1) { text(ctx, tr, s, x, y, rgb, shadow); return; }
-        var m = ctx.getMatrices();
+        var m = ctx.pose();
         m.pushMatrix();
         m.translate(x, y);
         m.scale(scale, scale);
@@ -279,45 +279,45 @@ public final class Draw {
         m.popMatrix();
     }
 
-    public static void item(DrawContext ctx, ItemStack stack, int x, int y, int size) {
+    public static void item(GuiGraphics ctx, ItemStack stack, int x, int y, int size) {
         if (stack.isEmpty()) return;
         if (Audit.on()) Audit.note(Audit.ITEM, x, y, size, size, "");
-        if (size == 16) { ctx.drawItem(stack, x, y); return; }
-        var m = ctx.getMatrices();
+        if (size == 16) { ctx.renderItem(stack, x, y); return; }
+        var m = ctx.pose();
         m.pushMatrix();
         m.translate(x, y);
         m.scale(size / 16f, size / 16f);
-        ctx.drawItem(stack, 0, 0);
+        ctx.renderItem(stack, 0, 0);
         m.popMatrix();
     }
 
-    public static OrderedText ordered(String s) {
-        return net.minecraft.util.Language.getInstance()
-                .reorder(net.minecraft.text.StringVisitable.plain(s));
+    public static FormattedCharSequence ordered(String s) {
+        return net.minecraft.locale.Language.getInstance()
+                .getVisualOrder(net.minecraft.network.chat.FormattedText.of(s));
     }
 
-    public static void textFit(DrawContext ctx, TextRenderer tr, String s, int x, int y,
+    public static void textFit(GuiGraphics ctx, Font tr, String s, int x, int y,
                                int maxWidth, int rgb, boolean shadow) {
         text(ctx, tr, fit(tr, s, maxWidth), x, y, rgb, shadow);
     }
 
-    public static void textRight(DrawContext ctx, TextRenderer tr, String s, int right, int y,
+    public static void textRight(GuiGraphics ctx, Font tr, String s, int right, int y,
                                  int rgb, boolean shadow) {
-        text(ctx, tr, s, right - tr.getWidth(s), y, rgb, shadow);
+        text(ctx, tr, s, right - tr.width(s), y, rgb, shadow);
     }
 
-    public static int badge(DrawContext ctx, TextRenderer tr, String s, int x, int y,
+    public static int badge(GuiGraphics ctx, Font tr, String s, int x, int y,
                             int fill, int rgb) {
-        int w = tr.getWidth(s) + 8;
+        int w = tr.width(s) + 8;
         round(ctx, x, y, w, 11, 3, fill);
-        if (Audit.on()) Audit.note(Audit.TEXT, x + 4, y + 2, tr.getWidth(s), Ui.TEXT_H, s);
-        ctx.drawText(tr, s, x + 4, y + 2, opaque(rgb), false);
+        if (Audit.on()) Audit.note(Audit.TEXT, x + 4, y + 2, tr.width(s), Ui.TEXT_H, s);
+        ctx.drawString(tr, s, x + 4, y + 2, opaque(rgb), false);
         return w;
     }
 
-    public static int badgeWidth(TextRenderer tr, String s) { return tr.getWidth(s) + 8; }
+    public static int badgeWidth(Font tr, String s) { return tr.width(s) + 8; }
 
-    public static void glyph(DrawContext ctx, String[] rows, int x, int y, int rgb) {
+    public static void glyph(GuiGraphics ctx, String[] rows, int x, int y, int rgb) {
         int c = opaque(rgb);
         if (Audit.on()) Audit.note(Audit.GLYPH, x, y, glyphW(rows), glyphH(rows), "");
         for (int r = 0; r < rows.length; r++) {

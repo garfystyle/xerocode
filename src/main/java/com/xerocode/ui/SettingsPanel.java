@@ -1,23 +1,23 @@
 package com.xerocode.ui;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.xerocode.Catalog;
 import com.xerocode.Collab;
 import com.xerocode.Settings;
 import com.xerocode.Settings.Hot;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.client.util.InputUtil;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 
 public final class SettingsPanel {
     private static final int WANT_W = 384;
@@ -51,7 +51,7 @@ public final class SettingsPanel {
         int dy;
 
         Row(String label, String hint, String[] options, IntSupplier get, IntConsumer set,
-            TextRenderer tr, int width) {
+            Font tr, int width) {
             this.label = label;
             this.hint = hint;
             this.get = get;
@@ -63,7 +63,7 @@ public final class SettingsPanel {
     }
 
     private final Settings s = Settings.get();
-    private final TextRenderer tr;
+    private final Font tr;
     private final List<Row> rows = new ArrayList<>();
     private final List<Catalog.Category> categories = new ArrayList<>();
 
@@ -75,14 +75,14 @@ public final class SettingsPanel {
     private Hot binding;
     private int openColor = -1;
     private float pickH, pickS, pickV;
-    private TextFieldWidget hexField;
-    private TextFieldWidget nameField, codeField;
+    private EditBox hexField;
+    private EditBox nameField, codeField;
     private boolean syncing;
     private int dragging;
     private boolean hexDrag;
     private boolean closed, changed;
 
-    public SettingsPanel(TextRenderer tr, int screenW, int screenH) {
+    public SettingsPanel(Font tr, int screenW, int screenH) {
         this.tr = tr;
         categories.addAll(Catalog.CATEGORIES);
         build(screenW, screenH);
@@ -133,12 +133,12 @@ public final class SettingsPanel {
         this.h = Ui.fitH(screenH, 392);
         this.y = Ui.midY(screenH, h);
 
-        String hadName = nameField == null ? s.collabName : nameField.getText();
-        String hadCode = codeField == null ? s.collabCode : codeField.getText();
+        String hadName = nameField == null ? s.collabName : nameField.getValue();
+        String hadCode = codeField == null ? s.collabCode : codeField.getValue();
         nameField = Ui.field(tr, hadName, Collab.myName(), 16);
-        nameField.setChangedListener(t -> s.collabName = t);
+        nameField.setResponder(t -> s.collabName = t);
         codeField = Ui.field(tr, hadCode, "код приглашения", 40);
-        codeField.setChangedListener(t -> s.collabCode = t.trim());
+        codeField.setResponder(t -> s.collabCode = t.trim());
     }
 
     public boolean isClosed() { return closed; }
@@ -176,7 +176,7 @@ public final class SettingsPanel {
     private final Ui.Bar bar = new Ui.Bar();
     private int lastMx, lastMy;
 
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         lastMx = mouseX;
         lastMy = mouseY;
         Ui.dim(ctx, screenW, screenH);
@@ -213,7 +213,7 @@ public final class SettingsPanel {
                 "Готово", Ui.ACCENT);
     }
 
-    private void drawKeys(DrawContext ctx, int mouseX, int mouseY, int top) {
+    private void drawKeys(GuiGraphics ctx, int mouseX, int mouseY, int top) {
         Hot[] all = Hot.values();
         for (int i = 0; i < all.length; i++) {
             Hot hot = all[i];
@@ -232,7 +232,7 @@ public final class SettingsPanel {
                 x + PAD, hintY, W - PAD * 2, Theme.TEXT_FAINT, false);
     }
 
-    private void drawLook(DrawContext ctx, int mouseX, int mouseY, int top) {
+    private void drawLook(GuiGraphics ctx, int mouseX, int mouseY, int top) {
         drawPreview(ctx, x + PAD, top, W - PAD * 2, PREVIEW_H, mouseX, mouseY);
         int rowsTop = top + PREVIEW_H + 10;
         for (Row r : rows) {
@@ -247,7 +247,7 @@ public final class SettingsPanel {
         }
     }
 
-    private void drawPreview(DrawContext ctx, int px, int py, int pw, int ph, int mouseX, int mouseY) {
+    private void drawPreview(GuiGraphics ctx, int px, int py, int pw, int ph, int mouseX, int mouseY) {
         Ui.well(ctx, px, py, pw, ph);
         ctx.enableScissor(px + 1, py + 1, px + pw - 1, py + ph - 1);
         drawPreviewGrid(ctx, px + 1, py + 1, pw - 2, ph - 2);
@@ -266,7 +266,7 @@ public final class SettingsPanel {
         ctx.disableScissor();
     }
 
-    private void drawPreviewGrid(DrawContext ctx, int gx, int gy, int gw, int gh) {
+    private void drawPreviewGrid(GuiGraphics ctx, int gx, int gy, int gw, int gh) {
         if (s.grid == Settings.GRID_NONE) return;
         int step = 13;
         for (int i = 0; gx + i * step < gx + gw; i++) {
@@ -286,7 +286,7 @@ public final class SettingsPanel {
         }
     }
 
-    private void drawPreviewBlock(DrawContext ctx, int bx, int by) {
+    private void drawPreviewBlock(GuiGraphics ctx, int bx, int by) {
         Catalog.Category cat = Catalog.category("Событие игрока");
         int base = cat == null ? 0x44EBF1 : cat.color;
         boolean grad = s.gradient;
@@ -308,8 +308,8 @@ public final class SettingsPanel {
         Draw.pillGrad(ctx, bx + 8, by + 20, 58, 9, chipTop, chipBottom);
     }
 
-    private int collab(DrawContext ctx, int mouseX, int mouseY, int top,
-                       Click click, boolean doubled, double cx, double cy) {
+    private int collab(GuiGraphics ctx, int mouseX, int mouseY, int top,
+                       MouseButtonEvent click, boolean doubled, double cx, double cy) {
         boolean act = click != null;
         int inner = W - PAD * 2;
         int lx = x + PAD;
@@ -342,7 +342,7 @@ public final class SettingsPanel {
                 default -> Collab.paused() ? "На паузе: вы в другом мире" : "В комнате";
             };
             String count = live ? Ui.plural(Collab.members(), "участник", "участника", "участников") : "";
-            int countW = count.isEmpty() ? 0 : tr.getWidth(count) + 8;
+            int countW = count.isEmpty() ? 0 : tr.width(count) + 8;
             Draw.textFit(ctx, tr, head, lx + 18, top + at + 10, inner - 26 - countW, Theme.TEXT, false);
             if (!count.isEmpty())
                 Draw.textRight(ctx, tr, count, lx + inner - 9, top + at + 10, Theme.TEXT_DIM, false);
@@ -369,8 +369,8 @@ public final class SettingsPanel {
                                 : "кто знает код — тот правит код мира",
                         lx, rowY + ROW_H + 7, inner, fresh ? Theme.OK : Theme.TEXT_FAINT, false);
             } else if (act && Ui.hit(cx, cy, lx + wellW + 6, rowY, copyW, ROW_H + 3)) {
-                MinecraftClient client = MinecraftClient.getInstance();
-                if (client != null && client.keyboard != null) client.keyboard.setClipboard(code);
+                Minecraft client = Minecraft.getInstance();
+                if (client != null && client.keyboardHandler != null) client.keyboardHandler.setClipboard(code);
                 copied = System.currentTimeMillis();
             }
             at += CAP_H + 2 + ROW_H + 3 + 4 + CAP_H + GAP;
@@ -392,7 +392,7 @@ public final class SettingsPanel {
             int goW = Ui.buttonW(tr, "Войти");
             int fieldW = inner - goW - 6;
             int rowY = top + at + CAP_H + 2;
-            boolean full = codeField != null && !codeField.getText().isBlank();
+            boolean full = codeField != null && !codeField.getValue().isBlank();
             if (ctx != null) {
                 Ui.caption(ctx, tr, "ВОЙТИ ПО ЧУЖОМУ КОДУ", lx, top + at, inner);
                 Ui.input(ctx, lx, rowY, fieldW, ROW_H, codeField != null && codeField.isFocused());
@@ -411,7 +411,7 @@ public final class SettingsPanel {
                         lx, rowY + ROW_H + 4, inner, Theme.TEXT_FAINT, false);
             } else if (act) {
                 if (full && Ui.hit(cx, cy, lx + fieldW + 6, rowY, goW, ROW_H))
-                    Collab.guest(codeField.getText());
+                    Collab.guest(codeField.getValue());
                 else if (Ui.hit(cx, cy, lx, rowY, fieldW, ROW_H)) grab(codeField, click, doubled);
             }
             at += CAP_H + 2 + ROW_H + 4 + CAP_H + GAP;
@@ -461,9 +461,9 @@ public final class SettingsPanel {
     }
 
     private long copied;
-    private TextFieldWidget dragField;
+    private EditBox dragField;
 
-    private void grab(TextFieldWidget field, Click click, boolean doubled) {
+    private void grab(EditBox field, MouseButtonEvent click, boolean doubled) {
         if (field == null) return;
         field.setFocused(true);
         field.onClick(click, doubled);
@@ -480,7 +480,7 @@ public final class SettingsPanel {
 
     private int pickerH() { return SV_H + HUE_H + 12 + ROW_H + 8; }
 
-    private void drawColors(DrawContext ctx, int mouseX, int mouseY, float delta, int top) {
+    private void drawColors(GuiGraphics ctx, int mouseX, int mouseY, float delta, int top) {
         int resetW = Ui.buttonW(tr, "Сбросить всё");
         int presetW = Ui.buttonW(tr, "Классические");
         Ui.button(ctx, tr, mouseX, mouseY, x + PAD, top, resetW, BTN_H, "Сбросить всё", Ui.GHOST,
@@ -513,7 +513,7 @@ public final class SettingsPanel {
         }
     }
 
-    private void drawPicker(DrawContext ctx, int mouseX, int mouseY, float delta, int py,
+    private void drawPicker(GuiGraphics ctx, int mouseX, int mouseY, float delta, int py,
                             Catalog.Category cat) {
         int lx = x + PAD;
         Ui.svSquare(ctx, lx, py, SV_W, SV_H, pickH, pickS, pickV, 3);
@@ -535,7 +535,7 @@ public final class SettingsPanel {
                 Ui.GHOST, s.colors.containsKey(cat.name));
     }
 
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         double mx = click.x(), my = click.y();
         int button = click.button();
         if (!contains(mx, my)) { close(); return true; }
@@ -546,10 +546,10 @@ public final class SettingsPanel {
             hexField.setFocused(inField);
             if (inField) {
                 if (doubled) {
-                    hexField.setCursor(0, false);
-                    hexField.setCursor(hexField.getText().length(), true);
+                    hexField.moveCursorTo(0, false);
+                    hexField.moveCursorTo(hexField.getValue().length(), true);
                 } else {
-                    hexField.setCursor(hexIndexAt(mx), shiftDown());
+                    hexField.moveCursorTo(hexIndexAt(mx), shiftDown());
                 }
                 hexDrag = true;
                 return true;
@@ -679,9 +679,9 @@ public final class SettingsPanel {
     private void openHexField(int rgb) {
         hexField = Ui.field(tr, 0, 0, 40, 10, "RRGGBB");
         hexField.setMaxLength(6);
-        hexField.setTextPredicate(t -> t.chars().allMatch(c -> Character.digit(c, 16) >= 0));
-        hexField.setText(String.format("%06X", rgb));
-        hexField.setChangedListener(t -> {
+        hexField.setFilter(t -> t.chars().allMatch(c -> Character.digit(c, 16) >= 0));
+        hexField.setValue(String.format("%06X", rgb));
+        hexField.setResponder(t -> {
             if (syncing || t.length() != 6 || openColor < 0) return;
             int color = McText.hexRgb(t);
             s.setColor(categories.get(openColor).name, color);
@@ -691,16 +691,16 @@ public final class SettingsPanel {
     }
 
     private static boolean shiftDown() {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         if (client == null || client.getWindow() == null) return false;
-        return InputUtil.isKeyPressed(client.getWindow(), GLFW.GLFW_KEY_LEFT_SHIFT)
-                || InputUtil.isKeyPressed(client.getWindow(), GLFW.GLFW_KEY_RIGHT_SHIFT);
+        return InputConstants.isKeyDown(client.getWindow(), GLFW.GLFW_KEY_LEFT_SHIFT)
+                || InputConstants.isKeyDown(client.getWindow(), GLFW.GLFW_KEY_RIGHT_SHIFT);
     }
 
     private int hexIndexAt(double mx) {
         int rel = (int) Math.round(mx - hexField.getX());
         if (rel <= 0) return 0;
-        return tr.trimToWidth(hexField.getText(), rel).length();
+        return tr.plainSubstrByWidth(hexField.getValue(), rel).length();
     }
 
     private void setPick(int rgb) {
@@ -713,7 +713,7 @@ public final class SettingsPanel {
     private void syncHexField(int rgb) {
         if (hexField == null) return;
         syncing = true;
-        hexField.setText(String.format("%06X", rgb));
+        hexField.setValue(String.format("%06X", rgb));
         syncing = false;
     }
 
@@ -739,7 +739,7 @@ public final class SettingsPanel {
 
     private static float clamp01(float v) { return v < 0 ? 0 : Math.min(v, 1); }
 
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         double mx = click.x(), my = click.y();
         if (bar.dragged(my, 1, maxScroll(), v -> scroll[tab] = v)) return true;
         if (dragField != null) {
@@ -747,7 +747,7 @@ public final class SettingsPanel {
             return true;
         }
         if (hexDrag && hexField != null) {
-            hexField.setCursor(hexIndexAt(mx), true);
+            hexField.moveCursorTo(hexIndexAt(mx), true);
             return true;
         }
         if (dragging == 0) return false;
@@ -770,7 +770,7 @@ public final class SettingsPanel {
         return true;
     }
 
-    public boolean keyPressed(KeyInput input) {
+    public boolean keyPressed(KeyEvent input) {
         int key = input.key();
         if (binding != null) {
             if (key == GLFW.GLFW_KEY_ESCAPE) { binding = null; return true; }
@@ -789,13 +789,13 @@ public final class SettingsPanel {
             hexField.keyPressed(input);
             return true;
         }
-        TextFieldWidget typing = focusedField();
+        EditBox typing = focusedField();
         if (typing != null) {
             boolean done = key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER;
             if (key == GLFW.GLFW_KEY_ESCAPE || done) {
                 typing.setFocused(false);
-                if (done && typing == codeField && !codeField.getText().isBlank())
-                    Collab.guest(codeField.getText());
+                if (done && typing == codeField && !codeField.getValue().isBlank())
+                    Collab.guest(codeField.getValue());
                 return true;
             }
             typing.keyPressed(input);
@@ -805,15 +805,15 @@ public final class SettingsPanel {
         return true;
     }
 
-    private TextFieldWidget focusedField() {
+    private EditBox focusedField() {
         if (nameField != null && nameField.isFocused()) return nameField;
         if (codeField != null && codeField.isFocused()) return codeField;
         return null;
     }
 
-    public boolean charTyped(CharInput input) {
+    public boolean charTyped(CharacterEvent input) {
         if (hexField != null && hexField.isFocused()) return hexField.charTyped(input);
-        TextFieldWidget typing = focusedField();
+        EditBox typing = focusedField();
         return typing != null && typing.charTyped(input);
     }
 

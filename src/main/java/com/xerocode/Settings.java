@@ -6,7 +6,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.xerocode.ui.Theme;
 import com.xerocode.ui.Ui;
-import net.minecraft.client.MinecraftClient;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.Reader;
@@ -19,6 +18,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.client.Minecraft;
 
 public final class Settings {
     public enum Mode { CANVAS, ORIGINAL }
@@ -265,7 +265,7 @@ public final class Settings {
     }
 
     private static Path file() {
-        return MinecraftClient.getInstance().runDirectory.toPath().resolve("xerocode/settings.json");
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode/settings.json");
     }
 
     public JsonObject toJson() {

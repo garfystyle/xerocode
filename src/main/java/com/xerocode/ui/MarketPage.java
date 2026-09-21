@@ -2,21 +2,21 @@ package com.xerocode.ui;
 
 import com.xerocode.Json;
 import com.xerocode.Market;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.input.KeyInput;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 
 public final class MarketPage implements MarketScreen.Panel {
     private static final int BANNER_H = 88, AVA = 44, BTN_H = 20, PAD = 14;
     private static final int FOOTER = 30;
 
     private final MarketScreen owner;
-    private final TextRenderer tr;
+    private final Font tr;
     private Market.Module module;
 
     private int x, y, w, h;
@@ -33,7 +33,7 @@ public final class MarketPage implements MarketScreen.Panel {
 
     public MarketPage(MarketScreen owner, Market.Module module) {
         this.owner = owner;
-        this.tr = net.minecraft.client.MinecraftClient.getInstance().textRenderer;
+        this.tr = net.minecraft.client.Minecraft.getInstance().font;
         this.module = module;
         this.code = new ModuleCode(module.id, tr);
         refresh();
@@ -75,7 +75,7 @@ public final class MarketPage implements MarketScreen.Panel {
     }
 
     @Override
-    public void draw(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void draw(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         Draw.rect(ctx, x, y, w, h, Draw.opaque(Ui.WELL));
         drawTop(ctx, mouseX, mouseY);
         int by = y + topH(), bh = h - topH();
@@ -91,7 +91,7 @@ public final class MarketPage implements MarketScreen.Panel {
         drawPreview(ctx, q[0], q[1], q[2], q[3], mouseX, mouseY);
     }
 
-    private void drawTop(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawTop(GuiGraphics ctx, int mouseX, int mouseY) {
         MarketArt.banner(ctx, module.banner, x, y, w, BANNER_H,
                 MarketArt.catColor(module.cat), 0, 0, 0, 0, 0);
         Draw.rect(ctx, x, y + BANNER_H - 34, w, 34, Draw.argb(0x88, 0x000000));
@@ -110,7 +110,7 @@ public final class MarketPage implements MarketScreen.Panel {
         int at = tx;
         at += MarketArt.author(ctx, tr, module.author, module.authorIcon, at, sy - 1, 10);
         Draw.textFit(ctx, tr, module.author, at, sy, 120, Theme.TEXT_DIM, false);
-        at += Math.min(120, tr.getWidth(module.author)) + 4;
+        at += Math.min(120, tr.width(module.author)) + 4;
         at += MarketArt.tick(ctx, at, sy, module.authorOk);
         at += 4;
         int cw = Draw.badgeWidth(tr, module.cat);
@@ -121,7 +121,7 @@ public final class MarketPage implements MarketScreen.Panel {
             at += cw + 6;
         }
         String when = module.when();
-        if (!when.isEmpty() && at + tr.getWidth(when) < x + w - PAD - 60)
+        if (!when.isEmpty() && at + tr.width(when) < x + w - PAD - 60)
             Draw.textFit(ctx, tr, when, at, sy, 120, Theme.TEXT_FAINT, false);
 
         drawLike(ctx, mouseX, mouseY);
@@ -130,14 +130,14 @@ public final class MarketPage implements MarketScreen.Panel {
     private static final int LIKE_H = 20;
 
     private int likeInner() {
-        return Draw.glyphW(Draw.HEART) + 4 + tr.getWidth(String.valueOf(module.likes));
+        return Draw.glyphW(Draw.HEART) + 4 + tr.width(String.valueOf(module.likes));
     }
 
     private int likeW() { return likeInner() + 16; }
 
     private int likeX() { return x + w - PAD - likeW(); }
 
-    private void drawLike(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawLike(GuiGraphics ctx, int mouseX, int mouseY) {
         int lx = likeX(), ly = y + BANNER_H - 26, lw = likeW();
         boolean hot = Ui.hit(mouseX, mouseY, lx, ly, lw, LIKE_H);
         Draw.round(ctx, lx, ly, lw, LIKE_H, 6, Draw.argb(hot ? 0xCC : 0x88, 0x000000));
@@ -167,7 +167,7 @@ public final class MarketPage implements MarketScreen.Panel {
         return n * 11 + 46 + (module.tags.isEmpty() ? 0 : 20);
     }
 
-    private void drawInfo(DrawContext ctx, int ix, int iy, int iw, int ih,
+    private void drawInfo(GuiGraphics ctx, int ix, int iy, int iw, int ih,
                           int mouseX, int mouseY) {
         int room = iw - PAD * 2 - 6;
         if (room < 40 || ih < 30) return;
@@ -212,7 +212,7 @@ public final class MarketPage implements MarketScreen.Panel {
 
     private int retryW() { return Ui.buttonW(tr, "Ещё раз"); }
 
-    private void drawPreview(DrawContext ctx, int qx, int qy, int qw, int qh,
+    private void drawPreview(GuiGraphics ctx, int qx, int qy, int qw, int qh,
                              int mouseX, int mouseY) {
         int stageH = qh - FOOTER;
         stage.place(qx, qy, qw, stageH);
@@ -262,7 +262,7 @@ public final class MarketPage implements MarketScreen.Panel {
 
     private int lookW() { return Ui.buttonW(tr, "Осмотр"); }
 
-    private void drawButtons(DrawContext ctx, int bx, int by, int bw, int mouseX, int mouseY) {
+    private void drawButtons(GuiGraphics ctx, int bx, int by, int bw, int mouseX, int mouseY) {
         Ui.hairline(ctx, bx, by, bw);
         int cy = by + 5;
         int pw = packW(), lw = lookW();
@@ -293,7 +293,7 @@ public final class MarketPage implements MarketScreen.Panel {
     }
 
     @Override
-    public boolean click(Click click, boolean doubled) {
+    public boolean click(MouseButtonEvent click, boolean doubled) {
         double mx = click.x(), my = click.y();
         int[] q = stageRect();
         int qx = q[0], qy = q[1], qw = q[2], qh = q[3];
@@ -414,7 +414,7 @@ public final class MarketPage implements MarketScreen.Panel {
     }
 
     @Override
-    public boolean drag(Click click, double dx, double dy) {
+    public boolean drag(MouseButtonEvent click, double dx, double dy) {
         if (!stage.panning()) return bar.dragged(click.y(), 1, 4000, v -> scroll = v);
         stage.drag(dx, dy);
         return true;
@@ -437,7 +437,7 @@ public final class MarketPage implements MarketScreen.Panel {
     }
 
     @Override
-    public boolean key(KeyInput in) {
+    public boolean key(KeyEvent in) {
         switch (in.key()) {
             case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> take(false);
             case GLFW.GLFW_KEY_0, GLFW.GLFW_KEY_KP_0 -> stage.fit(code.layout(), 12);

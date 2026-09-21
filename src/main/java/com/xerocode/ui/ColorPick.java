@@ -1,11 +1,11 @@
 package com.xerocode.ui;
 
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 import org.lwjgl.glfw.GLFW;
 
 public final class ColorPick {
@@ -16,11 +16,11 @@ public final class ColorPick {
     private static final int HUE_H = 10;
     private static final int SWATCH = 20, SWATCH_GAP = 2;
 
-    private final TextRenderer tr;
+    private final Font tr;
     private final String title;
     private final Done done;
     private final int screenW, screenH;
-    private final TextFieldWidget hex;
+    private final EditBox hex;
 
     private float pickH, pickS, pickV;
     private int shown;
@@ -33,7 +33,7 @@ public final class ColorPick {
     private final int SV_H;
     private final int rows;
 
-    public ColorPick(TextRenderer tr, String title, int rgb, int anchorX, int anchorY,
+    public ColorPick(Font tr, String title, int rgb, int anchorX, int anchorY,
                      int screenW, int screenH, Done done) {
         this.tr = tr;
         this.title = title;
@@ -50,11 +50,11 @@ public final class ColorPick {
 
         this.hex = Ui.field(tr, 0, 0, 60, 10, "rrggbb");
         hex.setMaxLength(7);
-        hex.setDrawsBackground(false);
-        hex.setEditableColor(Draw.opaque(Theme.TEXT));
-        hex.setText(hexOf(rgb));
+        hex.setBordered(false);
+        hex.setTextColor(Draw.opaque(Theme.TEXT));
+        hex.setValue(hexOf(rgb));
         shown = rgb & 0xFFFFFF;
-        hex.setChangedListener(this::hexTyped);
+        hex.setResponder(this::hexTyped);
 
         int perRow = Math.max(1, (SV_W + SWATCH_GAP) / (SWATCH + SWATCH_GAP));
         this.rows = (McText.COLOURS.size() + perRow - 1) / perRow;
@@ -95,13 +95,13 @@ public final class ColorPick {
         if (now == shown) return;
         shown = now;
         String text = hexOf(now);
-        if (text.equalsIgnoreCase(hex.getText())) return;
-        hex.setChangedListener(s -> { });
-        hex.setText(text);
-        hex.setChangedListener(this::hexTyped);
+        if (text.equalsIgnoreCase(hex.getValue())) return;
+        hex.setResponder(s -> { });
+        hex.setValue(text);
+        hex.setResponder(this::hexTyped);
     }
 
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         Draw.card(ctx, x, y, W, h, Ui.R, Draw.opaque(Ui.PANEL), Draw.opaque(Ui.BORDER));
         Ui.caption(ctx, tr, title, x + PAD, y + PAD, W - PAD * 2);
 
@@ -143,7 +143,7 @@ public final class ColorPick {
         return mx >= x && mx < x + W && my >= y && my < y + h;
     }
 
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         double mx = click.x(), my = click.y();
         hex.setFocused(false);
         if (!contains(mx, my)) {
@@ -184,7 +184,7 @@ public final class ColorPick {
 
     private final Ui.Grab grab = new Ui.Grab();
 
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (dragging != 0) { drag(click.x(), click.y()); return true; }
         return grab.drag(click, dx, dy);
     }
@@ -206,7 +206,7 @@ public final class ColorPick {
 
     private static float clamp01(double v) { return (float) Math.max(0, Math.min(1, v)); }
 
-    public boolean keyPressed(KeyInput input) {
+    public boolean keyPressed(KeyEvent input) {
         int key = input.key();
         if (key == GLFW.GLFW_KEY_ESCAPE) { cancelled = true; closed = true; return true; }
         if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) { commit(); return true; }
@@ -214,7 +214,7 @@ public final class ColorPick {
         return false;
     }
 
-    public boolean charTyped(CharInput input) {
+    public boolean charTyped(CharacterEvent input) {
         return hex.isFocused() && hex.charTyped(input);
     }
 

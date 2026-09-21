@@ -1,15 +1,14 @@
 package com.xerocode.ui;
 
 import com.xerocode.Settings;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.text.Text;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntConsumer;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
 
 public final class Ui {
     public static int PANEL   = 0x171A21;
@@ -70,11 +69,11 @@ public final class Ui {
                 scroll - (int) Math.round(amount * 18)));
     }
 
-    public static void dim(DrawContext ctx, int screenW, int screenH) {
+    public static void dim(GuiGraphics ctx, int screenW, int screenH) {
         Draw.rect(ctx, 0, 0, screenW, screenH, Theme.SCRIM);
     }
 
-    public static void panel(DrawContext ctx, int x, int y, int w, int h) {
+    public static void panel(GuiGraphics ctx, int x, int y, int w, int h) {
         Draw.shadow(ctx, x, y, w, h, R);
         Draw.card(ctx, x, y, w, h, R, Draw.opaque(PANEL), Draw.opaque(BORDER));
         Draw.rect(ctx, x + 1 + R - 1, y + 1, w - 2 * R, 1, sheen());
@@ -84,64 +83,64 @@ public final class Ui {
         return Theme.LIGHT ? Draw.argb(0x14, 0xFFFFFF) : Draw.argb(0x22, 0xFFFFFF);
     }
 
-    public static void headerStrip(DrawContext ctx, int x, int y, int w, int h, int accent) {
+    public static void headerStrip(GuiGraphics ctx, int x, int y, int w, int h, int accent) {
         Draw.roundRectGrad(ctx, x + 1, y + 1, w - 2, h - 1, R - 1, R - 1, 0, 0,
                 Draw.opaque(Draw.mix(HEAD, accent, 0.10f)), Draw.opaque(HEAD));
         Draw.rect(ctx, x + 1 + R - 1, y + 1, w - 2 * R, 1, sheen());
     }
 
-    public static void well(DrawContext ctx, int x, int y, int w, int h) {
+    public static void well(GuiGraphics ctx, int x, int y, int w, int h) {
         Draw.card(ctx, x, y, w, h, R_SM, Draw.opaque(WELL), Draw.opaque(LINE_IN));
     }
 
-    public static void hairline(DrawContext ctx, int x, int y, int w) {
+    public static void hairline(GuiGraphics ctx, int x, int y, int w) {
         Draw.rect(ctx, x, y, w, 1, Draw.opaque(LINE));
     }
 
-    public static void vline(DrawContext ctx, int x, int y, int h) {
+    public static void vline(GuiGraphics ctx, int x, int y, int h) {
         Draw.rect(ctx, x, y, 1, h, Draw.opaque(LINE));
     }
 
-    public static void caption(DrawContext ctx, TextRenderer tr, String s, int x, int y, int w) {
+    public static void caption(GuiGraphics ctx, Font tr, String s, int x, int y, int w) {
         Draw.textFit(ctx, tr, s, x, y, w, Theme.TEXT_FAINT, false);
     }
 
-    public static void caption(DrawContext ctx, TextRenderer tr, String s, int x, int y,
+    public static void caption(GuiGraphics ctx, Font tr, String s, int x, int y,
                                int w, String note) {
-        Draw.textFit(ctx, tr, s, x, y, w - tr.getWidth(note) - 6, Theme.TEXT_FAINT, false);
+        Draw.textFit(ctx, tr, s, x, y, w - tr.width(note) - 6, Theme.TEXT_FAINT, false);
         if (!note.isEmpty()) Draw.textRight(ctx, tr, note, x + w, y, Theme.TEXT_FAINT, false);
     }
 
-    public static TextFieldWidget field(TextRenderer tr, int x, int y, int w, int h, String hint) {
-        TextFieldWidget f = new TextFieldWidget(tr, x, y, w, h, Text.literal(hint));
-        f.setDrawsBackground(false);
+    public static EditBox field(Font tr, int x, int y, int w, int h, String hint) {
+        EditBox f = new EditBox(tr, x, y, w, h, Component.literal(hint));
+        f.setBordered(false);
         f.setTextShadow(false);
-        f.setEditableColor(Draw.opaque(Theme.TEXT));
+        f.setTextColor(Draw.opaque(Theme.TEXT));
         return f;
     }
 
-    public static TextFieldWidget field(TextRenderer tr, String text, String hint, int maxLength) {
-        TextFieldWidget f = field(tr, 0, 0, 40, 12, hint);
+    public static EditBox field(Font tr, String text, String hint, int maxLength) {
+        EditBox f = field(tr, 0, 0, 40, 12, hint);
         f.setMaxLength(maxLength);
-        f.setText(text);
-        f.setCursorToStart(false);
+        f.setValue(text);
+        f.moveCursorToStart(false);
         return f;
     }
 
-    public static void width(TextFieldWidget f, int w) {
+    public static void width(EditBox f, int w) {
         if (f == null || f.getWidth() == w) return;
         f.setWidth(w);
-        f.setCursor(f.getCursor(), false);
+        f.moveCursorTo(f.getCursorPosition(), false);
     }
 
-    public static void placeholder(DrawContext ctx, TextRenderer tr, TextFieldWidget f) {
-        if (f == null || !f.getText().isEmpty() || f.isFocused()) return;
+    public static void placeholder(GuiGraphics ctx, Font tr, EditBox f) {
+        if (f == null || !f.getValue().isEmpty() || f.isFocused()) return;
         String hint = f.getMessage().getString();
         if (hint.isEmpty()) return;
         Draw.textFit(ctx, tr, hint, f.getX(), f.getY(), f.getWidth() - 2, Theme.TEXT_FAINT, false);
     }
 
-    public static void input(DrawContext ctx, int x, int y, int w, int h, boolean focused) {
+    public static void input(GuiGraphics ctx, int x, int y, int w, int h, boolean focused) {
         Audit.role("input");
         Draw.card(ctx, x, y, w, h, R_SM, Draw.opaque(INPUT),
                 Draw.opaque(focused ? Theme.ACCENT : LINE_IN));
@@ -167,7 +166,7 @@ public final class Ui {
         };
     }
 
-    private static void controlFace(DrawContext ctx, int x, int y, int w, int h,
+    private static void controlFace(GuiGraphics ctx, int x, int y, int w, int h,
                                     int fill, boolean hov, boolean strong) {
         int r = Settings.radius(h);
         if (!Settings.outlined()) {
@@ -179,7 +178,7 @@ public final class Ui {
                 Draw.opaque(Draw.shade(fill, strong || hov ? 0.62f : 0.42f)));
     }
 
-    public static boolean button(DrawContext ctx, TextRenderer tr, int mx, int my,
+    public static boolean button(GuiGraphics ctx, Font tr, int mx, int my,
                                  int x, int y, int w, int h, String label, int kind,
                                  boolean enabled) {
         boolean hov = enabled && hit(mx, my, x, y, w, h);
@@ -191,12 +190,12 @@ public final class Ui {
         return hov;
     }
 
-    public static boolean button(DrawContext ctx, TextRenderer tr, int mx, int my,
+    public static boolean button(GuiGraphics ctx, Font tr, int mx, int my,
                                  int x, int y, int w, int h, String label, int kind) {
         return button(ctx, tr, mx, my, x, y, w, h, label, kind, true);
     }
 
-    public static boolean glyphButton(DrawContext ctx, TextRenderer tr, int mx, int my,
+    public static boolean glyphButton(GuiGraphics ctx, Font tr, int mx, int my,
                                       int x, int y, int w, int h, String[] glyph, String label,
                                       int kind, boolean enabled) {
         boolean hov = enabled && hit(mx, my, x, y, w, h);
@@ -204,7 +203,7 @@ public final class Ui {
         controlFace(ctx, x, y, w, h, face(kind, hov, enabled), hov, kind != GHOST);
         int gw = Draw.glyphW(glyph);
         String text = Draw.fit(tr, label, w - 12 - gw);
-        int lw = tr.getWidth(text);
+        int lw = tr.width(text);
         int at = x + (w - gw - 3 - lw) / 2;
         int color = ink(kind, hov, enabled);
         Draw.glyph(ctx, glyph, at, y + (h - Draw.glyphH(glyph)) / 2, color);
@@ -213,7 +212,7 @@ public final class Ui {
         return hov;
     }
 
-    public static boolean iconButton(DrawContext ctx, int mx, int my, int x, int y, int size,
+    public static boolean iconButton(GuiGraphics ctx, int mx, int my, int x, int y, int size,
                                      String[] glyph, int kind, boolean enabled) {
         boolean hov = enabled && hit(mx, my, x, y, size, size);
         Audit.role("icon");
@@ -224,7 +223,7 @@ public final class Ui {
         return hov;
     }
 
-    public static boolean closeButton(DrawContext ctx, int mx, int my, int x, int y, int size) {
+    public static boolean closeButton(GuiGraphics ctx, int mx, int my, int x, int y, int size) {
         boolean hov = hit(mx, my, x, y, size, size);
         Audit.role("icon");
         controlFace(ctx, x, y, size, size, hov ? DANGER_BG : Theme.SURFACE, hov, hov);
@@ -234,7 +233,7 @@ public final class Ui {
         return hov;
     }
 
-    public static void chip(DrawContext ctx, TextRenderer tr, int x, int y, int w, int h,
+    public static void chip(GuiGraphics ctx, Font tr, int x, int y, int w, int h,
                             String label, boolean on, boolean hov, int accent) {
         Audit.role("chip");
         controlFace(ctx, x, y, w, h,
@@ -246,7 +245,7 @@ public final class Ui {
         Audit.clearRole();
     }
 
-    public static int segmented(DrawContext ctx, TextRenderer tr, int mx, int my,
+    public static int segmented(GuiGraphics ctx, Font tr, int mx, int my,
                                 int x, int y, int w, int h, List<String> labels, int active,
                                 int accent) {
         Draw.round(ctx, x, y, w, h, Settings.radius(h), Draw.opaque(WELL));
@@ -282,7 +281,7 @@ public final class Ui {
         return n - 1;
     }
 
-    public static boolean toggle(DrawContext ctx, TextRenderer tr, int mx, int my,
+    public static boolean toggle(GuiGraphics ctx, Font tr, int mx, int my,
                                  int x, int y, int w, int h, String label, boolean on) {
         boolean hov = hit(mx, my, x, y, w, h);
         controlFace(ctx, x, y, w, h, hov ? BTN_HOVER : BTN, hov, false);
@@ -323,20 +322,20 @@ public final class Ui {
             scroll = scrolled(scroll, contentH, bottom, amount);
         }
 
-        public void drawBar(DrawContext ctx, Bar bar, int barX, int panelY, double mx, double my) {
+        public void drawBar(GuiGraphics ctx, Bar bar, int barX, int panelY, double mx, double my) {
             bar.draw(ctx, barX, panelY + top + 2, viewH() - 4, contentH - top,
                     viewH() - 4, scroll, mx, my);
         }
     }
 
     public static final class Grab {
-        private net.minecraft.client.gui.widget.ClickableWidget held;
+        private net.minecraft.client.gui.components.AbstractWidget held;
 
-        public void take(net.minecraft.client.gui.widget.ClickableWidget field) {
+        public void take(net.minecraft.client.gui.components.AbstractWidget field) {
             held = field;
         }
 
-        public boolean drag(Click click, double dx, double dy) {
+        public boolean drag(MouseButtonEvent click, double dx, double dy) {
             return held != null && held.mouseDragged(click, dx, dy);
         }
 
@@ -352,7 +351,7 @@ public final class Ui {
         private boolean dragging;
         private int grab;
 
-        public void draw(DrawContext ctx, int x, int y, int trackH,
+        public void draw(GuiGraphics ctx, int x, int y, int trackH,
                          int contentH, int viewH, int scroll, double mx, double my) {
             this.x = x;
             this.y = y;
@@ -407,7 +406,7 @@ public final class Ui {
         public void release() { dragging = false; }
     }
 
-    public static void svSquare(DrawContext ctx, int x, int y, int w, int h,
+    public static void svSquare(GuiGraphics ctx, int x, int y, int w, int h,
                                 float hue, float s, float v, int ring) {
         for (int i = 0; i < w; i++)
             ctx.fillGradient(x + i, y, x + i + 1, y + h,
@@ -421,7 +420,7 @@ public final class Ui {
                 Draw.opaque(0xFFFFFF));
     }
 
-    public static void hueBar(DrawContext ctx, int x, int y, int w, int h, float hue) {
+    public static void hueBar(GuiGraphics ctx, int x, int y, int w, int h, float hue) {
         for (int i = 0; i < w; i++)
             Draw.rect(ctx, x + i, y, 1, h,
                     Draw.opaque(McText.hsvRgb(i / (float) (w - 1), 1f, 1f)));
@@ -433,7 +432,7 @@ public final class Ui {
 
     public static final int SL_HUE = 0, SL_SAT = 1, SL_VAL = 2;
 
-    public static void hsvSlider(DrawContext ctx, int x, int y, int w, int h, int kind,
+    public static void hsvSlider(GuiGraphics ctx, int x, int y, int w, int h, int kind,
                                  float hue, float s, float v, boolean hot) {
         if (w <= 1 || h <= 0) return;
         for (int i = 0; i < w; i++) {
@@ -452,7 +451,7 @@ public final class Ui {
         Draw.rect(ctx, kx - 1, y - 1, 3, h + 2, Draw.opaque(hot ? Theme.ACCENT : 0xFFFFFF));
     }
 
-    public static void swatch(DrawContext ctx, int x, int y, int w, int h, int rgb,
+    public static void swatch(GuiGraphics ctx, int x, int y, int w, int h, int rgb,
                              boolean enabled, boolean hov) {
         Draw.round(ctx, x, y, w, h, 3, Draw.opaque(Draw.shade(rgb, -0.55f)));
         Draw.round(ctx, x + 1, y + 1, w - 2, h - 2, 2,
@@ -500,10 +499,10 @@ public final class Ui {
         }
     }
 
-    public static int buttonW(TextRenderer tr, String label) { return tr.getWidth(label) + 22; }
+    public static int buttonW(Font tr, String label) { return tr.width(label) + 22; }
 
-    public static int buttonW(TextRenderer tr, String[] glyph, String label) {
-        return Draw.glyphW(glyph) + 3 + tr.getWidth(label) + 22;
+    public static int buttonW(Font tr, String[] glyph, String label) {
+        return Draw.glyphW(glyph) + 3 + tr.width(label) + 22;
     }
 
     public static final class Chips {
@@ -512,18 +511,18 @@ public final class Ui {
         public final List<Cell> cells = new ArrayList<>();
         public final int rowH, rows, gap;
 
-        public Chips(TextRenderer tr, List<String> labels, int full, int rowH, int gap) {
+        public Chips(Font tr, List<String> labels, int full, int rowH, int gap) {
             this(tr, labels, full, rowH, gap, false);
         }
 
-        public Chips(TextRenderer tr, List<String> labels, int full, int rowH, int gap,
+        public Chips(Font tr, List<String> labels, int full, int rowH, int gap,
                      boolean centred) {
             this.rowH = rowH;
             this.gap = gap;
             int cx = 0, cy = 0, lines = 1;
             for (int i = 0; i < labels.size(); i++) {
                 String label = labels.get(i);
-                int w = Math.min(full, tr.getWidth(label) + 14);
+                int w = Math.min(full, tr.width(label) + 14);
                 if (cx > 0 && cx + w > full) { cx = 0; cy += rowH + gap; lines++; }
                 cells.add(new Cell(i, label, cx, cy, w));
                 cx += w + gap;
@@ -563,7 +562,7 @@ public final class Ui {
             return -1;
         }
 
-        public void render(DrawContext ctx, TextRenderer tr, int mx, int my, int ox, int oy,
+        public void render(GuiGraphics ctx, Font tr, int mx, int my, int ox, int oy,
                            int active, int accent) {
             for (Cell c : cells) {
                 int cx = ox + c.dx(), cy = oy + c.dy();
@@ -572,7 +571,7 @@ public final class Ui {
             }
         }
 
-        public void render(DrawContext ctx, TextRenderer tr, int mx, int my, int ox, int oy,
+        public void render(GuiGraphics ctx, Font tr, int mx, int my, int ox, int oy,
                            boolean[] active, int accent) {
             for (Cell c : cells) {
                 int cx = ox + c.dx(), cy = oy + c.dy();
@@ -590,13 +589,13 @@ public final class Ui {
         return n + " " + word;
     }
 
-    public static List<String> wrap(TextRenderer tr, String s, int width, int maxLines) {
+    public static List<String> wrap(Font tr, String s, int width, int maxLines) {
         List<String> out = new ArrayList<>();
         if (s == null || s.isBlank() || width <= 0) return out;
         StringBuilder line = new StringBuilder();
         for (String word : s.split("\\s+")) {
             String next = line.isEmpty() ? word : line + " " + word;
-            if (!line.isEmpty() && tr.getWidth(next) > width) {
+            if (!line.isEmpty() && tr.width(next) > width) {
                 out.add(line.toString());
                 if (out.size() == maxLines) return out;
                 line = new StringBuilder(word);

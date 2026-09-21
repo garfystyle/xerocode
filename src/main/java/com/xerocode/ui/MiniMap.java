@@ -1,9 +1,8 @@
 package com.xerocode.ui;
 
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.ScreenRect;
-
 import java.util.List;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
 
 public final class MiniMap {
     private static final int MAX_W = 152, MAX_H = 108, MIN_W = 56, MIN_H = 40;
@@ -91,13 +90,13 @@ public final class MiniMap {
         return shown && mx >= x && mx < x + w && my >= y && my < y + h;
     }
 
-    public void draw(DrawContext ctx, double vx0, double vy0, double vx1, double vy1,
+    public void draw(GuiGraphics ctx, double vx0, double vy0, double vx1, double vy1,
                      boolean hover) {
         if (!shown) return;
         int r = radius();
         int border = Draw.argb(hover ? 0xFF : 0xA0, hover ? Theme.ACCENT : Ui.BORDER);
         Draw.card(ctx, x, y, w, h, r, Draw.argb(hover ? 0xF2 : 0xD8, Ui.PANEL), border);
-        ScreenRect area = new ScreenRect(x + 1, y + 1, w - 2, h - 2);
+        ScreenRectangle area = new ScreenRectangle(x + 1, y + 1, w - 2, h - 2);
         ctx.enableScissor(x + 1, y + 1, x + w - 1, y + h - 1);
         Draw.batch(Batch.open(ctx, area, area, Math.max(256, count + 2 * h)));
         for (int i = 0, at = 0; i < count; i++, at += 5) {
@@ -124,9 +123,9 @@ public final class MiniMap {
         Draw.roundOutline(ctx, x, y, w, h, r, border);
     }
 
-    public void marks(DrawContext ctx, List<Layout.Box> boxes, int rgb) {
+    public void marks(GuiGraphics ctx, List<Layout.Box> boxes, int rgb) {
         if (!shown || boxes.isEmpty()) return;
-        ScreenRect area = new ScreenRect(x + 1, y + 1, w - 2, h - 2);
+        ScreenRectangle area = new ScreenRectangle(x + 1, y + 1, w - 2, h - 2);
         ctx.enableScissor(x + 1, y + 1, x + w - 1, y + h - 1);
         Draw.batch(Batch.open(ctx, area, area, Math.max(64, boxes.size() * 2)));
         for (Layout.Box b : boxes) {

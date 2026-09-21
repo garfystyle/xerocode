@@ -1,6 +1,7 @@
 package com.xerocode;
 
 import com.xerocode.ui.EditorScreen;
+import com.mojang.blaze3d.platform.InputConstants;
 import com.xerocode.ui.CoverScreen;
 import com.xerocode.ui.ImportScreen;
 import com.xerocode.ui.LocationPick;
@@ -12,8 +13,6 @@ import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.Identifier;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
@@ -22,12 +21,13 @@ import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.InteractionResult;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,7 +64,7 @@ public final class XeroCode implements ClientModInitializer {
     private int coverTicks;
     private CoverScreen cover;
     private Runnable coverDone;
-    private net.minecraft.world.GameMode coverMode;
+    private net.minecraft.world.level.GameType coverMode;
     private String worldModeNow = "";
 
     private static final String[] DENIED = {
@@ -81,12 +81,12 @@ public final class XeroCode implements ClientModInitializer {
     private static final Set<String> OWN = new LinkedHashSet<>();
 
     private static Path ownFile() {
-        return MinecraftClient.getInstance().runDirectory.toPath().resolve("xerocode/own-worlds.txt");
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode/own-worlds.txt");
     }
 
-    private static String plotId(ClientWorld world) {
+    private static String plotId(ClientLevel world) {
         if (world == null) return "";
-        String path = world.getRegistryKey().getValue().getPath();
+        String path = world.dimension().identifier().getPath();
         if (!path.startsWith("world_")) return "";
         int cut = path.indexOf("_" + Codespace.DEV_DIMENSION);
         return cut < 0 ? path : path.substring(0, cut);
@@ -116,13 +116,13 @@ public final class XeroCode implements ClientModInitializer {
 
     public static Script script() {
         if (script == null) {
-            scriptPlot = plotId(MinecraftClient.getInstance().world);
+            scriptPlot = plotId(Minecraft.getInstance().level);
             script = Script.load(scriptPlot);
         }
         return script;
     }
 
-    private void switchWorld(MinecraftClient client, ClientWorld world) {
+    private void switchWorld(Minecraft client, ClientLevel world) {
         String plot = plotId(world);
         if (script == null) { scriptPlot = plot; return; }
         if (plot.equals(scriptPlot)) return;
@@ -131,23 +131,23 @@ public final class XeroCode implements ClientModInitializer {
         script = Script.load(plot);
         Sync.forget();
         History.clear();
-        if (client.currentScreen instanceof EditorScreen) client.setScreen(new EditorScreen(script));
+        if (client.screen instanceof EditorScreen) client.setScreen(new EditorScreen(script));
         holding = null;
     }
 
-    private boolean openKeyDown(MinecraftClient client) {
+    private boolean openKeyDown(Minecraft client) {
         return keyDown(client, Settings.Hot.OPEN);
     }
 
-    private boolean keyDown(MinecraftClient client, Settings.Hot hot) {
+    private boolean keyDown(Minecraft client, Settings.Hot hot) {
         Settings settings = Settings.get();
         int code = settings.code(hot);
         if (code == Settings.NONE || client.getWindow() == null) return false;
-        if (!InputUtil.isKeyPressed(client.getWindow(), code)) return false;
+        if (!InputConstants.isKeyDown(client.getWindow(), code)) return false;
         return modsHeld(client) == settings.mods(hot);
     }
 
-    private static int modsHeld(MinecraftClient client) {
+    private static int modsHeld(Minecraft client) {
         int mods = 0;
         if (down(client, GLFW.GLFW_KEY_LEFT_CONTROL) || down(client, GLFW.GLFW_KEY_RIGHT_CONTROL))
             mods |= Settings.CTRL;
@@ -158,8 +158,8 @@ public final class XeroCode implements ClientModInitializer {
         return mods;
     }
 
-    private static boolean down(MinecraftClient client, int code) {
-        return InputUtil.isKeyPressed(client.getWindow(), code);
+    private static boolean down(Minecraft client, int code) {
+        return InputConstants.isKeyDown(client.getWindow(), code);
     }
 
     @Override
@@ -174,8 +174,8 @@ public final class XeroCode implements ClientModInitializer {
         Placeholders.load();
 
         WorldRenderEvents.START_MAIN.register(ctx -> {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            if (holdScreen <= 0 || holding == null || mc.currentScreen != null) return;
+            Minecraft mc = Minecraft.getInstance();
+            if (holdScreen <= 0 || holding == null || mc.screen != null) return;
             if (picking()) return;
             restore(mc);
         });
@@ -191,13 +191,13 @@ public final class XeroCode implements ClientModInitializer {
             if (waitingDev <= 0 || overlay) return true;
             String text = message.getString();
             if (text.contains(ENTERED)) {
-                allowed(MinecraftClient.getInstance());
+                allowed(Minecraft.getInstance());
                 return false;
             }
             for (String no : DENIED) {
                 if (!text.contains(no)) continue;
                 waitingDev = 0;
-                notMyWorld(MinecraftClient.getInstance());
+                notMyWorld(Minecraft.getInstance());
                 return false;
             }
             return true;
@@ -214,7 +214,7 @@ public final class XeroCode implements ClientModInitializer {
             else if (text.contains(ENTERED)) worldModeNow = "dev";
             if (cover != null) for (String said : MODE_SAID)
                 if (text.contains(said)) {
-                    dropCover(MinecraftClient.getInstance(), "сервер: " + said);
+                    dropCover(Minecraft.getInstance(), "сервер: " + said);
                     break;
                 }
         });
@@ -230,18 +230,18 @@ public final class XeroCode implements ClientModInitializer {
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
             Collab.stop();
             if (script == null) return;
-            if (client.currentScreen instanceof EditorScreen editor) editor.rememberView();
+            if (client.screen instanceof EditorScreen editor) editor.rememberView();
             script.save();
         });
 
         HudElementRegistry.attachElementAfter(VanillaHudElements.SLEEP,
-                Identifier.of("xerocode", "location_pick"), (ctx, tick) -> LocationPick.render(ctx));
+                Identifier.fromNamespaceAndPath("xerocode", "location_pick"), (ctx, tick) -> LocationPick.render(ctx));
         WorldRenderEvents.AFTER_ENTITIES.register(LocationPick::renderWorld);
 
         UseBlockCallback.EVENT.register((player, world, hand, hit) ->
-                LocationPick.active() && world.isClient() ? ActionResult.FAIL : ActionResult.PASS);
+                LocationPick.active() && world.isClientSide() ? InteractionResult.FAIL : InteractionResult.PASS);
         AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) ->
-                LocationPick.active() && world.isClient() ? ActionResult.FAIL : ActionResult.PASS);
+                LocationPick.active() && world.isClientSide() ? InteractionResult.FAIL : InteractionResult.PASS);
 
         AttackEntityCallback.EVENT.register((player, world, hand, entity, hit) ->
                 LocationPick.interceptHands(world));
@@ -261,25 +261,25 @@ public final class XeroCode implements ClientModInitializer {
             Market.tick();
             Publish.tick();
             if (cover != null) {
-                if (client.currentScreen == null) client.setScreen(cover);
-                var now = client.interactionManager == null ? null
-                        : client.interactionManager.getCurrentGameMode();
+                if (client.screen == null) client.setScreen(cover);
+                var now = client.gameMode == null ? null
+                        : client.gameMode.getPlayerMode();
                 if (coverMode != null && now != null && now != coverMode)
                     dropCover(client, "сменился игровой режим: " + coverMode + " → " + now);
                 else if (--coverTicks <= 0) dropCover(client, "сервер не ответил");
             }
             LocationPick.tick(client);
             boolean openRaw = openKeyDown(client);
-            if (openRaw && !openWasDown && client.currentScreen == null) pressed(client);
+            if (openRaw && !openWasDown && client.screen == null) pressed(client);
             openWasDown = openRaw;
             boolean playRaw = keyDown(client, Settings.Hot.PLAY);
-            if (playRaw && !playWasDown && client.currentScreen == null) worldMode(client, "play");
+            if (playRaw && !playWasDown && client.screen == null) worldMode(client, "play");
             playWasDown = playRaw;
             boolean buildRaw = keyDown(client, Settings.Hot.BUILD);
-            if (buildRaw && !buildWasDown && client.currentScreen == null) worldMode(client, "build");
+            if (buildRaw && !buildWasDown && client.screen == null) worldMode(client, "build");
             buildWasDown = buildRaw;
             boolean againRaw = keyDown(client, Settings.Hot.RESTART);
-            if (againRaw && !againWasDown && client.currentScreen == null) restartWorld(client);
+            if (againRaw && !againWasDown && client.screen == null) restartWorld(client);
             againWasDown = againRaw;
             restartTick(client);
             boolean inDev = inDev(client);
@@ -295,7 +295,7 @@ public final class XeroCode implements ClientModInitializer {
                 if (holdScreen > 20) holdScreen = 20;
                 if (++settling >= SETTLE_EVERY) {
                     settling = 0;
-                    Sync.settle(script(), client.world);
+                    Sync.settle(script(), client.level);
                 }
             }
             if (holdScreen > 0) hold(client);
@@ -303,37 +303,37 @@ public final class XeroCode implements ClientModInitializer {
         });
     }
 
-    private void stealHotkeys(MinecraftClient client) {
+    private void stealHotkeys(Minecraft client) {
         steal(client, Settings.Hot.PLAY);
         steal(client, Settings.Hot.BUILD);
         steal(client, Settings.Hot.RESTART);
         stealNarrator(client);
     }
 
-    private void steal(MinecraftClient client, Settings.Hot hot) {
+    private void steal(Minecraft client, Settings.Hot hot) {
         Settings settings = Settings.get();
         int code = settings.code(hot);
         if (code == Settings.NONE || settings.mods(hot) == 0
                 || modsHeld(client) != settings.mods(hot)) return;
-        String key = InputUtil.Type.KEYSYM.createFromCode(code).getTranslationKey();
-        for (net.minecraft.client.option.KeyBinding kb : client.options.allKeys) {
-            if (!kb.getBoundKeyTranslationKey().equals(key)) continue;
-            while (kb.wasPressed()) { }
-            kb.setPressed(false);
+        String key = InputConstants.Type.KEYSYM.getOrCreate(code).getName();
+        for (net.minecraft.client.KeyMapping kb : client.options.keyMappings) {
+            if (!kb.saveString().equals(key)) continue;
+            while (kb.consumeClick()) { }
+            kb.setDown(false);
         }
     }
 
-    private void stealNarrator(MinecraftClient client) {
+    private void stealNarrator(Minecraft client) {
         Settings settings = Settings.get();
         boolean ours = usesCtrlB(settings, Settings.Hot.BUILD) || usesCtrlB(settings, Settings.Hot.PLAY);
-        var option = client.options.getNarratorHotkey();
-        if (ours && option.getValue()) {
+        var option = client.options.narratorHotkey();
+        if (ours && option.get()) {
             narratorWas = true;
-            option.setValue(false);
-            client.options.write();
+            option.set(false);
+            client.options.save();
         } else if (!ours && narratorWas != null) {
-            option.setValue(narratorWas);
-            client.options.write();
+            option.set(narratorWas);
+            client.options.save();
             narratorWas = null;
         }
     }
@@ -349,15 +349,15 @@ public final class XeroCode implements ClientModInitializer {
     public static final String RESTART = "restart";
 
     public static void restart() {
-        if (INSTANCE != null) INSTANCE.restartWorld(MinecraftClient.getInstance());
+        if (INSTANCE != null) INSTANCE.restartWorld(Minecraft.getInstance());
     }
 
-    private void restartWorld(MinecraftClient client) {
-        if (client.getNetworkHandler() == null) return;
+    private void restartWorld(Minecraft client) {
+        if (client.getConnection() == null) return;
         if (!ownWorld(client)) {
-            client.inGameHud.setTitleTicks(3, 40, 8);
-            client.inGameHud.setTitle(Text.literal("Вы не в своём мире").formatted(Formatting.RED));
-            client.inGameHud.setSubtitle(Text.literal("мир перезапускается только в своём"));
+            client.gui.setTimes(3, 40, 8);
+            client.gui.setTitle(Component.literal("Вы не в своём мире").withStyle(ChatFormatting.RED));
+            client.gui.setSubtitle(Component.literal("мир перезапускается только в своём"));
             return;
         }
         if (script != null) script.save();
@@ -370,20 +370,20 @@ public final class XeroCode implements ClientModInitializer {
             return;
         }
         restartStage = 1;
-        client.getNetworkHandler().sendChatCommand("build");
+        client.getConnection().sendCommand("build");
         cover("Перезапуск мира…", null);
     }
 
-    private static String modeOf(MinecraftClient client) {
-        return client.interactionManager == null ? ""
-                : String.valueOf(client.interactionManager.getCurrentGameMode());
+    private static String modeOf(Minecraft client) {
+        return client.gameMode == null ? ""
+                : String.valueOf(client.gameMode.getPlayerMode());
     }
 
-    private static String worldOf(MinecraftClient client) {
-        return client.world == null ? "" : client.world.getRegistryKey().getValue().toString();
+    private static String worldOf(Minecraft client) {
+        return client.level == null ? "" : client.level.dimension().identifier().toString();
     }
 
-    private boolean stepDone(MinecraftClient client, String want) {
+    private boolean stepDone(Minecraft client, String want) {
         if (want.equals(worldModeNow)) return true;
         if (!modeOf(client).equals(restartMode)) return true;
         if (!worldOf(client).equals(restartWorldKey)) return true;
@@ -399,19 +399,19 @@ public final class XeroCode implements ClientModInitializer {
         restartWait = 0;
     }
 
-    private void sendPlay(MinecraftClient client) {
+    private void sendPlay(Minecraft client) {
         restartStage = 2;
         restartWait = 0;
         restartTries++;
         restartMode = modeOf(client);
         restartWorldKey = worldOf(client);
-        client.getNetworkHandler().sendChatCommand("play");
+        client.getConnection().sendCommand("play");
         cover("Запуск мира…", null);
     }
 
-    private void restartTick(MinecraftClient client) {
+    private void restartTick(Minecraft client) {
         if (restartStage == 0) return;
-        if (client.getNetworkHandler() == null) {
+        if (client.getConnection() == null) {
             restartStage = 0;
             return;
         }
@@ -445,43 +445,43 @@ public final class XeroCode implements ClientModInitializer {
         }
     }
 
-    private void worldMode(MinecraftClient client, String command) {
-        if (client.getNetworkHandler() == null) return;
+    private void worldMode(Minecraft client, String command) {
+        if (client.getConnection() == null) return;
         if (command.equals(worldModeNow)) {
-            client.inGameHud.setOverlayMessage(Text.literal(
+            client.gui.setOverlayMessage(Component.literal(
                     "play".equals(command) ? "Уже в режиме игры" : "Уже в режиме строительства")
-                    .formatted(Formatting.GRAY), false);
+                    .withStyle(ChatFormatting.GRAY), false);
             return;
         }
         if (!ownWorld(client)) {
-            client.inGameHud.setTitleTicks(3, 40, 8);
-            client.inGameHud.setTitle(Text.literal("Вы не в своём мире").formatted(Formatting.RED));
-            client.inGameHud.setSubtitle(Text.literal("режимы мира переключаются только в своём"));
+            client.gui.setTimes(3, 40, 8);
+            client.gui.setTitle(Component.literal("Вы не в своём мире").withStyle(ChatFormatting.RED));
+            client.gui.setSubtitle(Component.literal("режимы мира переключаются только в своём"));
             return;
         }
         if (script != null) script.save();
-        client.getNetworkHandler().sendChatCommand(command);
+        client.getConnection().sendCommand(command);
         cover("play".equals(command) ? "Запуск мира…" : "Режим строительства…", null);
     }
 
-    private static boolean ownWorld(MinecraftClient client) {
-        if (client.world == null) return false;
-        if (client.isInSingleplayer() || client.getNetworkHandler() == null) return true;
-        if (Codespace.inDev(client.world)) return true;
-        String plot = plotId(client.world);
+    private static boolean ownWorld(Minecraft client) {
+        if (client.level == null) return false;
+        if (client.isLocalServer() || client.getConnection() == null) return true;
+        if (Codespace.inDev(client.level)) return true;
+        String plot = plotId(client.level);
         return !plot.isEmpty() && OWN.contains(plot);
     }
 
     public static void cover(String label, Runnable done) {
         if (INSTANCE == null) return;
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         INSTANCE.holdScreen = 0;
         INSTANCE.holding = null;
         INSTANCE.cover = new CoverScreen(label);
         INSTANCE.coverDone = done;
         INSTANCE.coverTicks = 30;
-        INSTANCE.coverMode = client.interactionManager == null ? null
-                : client.interactionManager.getCurrentGameMode();
+        INSTANCE.coverMode = client.gameMode == null ? null
+                : client.gameMode.getPlayerMode();
         client.setScreen(INSTANCE.cover);
     }
 
@@ -493,41 +493,41 @@ public final class XeroCode implements ClientModInitializer {
         INSTANCE.coverMode = null;
     }
 
-    private void dropCover(MinecraftClient client, String why) {
+    private void dropCover(Minecraft client, String why) {
         if (cover == null) return;
         Runnable done = coverDone;
         cover = null;
         coverDone = null;
         coverTicks = 0;
-        if (client.currentScreen instanceof CoverScreen) client.setScreen(null);
+        if (client.screen instanceof CoverScreen) client.setScreen(null);
         if (done != null) done.run();
     }
 
-    public static void openCanvas(MinecraftClient client) {
+    public static void openCanvas(Minecraft client) {
         if (INSTANCE == null) { open(client); return; }
         INSTANCE.pressed(client);
     }
 
-    private void pressed(MinecraftClient client) {
+    private void pressed(Minecraft client) {
         if (LocationPick.active()) { LocationPick.cancel(); return; }
         if (inDev(client)) { open(client); return; }
-        if (client.isInSingleplayer() || client.getNetworkHandler() == null) { open(client); return; }
+        if (client.isLocalServer() || client.getConnection() == null) { open(client); return; }
         if (waitingDev > 0) return;
 
-        String plot = plotId(client.world);
+        String plot = plotId(client.level);
         boolean known = !plot.isEmpty() && OWN.contains(plot);
         holding = null;
         holdScreen = 0;
         waitingDev = DEV_WAIT;
-        client.getNetworkHandler().sendChatCommand("dev");
+        client.getConnection().sendCommand("dev");
         if (known) allowed(client);
     }
 
-    private void allowed(MinecraftClient client) {
+    private void allowed(Minecraft client) {
         if (holding != null) return;
         waitingDev = 0;
         open(client);
-        holding = client.currentScreen instanceof EditorScreen e ? e : null;
+        holding = client.screen instanceof EditorScreen e ? e : null;
         holdScreen = DEV_WAIT;
     }
 
@@ -537,22 +537,22 @@ public final class XeroCode implements ClientModInitializer {
         INSTANCE.holding = null;
     }
 
-    private void restore(MinecraftClient client) {
+    private void restore(Minecraft client) {
         if (restoring || holding == null) return;
         restoring = true;
         client.execute(() -> {
             restoring = false;
-            if (holdScreen > 0 && holding != null && client.currentScreen != holding
-                    && !(client.currentScreen instanceof ImportScreen)) {
+            if (holdScreen > 0 && holding != null && client.screen != holding
+                    && !(client.screen instanceof ImportScreen)) {
                 client.setScreen(holding);
             }
         });
     }
 
-    private void hold(MinecraftClient client) {
+    private void hold(Minecraft client) {
         if (--holdScreen <= 0 || holding == null) return;
         if (picking()) return;
-        if (client.currentScreen == holding || client.currentScreen instanceof ImportScreen) return;
+        if (client.screen == holding || client.screen instanceof ImportScreen) return;
         client.setScreen(holding);
     }
 
@@ -560,39 +560,39 @@ public final class XeroCode implements ClientModInitializer {
         return LocationPick.active();
     }
 
-    private void notMyWorld(MinecraftClient client) {
+    private void notMyWorld(Minecraft client) {
         holdScreen = 0;
-        boolean hadCanvas = client.currentScreen instanceof EditorScreen;
+        boolean hadCanvas = client.screen instanceof EditorScreen;
         holding = null;
         if (hadCanvas) client.setScreen(null);
-        client.inGameHud.setTitleTicks(3, 60, 10);
-        client.inGameHud.setTitle(Text.literal("Вы не в своём мире")
-                .formatted(Formatting.RED));
-        client.inGameHud.setSubtitle(Text.literal("Кодинг открывается только в своём"));
+        client.gui.setTimes(3, 60, 10);
+        client.gui.setTitle(Component.literal("Вы не в своём мире")
+                .withStyle(ChatFormatting.RED));
+        client.gui.setSubtitle(Component.literal("Кодинг открывается только в своём"));
     }
 
-    private void entered(MinecraftClient client) {
+    private void entered(Minecraft client) {
         waited = 0;
-        rememberOwn(plotId(client.world));
+        rememberOwn(plotId(client.level));
         if (!Settings.canvasMode()) {
-            client.inGameHud.setOverlayMessage(Text.literal("2D-редактор — "
-                    + Settings.get().label(Settings.Hot.OPEN)).formatted(Formatting.GRAY), false);
+            client.gui.setOverlayMessage(Component.literal("2D-редактор — "
+                    + Settings.get().label(Settings.Hot.OPEN)).withStyle(ChatFormatting.GRAY), false);
             return;
         }
-        if (!script().roots.isEmpty() && client.currentScreen == null && holding == null)
+        if (!script().roots.isEmpty() && client.screen == null && holding == null)
             open(client);
         pending = SCAN_DELAY;
     }
 
-    private void offerImport(MinecraftClient client) {
-        boolean busy = client.currentScreen != null && !(client.currentScreen instanceof EditorScreen);
-        if (client.world == null || busy) return;
+    private void offerImport(Minecraft client) {
+        boolean busy = client.screen != null && !(client.screen instanceof EditorScreen);
+        if (client.level == null || busy) return;
         if (!inDev(client)) return;
-        if (!Codespace.chunksReady(client.world) && ++waited < SCAN_RETRIES) {
+        if (!Codespace.chunksReady(client.level) && ++waited < SCAN_RETRIES) {
             pending = SCAN_DELAY;
             return;
         }
-        List<BlockPos> lines = Codespace.lines(client.world);
+        List<BlockPos> lines = Codespace.lines(client.level);
         if (script().roots.isEmpty()) {
             if (lines.isEmpty()) { open(client); return; }
             ready();
@@ -600,7 +600,7 @@ public final class XeroCode implements ClientModInitializer {
             return;
         }
         if (lines.isEmpty() || Sync.hushed(script())) return;
-        if (!Sync.state(script(), client.world).risky()) return;
+        if (!Sync.state(script(), client.level).risky()) return;
         ready();
         client.setScreen(new ImportScreen(script(), lines, ImportScreen.Mode.DIVERGED));
     }
@@ -634,8 +634,8 @@ public final class XeroCode implements ClientModInitializer {
         return name.startsWith("com.xerocode") ? name : null;
     }
 
-    private static boolean inDev(MinecraftClient client) {
-        return Codespace.inDev(client.world);
+    private static boolean inDev(Minecraft client) {
+        return Codespace.inDev(client.level);
     }
 
     private static void ready() {
@@ -647,7 +647,7 @@ public final class XeroCode implements ClientModInitializer {
         if (!Placeholders.loaded()) Placeholders.load();
     }
 
-    private static void open(MinecraftClient client) {
+    private static void open(Minecraft client) {
         ready();
         Settings settings = Settings.get();
         if (settings.mode != Settings.Mode.CANVAS) {

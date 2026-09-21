@@ -6,27 +6,27 @@ import com.xerocode.History;
 import com.xerocode.Market;
 import com.xerocode.Script;
 import com.xerocode.XeroCode;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
 
 public final class MarketScreen extends Screen {
     public interface Panel {
         void place(int x, int y, int w, int h);
-        void draw(DrawContext ctx, int mouseX, int mouseY, float delta);
-        boolean click(Click click, boolean doubled);
-        default boolean key(KeyInput in) { return false; }
-        default boolean chars(CharInput in) { return false; }
-        default boolean drag(Click click, double dx, double dy) { return false; }
+        void draw(GuiGraphics ctx, int mouseX, int mouseY, float delta);
+        boolean click(MouseButtonEvent click, boolean doubled);
+        default boolean key(KeyEvent in) { return false; }
+        default boolean chars(CharacterEvent in) { return false; }
+        default boolean drag(MouseButtonEvent click, double dx, double dy) { return false; }
         default boolean wheel(double mx, double my, double amount) { return false; }
         default void release() { }
         default String hint() { return ""; }
@@ -45,7 +45,7 @@ public final class MarketScreen extends Screen {
     private final Script script;
     private final Screen back;
 
-    private TextFieldWidget search;
+    private EditBox search;
     private String query = "";
     private String tab = Market.TAB_HOT;
     private String category = "";
@@ -76,31 +76,31 @@ public final class MarketScreen extends Screen {
     private record Rail(String kind, String label, String value) {}
 
     public MarketScreen(Script script, Screen back) {
-        super(Text.literal("Магазин модулей"));
+        super(Component.literal("Магазин модулей"));
         this.script = script;
         this.back = back;
         Market.start();
     }
 
     public Script script() { return script; }
-    public MinecraftClient mc() { return client; }
+    public Minecraft mc() { return minecraft; }
 
     @Override
-    public boolean shouldPause() { return false; }
+    public boolean isPauseScreen() { return false; }
 
     @Override
     protected void init() {
-        String typed = search == null ? query : search.getText();
-        search = Ui.field(textRenderer, 0, 0, 80, 10, "найти модуль…");
+        String typed = search == null ? query : search.getValue();
+        search = Ui.field(font, 0, 0, 80, 10, "найти модуль…");
         search.setMaxLength(48);
-        search.setText(typed);
-        search.setChangedListener(text -> {
+        search.setValue(typed);
+        search.setResponder(text -> {
             if (query.equals(text.trim())) return;
             query = text.trim();
             typing = true;
             typedAt = System.currentTimeMillis();
         });
-        addSelectableChild(search);
+        addWidget(search);
         buildRails();
         placePanel();
         if (Market.LIST.items.isEmpty() && !Market.LIST.loading) reload();
@@ -202,14 +202,14 @@ public final class MarketScreen extends Screen {
         }
         picker = null;
         menu = null;
-        client.setScreen(editor);
+        minecraft.setScreen(editor);
         editor.pickForModule(this, form::tookFromCanvas);
     }
 
     public void openMenu(Menu what) { menu = what; }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         Market.tick();
         if (railCats != Market.categories().size()) buildRails();
         if (typing && System.currentTimeMillis() - typedAt > 260) {
@@ -224,11 +224,11 @@ public final class MarketScreen extends Screen {
         drawFooter(ctx, mouseX, mouseY);
         if (railOpen) drawRailSheet(ctx, mouseX, mouseY);
         if (menu != null) {
-            ctx.createNewRootLayer();
-            menu.render(ctx, textRenderer, mouseX, mouseY);
+            ctx.nextStratum();
+            menu.render(ctx, font, mouseX, mouseY);
         }
         if (picker != null) {
-            ctx.createNewRootLayer();
+            ctx.nextStratum();
             picker.render(ctx, mouseX, mouseY, delta);
             if (picker.isClosed()) picker = null;
         }
@@ -238,7 +238,7 @@ public final class MarketScreen extends Screen {
     private int accountW() {
         Market.Me me = Market.me();
         String name = me == null ? "войти" : me.name;
-        return 18 + 5 + Math.min(90, textRenderer.getWidth(name)) + (me != null && me.verified
+        return 18 + 5 + Math.min(90, font.width(name)) + (me != null && me.verified
                 ? Draw.glyphW(Draw.CHECK) + 4 : 0) + 10;
     }
 
@@ -248,33 +248,33 @@ public final class MarketScreen extends Screen {
 
     private int searchX() { return accountX() - 8 - searchW(); }
 
-    private void drawHeader(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    private void drawHeader(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         Draw.rect(ctx, 0, 0, width, HEAD_H, Draw.opaque(Ui.HEAD));
         Draw.rect(ctx, 0, HEAD_H - 1, width, 1, Draw.opaque(Ui.LINE));
-        int bw = Ui.buttonW(textRenderer, Draw.CHEVRON_LEFT, backLabel());
-        Ui.glyphButton(ctx, textRenderer, mouseX, mouseY, PAD, 8, bw, 18,
+        int bw = Ui.buttonW(font, Draw.CHEVRON_LEFT, backLabel());
+        Ui.glyphButton(ctx, font, mouseX, mouseY, PAD, 8, bw, 18,
                 Draw.CHEVRON_LEFT, backLabel(), Ui.GHOST, true);
         int at = PAD + bw + 10;
         if (narrow() && panel == null) {
-            int rw = Ui.buttonW(textRenderer, Draw.CARET_DOWN, railLabel());
+            int rw = Ui.buttonW(font, Draw.CARET_DOWN, railLabel());
             rw = Math.min(rw, Math.max(40, searchX() - at - 8));
-            Ui.glyphButton(ctx, textRenderer, mouseX, mouseY, at, 8, rw, 18,
+            Ui.glyphButton(ctx, font, mouseX, mouseY, at, 8, rw, 18,
                     Draw.CARET_DOWN, railLabel(), railOpen ? Ui.ACTIVE : Ui.GHOST, true);
         } else {
             Draw.glyph(ctx, Draw.SHOP, at, 12, Theme.ACCENT);
             int tx = at + Draw.glyphW(Draw.SHOP) + 7;
             int room = searchX() - tx - 8;
             if (panel == null || panel.title().isEmpty()) {
-                Draw.textFit(ctx, textRenderer, "МАГАЗИН МОДУЛЕЙ", tx, 13, room,
+                Draw.textFit(ctx, font, "МАГАЗИН МОДУЛЕЙ", tx, 13, room,
                         Theme.TEXT, false);
             } else {
                 boolean hot = Ui.hit(mouseX, mouseY, tx, 10, crumbW(), 16);
-                Draw.textFit(ctx, textRenderer, "Магазин", tx, 13, room,
+                Draw.textFit(ctx, font, "Магазин", tx, 13, room,
                         hot ? Theme.TEXT : Theme.TEXT_FAINT, false);
                 int sx = tx + crumbW() + CRUMB_GAP;
-                Draw.text(ctx, textRenderer, "›", sx, 13, Theme.TEXT_FAINT, false);
-                int nameX = sx + textRenderer.getWidth("›") + CRUMB_GAP;
-                Draw.textFit(ctx, textRenderer, panel.title(), nameX, 13,
+                Draw.text(ctx, font, "›", sx, 13, Theme.TEXT_FAINT, false);
+                int nameX = sx + font.width("›") + CRUMB_GAP;
+                Draw.textFit(ctx, font, panel.title(), nameX, 13,
                         Math.max(20, room - (nameX - tx)), Theme.TEXT, false);
             }
         }
@@ -284,7 +284,7 @@ public final class MarketScreen extends Screen {
         search.setX(searchX() + 16);
         search.setY(13);
         search.render(ctx, mouseX, mouseY, delta);
-        Ui.placeholder(ctx, textRenderer, search);
+        Ui.placeholder(ctx, font, search);
         drawAccount(ctx, mouseX, mouseY);
     }
 
@@ -295,10 +295,10 @@ public final class MarketScreen extends Screen {
 
     private static final int CRUMB_GAP = 5;
 
-    private int crumbW() { return textRenderer.getWidth("Магазин"); }
+    private int crumbW() { return font.width("Магазин"); }
 
     private int crumbX() {
-        return PAD + Ui.buttonW(textRenderer, Draw.CHEVRON_LEFT, backLabel()) + 10
+        return PAD + Ui.buttonW(font, Draw.CHEVRON_LEFT, backLabel()) + 10
                 + Draw.glyphW(Draw.SHOP) + 7;
     }
 
@@ -308,34 +308,34 @@ public final class MarketScreen extends Screen {
         return "Разделы";
     }
 
-    private void drawAccount(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawAccount(GuiGraphics ctx, int mouseX, int mouseY) {
         int x = accountX(), w = accountW();
         boolean hot = Ui.hit(mouseX, mouseY, x, 6, w, 22);
         Market.Me me = Market.me();
         if (hot) Draw.round(ctx, x, 6, w, 22, Ui.R_SM, Draw.opaque(Ui.BTN_HOVER));
         if (me == null) {
-            MarketArt.avatar(ctx, "", x + 3, 8, 18, Theme.LINE, "?", textRenderer);
-            Draw.textFit(ctx, textRenderer, Market.joining() ? "вход…" : "войти",
+            MarketArt.avatar(ctx, "", x + 3, 8, 18, Theme.LINE, "?", font);
+            Draw.textFit(ctx, font, Market.joining() ? "вход…" : "войти",
                     x + 26, 13, w - 32, hot ? Theme.TEXT : Theme.TEXT_DIM, false);
             return;
         }
         MarketArt.avatar(ctx, me.icon, me.name, x + 3, 8, 18, Theme.ACCENT, me.name,
-                textRenderer);
+                font);
         int tick = me.verified ? Draw.glyphW(Draw.CHECK) + 4 : 0;
-        Draw.textFit(ctx, textRenderer, me.name, x + 26, 13, w - 32 - tick,
+        Draw.textFit(ctx, font, me.name, x + 26, 13, w - 32 - tick,
                 hot ? Theme.TEXT : Theme.TEXT_DIM, false);
         if (me.verified)
             Draw.glyph(ctx, Draw.CHECK, x + w - Draw.glyphW(Draw.CHECK) - 6, 13, Theme.OK);
     }
 
-    private void drawRail(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawRail(GuiGraphics ctx, int mouseX, int mouseY) {
         int w = railW(), y = bodyY(), h = bodyH() + FOOT_H;
         Draw.rect(ctx, 0, y, w, h, Draw.opaque(Ui.RAIL));
         Ui.vline(ctx, w, y, h);
         drawRailRows(ctx, mouseX, mouseY, 0, y + 4, w, h - 8);
     }
 
-    private void drawRailRows(DrawContext ctx, int mouseX, int mouseY,
+    private void drawRailRows(GuiGraphics ctx, int mouseX, int mouseY,
                               int x, int y, int w, int h) {
         int at = y;
         for (Rail row : rails) {
@@ -346,7 +346,7 @@ public final class MarketScreen extends Screen {
             }
             if (row.kind().equals("head")) {
                 at += 7;
-                Ui.caption(ctx, textRenderer, row.label(), x + 11, at, w - 20);
+                Ui.caption(ctx, font, row.label(), x + 11, at, w - 20);
                 at += 12;
                 continue;
             }
@@ -363,7 +363,7 @@ public final class MarketScreen extends Screen {
             if (row.kind().equals("cat"))
                 Draw.round(ctx, x + 10, at + 6, 5, 5, 2,
                         Draw.opaque(MarketArt.catColor(row.value())));
-            Draw.textFit(ctx, textRenderer, row.label(),
+            Draw.textFit(ctx, font, row.label(),
                     x + (row.kind().equals("cat") ? 20 : 11), at + 5,
                     w - (row.kind().equals("cat") ? 30 : 20), ink, false);
             at += RAIL_ROW;
@@ -390,8 +390,8 @@ public final class MarketScreen extends Screen {
         return h;
     }
 
-    private void drawRailSheet(DrawContext ctx, int mouseX, int mouseY) {
-        ctx.createNewRootLayer();
+    private void drawRailSheet(GuiGraphics ctx, int mouseX, int mouseY) {
+        ctx.nextStratum();
         int w = Math.min(220, width - 24), h = Math.min(railSheetH(), height - HEAD_H - 20);
         int x = PAD, y = HEAD_H + 4;
         Ui.panel(ctx, x, y, w, h);
@@ -419,7 +419,7 @@ public final class MarketScreen extends Screen {
 
     private int maxScroll() { return Math.max(0, contentH() - bodyH()); }
 
-    private void drawList(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawList(GuiGraphics ctx, int mouseX, int mouseY) {
         int x = bodyX(), y = bodyY(), w = bodyW(), h = bodyH();
         Draw.rect(ctx, x, y, w, h, Draw.opaque(Ui.WELL));
         Market.Page page = Market.LIST;
@@ -454,13 +454,13 @@ public final class MarketScreen extends Screen {
             int cy = cardY(i);
             if (cy > y + h || cy + CARD_H < y) continue;
             boolean hot = i == spot;
-            MarketArt.card(ctx, textRenderer, page.items.get(i), cardX(i), cy, cardW(),
+            MarketArt.card(ctx, font, page.items.get(i), cardX(i), cy, cardW(),
                     hot, !hot);
             if (hot) drawGrab(ctx, page.items.get(i), cardX(i), cy, cardW(), mouseX, mouseY);
         }
         if (page.more) {
             int by = cardY(page.items.size() - 1) + CARD_H + CARD_GAP;
-            Draw.textCenter(ctx, textRenderer, page.loading ? "гружу…" : "ещё есть",
+            Draw.textCenter(ctx, font, page.loading ? "гружу…" : "ещё есть",
                     x, by + 2, w, w - 40, Theme.TEXT_FAINT, false);
         }
         ctx.disableScissor();
@@ -472,7 +472,7 @@ public final class MarketScreen extends Screen {
     }
 
     private int grabW(Market.Module m) {
-        return Math.min(cardW() - 70, Ui.buttonW(textRenderer, grabLabel(m)) - 6);
+        return Math.min(cardW() - 70, Ui.buttonW(font, grabLabel(m)) - 6);
     }
 
     private int cardBtnY(int cy) { return cy + CARD_H - MarketArt.CARD_INSET
@@ -490,7 +490,7 @@ public final class MarketScreen extends Screen {
         return cw - MarketArt.CARD_INSET * 2 - grabW(m) - 6 - MarketArt.CARD_BTN_H >= 44;
     }
 
-    private void drawGrab(DrawContext ctx, Market.Module m, int cx, int cy, int cw,
+    private void drawGrab(GuiGraphics ctx, Market.Module m, int cx, int cy, int cw,
                           int mouseX, int mouseY) {
         int bw = grabW(m);
         if (bw < 40) return;
@@ -498,11 +498,11 @@ public final class MarketScreen extends Screen {
         if (roomForLook(cw, m))
             Ui.iconButton(ctx, mouseX, mouseY, lookX(cx, cw, m), by, MarketArt.CARD_BTN_H,
                     Draw.SEARCH, Ui.GHOST, true);
-        Ui.button(ctx, textRenderer, mouseX, mouseY, grabX(cx, cw, m), by, bw,
+        Ui.button(ctx, font, mouseX, mouseY, grabX(cx, cw, m), by, bw,
                 MarketArt.CARD_BTN_H, grabLabel(m), Ui.ACCENT, grabbing.isEmpty());
     }
 
-    private void drawSkeletons(DrawContext ctx) {
+    private void drawSkeletons(GuiGraphics ctx) {
         int x = bodyX(), y = bodyY(), w = bodyW(), h = bodyH();
         ctx.enableScissor(x, y, x + w, y + h);
         int rows = Math.max(1, (h - PAD) / (CARD_H + CARD_GAP) + 1);
@@ -512,13 +512,13 @@ public final class MarketScreen extends Screen {
         ctx.disableScissor();
     }
 
-    private void centre(DrawContext ctx, int at, String what, String label,
+    private void centre(GuiGraphics ctx, int at, String what, String label,
                         int mouseX, int mouseY) {
         centerAct = what;
-        centerW = Ui.buttonW(textRenderer, Draw.PLUS, label);
+        centerW = Ui.buttonW(font, Draw.PLUS, label);
         centerX = bodyX() + (bodyW() - centerW) / 2;
         centerY = at + 8;
-        Ui.glyphButton(ctx, textRenderer, mouseX, mouseY, centerX, centerY, centerW, 18,
+        Ui.glyphButton(ctx, font, mouseX, mouseY, centerX, centerY, centerW, 18,
                 what.equals("retry") ? Draw.RESET : Draw.PLUS, label, Ui.ACCENT, true);
     }
 
@@ -534,12 +534,12 @@ public final class MarketScreen extends Screen {
         return "в магазине пока пусто — будь первым";
     }
 
-    private int middle(DrawContext ctx, String said, boolean quiet) {
+    private int middle(GuiGraphics ctx, String said, boolean quiet) {
         int x = bodyX(), y = bodyY() + bodyH() / 2 - 30, w = bodyW();
         Draw.glyph(ctx, Draw.SHOP, x + (w - Draw.glyphW(Draw.SHOP)) / 2, y, Theme.LINE);
         int at = y + 20;
-        for (String line : Ui.wrap(textRenderer, said, Math.min(360, w - 40), 3)) {
-            Draw.textCenter(ctx, textRenderer, line, x, at, w, w - 40,
+        for (String line : Ui.wrap(font, said, Math.min(360, w - 40), 3)) {
+            Draw.textCenter(ctx, font, line, x, at, w, w - 40,
                     quiet ? Theme.TEXT_FAINT : Theme.TEXT_DIM, false);
             at += 11;
         }
@@ -559,23 +559,23 @@ public final class MarketScreen extends Screen {
     private int publishW() {
         if (panel != null)
             return panel.action().isEmpty() ? 0
-                    : Math.max(96, Ui.buttonW(textRenderer, panel.action()));
-        return Ui.buttonW(textRenderer, Draw.PLUS, publishLabel());
+                    : Math.max(96, Ui.buttonW(font, panel.action()));
+        return Ui.buttonW(font, Draw.PLUS, publishLabel());
     }
 
-    private void drawFooter(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawFooter(GuiGraphics ctx, int mouseX, int mouseY) {
         int y = height - FOOT_H;
         Draw.rect(ctx, 0, y, width, FOOT_H, Draw.opaque(Ui.HEAD));
         Draw.rect(ctx, 0, y, width, 1, Draw.opaque(Ui.LINE));
         int bw = publishW();
         if (panel == null)
-            Ui.glyphButton(ctx, textRenderer, mouseX, mouseY, width - PAD - bw, y + 6, bw, 18,
+            Ui.glyphButton(ctx, font, mouseX, mouseY, width - PAD - bw, y + 6, bw, 18,
                     Draw.PLUS, publishLabel(), Ui.ACCENT, Market.me() != null);
         else if (!panel.action().isEmpty())
-            Ui.button(ctx, textRenderer, mouseX, mouseY, width - PAD - bw, y + 6, bw, 18,
+            Ui.button(ctx, font, mouseX, mouseY, width - PAD - bw, y + 6, bw, 18,
                     panel.action(), Ui.ACCENT, panel.actionOn());
         String said = panel != null ? panel.hint() : listHint();
-        Draw.textFit(ctx, textRenderer, said, PAD, y + 11, width - PAD * 2 - bw - 14,
+        Draw.textFit(ctx, font, said, PAD, y + 11, width - PAD * 2 - bw - 14,
                 Theme.TEXT_FAINT, false);
     }
 
@@ -587,21 +587,21 @@ public final class MarketScreen extends Screen {
         return "в магазине " + Ui.plural(Market.publicModules(), "модуль", "модуля", "модулей");
     }
 
-    private void drawToast(DrawContext ctx) {
+    private void drawToast(GuiGraphics ctx) {
         if (toast.isEmpty()) return;
         long age = System.currentTimeMillis() - toastAt;
         if (age > 4200) { toast = ""; return; }
-        ctx.createNewRootLayer();
-        int w = Math.min(width - 40, textRenderer.getWidth(toast) + 26);
+        ctx.nextStratum();
+        int w = Math.min(width - 40, font.width(toast) + 26);
         int x = (width - w) / 2, y = height - FOOT_H - 30;
         int alpha = age > 3600 ? (int) (0xE6 * (4200 - age) / 600) : 0xE6;
         Draw.round(ctx, x, y, w, 20, 6, Draw.argb(alpha, Ui.PANEL));
         Draw.roundOutline(ctx, x, y, w, 20, 6, Draw.argb(alpha, Ui.BORDER));
-        Draw.textCenter(ctx, textRenderer, toast, x, y + 6, w, w - 16, Theme.TEXT, false);
+        Draw.textCenter(ctx, font, toast, x, y + 6, w, w - 16, Theme.TEXT, false);
     }
 
     @Override
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         double mx = click.x(), my = click.y();
         if (picker != null) {
             picker.mouseClicked(click, doubled);
@@ -674,11 +674,11 @@ public final class MarketScreen extends Screen {
         });
     }
 
-    private boolean headClicked(Click click, boolean doubled, double mx, double my) {
-        int bw = Ui.buttonW(textRenderer, Draw.CHEVRON_LEFT, backLabel());
+    private boolean headClicked(MouseButtonEvent click, boolean doubled, double mx, double my) {
+        int bw = Ui.buttonW(font, Draw.CHEVRON_LEFT, backLabel());
         if (Ui.hit(mx, my, PAD, 8, bw, 18)) {
             if (panel != null) back();
-            else close();
+            else onClose();
             return true;
         }
         if (panel != null && Ui.hit(mx, my, crumbX(), 10, crumbW(), 16)) {
@@ -687,7 +687,7 @@ public final class MarketScreen extends Screen {
         }
         if (narrow() && panel == null) {
             int at = PAD + bw + 10;
-            int rw = Math.min(Ui.buttonW(textRenderer, Draw.CARET_DOWN, railLabel()),
+            int rw = Math.min(Ui.buttonW(font, Draw.CARET_DOWN, railLabel()),
                     Math.max(40, searchX() - at - 8));
             if (Ui.hit(mx, my, at, 8, rw, 18)) { railOpen = !railOpen; return true; }
         }
@@ -763,7 +763,7 @@ public final class MarketScreen extends Screen {
     }
 
     @Override
-    public boolean mouseReleased(Click click) {
+    public boolean mouseReleased(MouseButtonEvent click) {
         bar.release();
         grab.release();
         if (menu != null) menu.mouseReleased();
@@ -773,7 +773,7 @@ public final class MarketScreen extends Screen {
     }
 
     @Override
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (picker != null) return picker.mouseDragged(click, dx, dy);
         if (menu != null && menu.mouseDragged(click.y())) return true;
         if (bar.dragged(click.y(), 1, maxScroll(), v -> scroll = v)) return true;
@@ -797,7 +797,7 @@ public final class MarketScreen extends Screen {
     }
 
     @Override
-    public boolean keyPressed(KeyInput in) {
+    public boolean keyPressed(KeyEvent in) {
         if (picker != null) {
             picker.keyPressed(in);
             if (picker.isClosed()) picker = null;
@@ -810,7 +810,7 @@ public final class MarketScreen extends Screen {
         if (in.key() == GLFW.GLFW_KEY_ESCAPE) {
             if (railOpen) { railOpen = false; return true; }
             if (panel != null) { back(); return true; }
-            close();
+            onClose();
             return true;
         }
         if (panel != null && panel.key(in)) return true;
@@ -823,7 +823,7 @@ public final class MarketScreen extends Screen {
         return super.keyPressed(in);
     }
 
-    private boolean walked(KeyInput in) {
+    private boolean walked(KeyEvent in) {
         List<Market.Module> items = Market.LIST.items;
         if (items.isEmpty()) return false;
         int step = switch (in.key()) {
@@ -855,7 +855,7 @@ public final class MarketScreen extends Screen {
     }
 
     @Override
-    public boolean charTyped(CharInput in) {
+    public boolean charTyped(CharacterEvent in) {
         if (picker != null) return picker.charTyped(in);
         if (panel != null && panel.chars(in)) return true;
         if (search.isFocused()) return search.charTyped(in);
@@ -863,12 +863,12 @@ public final class MarketScreen extends Screen {
     }
 
     @Override
-    public void close() {
+    public void onClose() {
         if (back != null) {
-            client.setScreen(back);
+            minecraft.setScreen(back);
             return;
         }
-        super.close();
+        super.onClose();
     }
 
     public void install(Market.Module module, JsonObject payload, boolean toBackpack) {
@@ -908,7 +908,7 @@ public final class MarketScreen extends Screen {
         script.fitOnOpen = true;
         toast("«" + module.name + "» на полотне · "
                 + Ui.plural(blocks, "блок", "блока", "блоков") + " · Ctrl+Z вернёт");
-        if (back != null) client.setScreen(back);
+        if (back != null) minecraft.setScreen(back);
     }
 
     private double freeX() {

@@ -5,14 +5,13 @@ import com.google.gson.JsonObject;
 import com.xerocode.Backpack;
 import com.xerocode.Market;
 import com.xerocode.Script;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.widget.EditBoxWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.text.Text;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.MultiLineEditBox;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
 
 public final class MarketForm extends MarketPanel {
     private static final int NAME_MAX = 48, SUM_MAX = 120, DESC_MAX = 1200, TAGS_MAX = 90;
@@ -24,8 +23,8 @@ public final class MarketForm extends MarketPanel {
 
     private final Market.Module editing;
 
-    private TextFieldWidget name, summary, tags;
-    private EditBoxWidget descr;
+    private EditBox name, summary, tags;
+    private MultiLineEditBox descr;
     private int descrW = -1;
 
     private String cat = "";
@@ -62,9 +61,9 @@ public final class MarketForm extends MarketPanel {
     }
 
     private void guessName(String said) {
-        if (said == null || said.isBlank() || !name.getText().trim().isEmpty()) return;
-        name.setText(said);
-        name.setCursorToStart(false);
+        if (said == null || said.isBlank() || !name.getValue().trim().isEmpty()) return;
+        name.setValue(said);
+        name.moveCursorToStart(false);
     }
 
     @Override
@@ -74,20 +73,20 @@ public final class MarketForm extends MarketPanel {
     protected void placed() {
         int room = fieldW();
         if (descr == null || descrW != room) {
-            String was = descr == null ? (editing == null ? "" : editing.descr) : descr.getText();
-            descr = EditBoxWidget.builder()
-                    .placeholder(Text.literal("что делает, как ставить, что настроить")
+            String was = descr == null ? (editing == null ? "" : editing.descr) : descr.getValue();
+            descr = MultiLineEditBox.builder()
+                    .setPlaceholder(Component.literal("что делает, как ставить, что настроить")
                             .withColor(Theme.TEXT_FAINT))
-                    .textColor(Draw.opaque(Theme.TEXT))
-                    .textShadow(false)
-                    .cursorColor(Draw.opaque(Theme.ACCENT))
-                    .hasBackground(false)
-                    .hasOverlay(false)
-                    .build(tr, room - 10, 62, Text.literal("описание"));
-            descr.setMaxLength(DESC_MAX);
-            descr.setText(was);
+                    .setTextColor(Draw.opaque(Theme.TEXT))
+                    .setTextShadow(false)
+                    .setCursorColor(Draw.opaque(Theme.ACCENT))
+                    .setShowBackground(false)
+                    .setShowDecorations(false)
+                    .build(tr, room - 10, 62, Component.literal("описание"));
+            descr.setCharacterLimit(DESC_MAX);
+            descr.setValue(was);
             descrW = room;
-            fields.removeIf(f -> f instanceof EditBoxWidget);
+            fields.removeIf(f -> f instanceof MultiLineEditBox);
             fields.add(descr);
         }
         Ui.width(name, room - 10);
@@ -96,7 +95,7 @@ public final class MarketForm extends MarketPanel {
     }
 
     @Override
-    public void draw(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void draw(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         Draw.rect(ctx, x, y, w, h, Draw.opaque(Ui.WELL));
         hits.clear();
         int col = columnW();
@@ -123,10 +122,10 @@ public final class MarketForm extends MarketPanel {
 
     private Market.Module shown() {
         Market.Module m = new Market.Module();
-        String typed = name.getText().trim();
+        String typed = name.getValue().trim();
         m.name = typed.isEmpty() ? "Название модуля" : typed;
-        m.summary = summary.getText().trim();
-        m.descr = descr == null ? "" : descr.getText();
+        m.summary = summary.getValue().trim();
+        m.descr = descr == null ? "" : descr.getValue();
         m.cat = cat;
         m.icon = icon;
         m.banner = banner;
@@ -134,7 +133,7 @@ public final class MarketForm extends MarketPanel {
         m.author = me == null ? Market.playerName() : me.name;
         m.authorIcon = me == null ? "" : me.icon;
         m.authorOk = me != null && me.verified;
-        for (String tag : tags.getText().trim().split("[\\s,]+"))
+        for (String tag : tags.getValue().trim().split("[\\s,]+"))
             if (!tag.isBlank() && m.tags.size() < 5) m.tags.add(tag);
         if (editing != null) {
             m.blocks = editing.blocks;
@@ -163,7 +162,7 @@ public final class MarketForm extends MarketPanel {
         return m;
     }
 
-    private void drawShowcase(DrawContext ctx, int sx, int sy, int sw) {
+    private void drawShowcase(GuiGraphics ctx, int sx, int sy, int sw) {
         int pad = 14;
         int cardW = Math.max(150, Math.min(MarketArt.CARD_MIN + 40, sw - pad * 2));
         int cx = sx + (sw - cardW) / 2;
@@ -173,14 +172,14 @@ public final class MarketForm extends MarketPanel {
         MarketArt.card(ctx, tr, shown(), cx, at, cardW, false, true);
     }
 
-    private String left(TextFieldWidget field, int max) {
-        int used = field.getText().length();
+    private String left(EditBox field, int max) {
+        int used = field.getValue().length();
         return used > max - 12 ? (max - used) + "" : "";
     }
 
-    private int drawDescr(DrawContext ctx, int at, int mouseX, int mouseY, float delta) {
+    private int drawDescr(GuiGraphics ctx, int at, int mouseX, int mouseY, float delta) {
         int room = fieldW();
-        caption(ctx, "Описание", at, descr.getText().length() + "/" + DESC_MAX);
+        caption(ctx, "Описание", at, descr.getValue().length() + "/" + DESC_MAX);
         at += LABEL;
         Ui.input(ctx, fieldX(), at, room, 66, descr.isFocused());
         descr.setPosition(fieldX() + 5, at + 3);
@@ -189,7 +188,7 @@ public final class MarketForm extends MarketPanel {
         return at + 66 + GAP;
     }
 
-    private int drawCats(DrawContext ctx, int at, int mouseX, int mouseY) {
+    private int drawCats(GuiGraphics ctx, int at, int mouseX, int mouseY) {
         List<String> all = Market.categories();
         if (all.isEmpty()) return at;
         if (cat.isEmpty() || !all.contains(cat)) cat = firstCat();
@@ -203,7 +202,7 @@ public final class MarketForm extends MarketPanel {
         return at + chips.height() + GAP;
     }
 
-    private int drawSource(DrawContext ctx, int at, int mouseX, int mouseY) {
+    private int drawSource(GuiGraphics ctx, int at, int mouseX, int mouseY) {
         List<String> modes = new ArrayList<>();
         if (editing != null) modes.add("Не менять");
         modes.add("С холста");
@@ -263,11 +262,11 @@ public final class MarketForm extends MarketPanel {
         };
     }
 
-    private int drawIcon(DrawContext ctx, int at, int mouseX, int mouseY) {
+    private int drawIcon(GuiGraphics ctx, int at, int mouseX, int mouseY) {
         caption(ctx, "Значок", at, null);
         at += LABEL;
         MarketArt.avatar(ctx, icon, fieldX(), at, 34, MarketArt.catColor(cat),
-                name.getText(), tr);
+                name.getValue(), tr);
         int bx = fieldX() + 42;
         bx = button(ctx, "Предмет…", "icon-item", bx, at + 1, mouseX, mouseY);
         bx = button(ctx, "Картинка…", "icon-image", bx, at + 1, mouseX, mouseY);
@@ -275,7 +274,7 @@ public final class MarketForm extends MarketPanel {
         return at + 34 + GAP;
     }
 
-    private int drawBanner(DrawContext ctx, int at, int mouseX, int mouseY) {
+    private int drawBanner(GuiGraphics ctx, int at, int mouseX, int mouseY) {
         caption(ctx, "Полоса", at, null);
         at += LABEL;
         int bw = Math.min(inner(), 300), bh = 44;
@@ -320,7 +319,7 @@ public final class MarketForm extends MarketPanel {
         if (!trouble.isEmpty()) return trouble;
         Market.Me me = Market.me();
         if (me == null) return "нужен аккаунт";
-        if (name.getText().trim().length() < 2) return "нет названия";
+        if (name.getValue().trim().length() < 2) return "нет названия";
         if (!sourceReady()) return "код не выбран";
         if (editing == null)
             return "сегодня можно выложить ещё " + me.publishLeft()
@@ -333,7 +332,7 @@ public final class MarketForm extends MarketPanel {
 
     @Override
     public boolean actionOn() {
-        return !sending && name.getText().trim().length() >= 2 && sourceReady();
+        return !sending && name.getValue().trim().length() >= 2 && sourceReady();
     }
 
     @Override
@@ -355,14 +354,14 @@ public final class MarketForm extends MarketPanel {
     private void send() {
         if (sending) return;
         JsonObject form = new JsonObject();
-        form.addProperty("name", name.getText().trim());
-        form.addProperty("summary", summary.getText().trim());
-        form.addProperty("descr", descr.getText());
+        form.addProperty("name", name.getValue().trim());
+        form.addProperty("summary", summary.getValue().trim());
+        form.addProperty("descr", descr.getValue());
         form.addProperty("cat", cat);
         form.addProperty("icon", icon);
         form.addProperty("banner", banner);
         JsonArray marks = new JsonArray();
-        for (String tag : tags.getText().trim().split("[\\s,]+"))
+        for (String tag : tags.getValue().trim().split("[\\s,]+"))
             if (!tag.isBlank() && marks.size() < 5) marks.add(tag);
         form.add("tags", marks);
         JsonObject code = payload();
@@ -401,7 +400,7 @@ public final class MarketForm extends MarketPanel {
     }
 
     @Override
-    protected void tapped(Hit hit, Click click, boolean doubled) {
+    protected void tapped(Hit hit, MouseButtonEvent click, boolean doubled) {
         switch (hit.what()) {
             case "name" -> focus(name, click, doubled);
             case "summary" -> focus(summary, click, doubled);

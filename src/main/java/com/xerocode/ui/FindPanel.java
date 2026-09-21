@@ -5,17 +5,17 @@ import com.xerocode.Functions;
 import com.xerocode.Script;
 import com.xerocode.Stacks;
 import com.xerocode.Value;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.ScreenRect;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.world.item.ItemStack;
 
 public final class FindPanel {
     public interface Jump { void to(Finder.Hit hit); }
@@ -24,12 +24,12 @@ public final class FindPanel {
     private static final int HEAD_H = 25, INPUT_H = 20, STAT_H = 17, ROW_H = 27, FOOT_H = 18;
     private static final int PAD = 8, ICON = 12, TEXT_X = 26, STEP_W = 15;
 
-    private final TextRenderer tr;
+    private final Font tr;
     private final Script script;
     private final Jump jump;
 
     private int screenW, screenH, x, y, w, h;
-    private TextFieldWidget field;
+    private EditBox field;
     private final Ui.Pane pane = new Ui.Pane();
     private final Ui.Bar bar = new Ui.Bar();
     private final Ui.Grab grab = new Ui.Grab();
@@ -41,7 +41,7 @@ public final class FindPanel {
     private int sel = -1, hover = -1;
     private boolean closed;
 
-    public FindPanel(TextRenderer tr, Script script, int screenW, int screenH, Jump jump) {
+    public FindPanel(Font tr, Script script, int screenW, int screenH, Jump jump) {
         this.tr = tr;
         this.script = script;
         this.jump = jump;
@@ -58,12 +58,12 @@ public final class FindPanel {
         this.x = screenW - w;
         this.y = Theme.TOPBAR_H;
         this.h = Math.max(HEAD_H + INPUT_H + STAT_H + ROW_H, screenH - y);
-        String typed = field == null ? "" : field.getText();
+        String typed = field == null ? "" : field.getValue();
         field = Ui.field(tr, x + PAD + 16, y + HEAD_H + 5 + (INPUT_H - 10) / 2,
                 w - PAD * 2 - 16 - 16, 10, "имя блока, текст, переменная…");
         field.setMaxLength(64);
-        field.setText(typed);
-        field.setChangedListener(this::retype);
+        field.setValue(typed);
+        field.setResponder(this::retype);
         field.setFocused(true);
         rebuild();
     }
@@ -95,8 +95,8 @@ public final class FindPanel {
 
     public void setQuery(String q) {
         if (field == null) return;
-        field.setText(q == null ? "" : q);
-        field.setCursorToEnd(false);
+        field.setValue(q == null ? "" : q);
+        field.moveCursorToEnd(false);
         if (!hits.isEmpty()) select(0, true);
     }
 
@@ -151,7 +151,7 @@ public final class FindPanel {
         select(next, true);
     }
 
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         Draw.hgrad(ctx, x - 5, y, 5, h, Draw.argb(0, 0x000000), Theme.SHADOW);
         Draw.rect(ctx, x, y, w, h, Draw.opaque(Ui.PANEL));
         Draw.rect(ctx, x, y, 1, h, Draw.opaque(Theme.LINE));
@@ -186,7 +186,7 @@ public final class FindPanel {
 
     private int stepX(int i) { return x + w - PAD - STEP_W * (2 - i) - (i == 0 ? 3 : 0); }
 
-    private void drawStatus(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawStatus(GuiGraphics ctx, int mouseX, int mouseY) {
         int sy = y + HEAD_H + 5 + INPUT_H + 5;
         String note = outline
                 ? Ui.plural(hits.size(), "строка", "строки", "строк") + " кода"
@@ -209,7 +209,7 @@ public final class FindPanel {
         Ui.hairline(ctx, x + 1, sy + STAT_H, w - 1);
     }
 
-    private void drawList(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawList(GuiGraphics ctx, int mouseX, int mouseY) {
         int top = y + listTop(), bottom = y + listBottom();
         pane.fit(listTop(), listBottom(), listTop() + hits.size() * ROW_H);
         hover = indexAt(mouseX, mouseY);
@@ -217,7 +217,7 @@ public final class FindPanel {
             drawEmpty(ctx, top, bottom);
             return;
         }
-        ScreenRect area = new ScreenRect(x + 1, top, w - 1, Math.max(0, bottom - top));
+        ScreenRectangle area = new ScreenRectangle(x + 1, top, w - 1, Math.max(0, bottom - top));
         ctx.enableScissor(x + 1, top, x + w, bottom);
         Draw.batch(Batch.open(ctx, area, area, 512));
         for (int i = 0; i < hits.size(); i++) {
@@ -230,7 +230,7 @@ public final class FindPanel {
         pane.drawBar(ctx, bar, x + w - 5, y, mouseX, mouseY);
     }
 
-    private void drawEmpty(DrawContext ctx, int top, int bottom) {
+    private void drawEmpty(GuiGraphics ctx, int top, int bottom) {
         String[] lines = outline
                 ? new String[]{"полотно пусто", "перетащи блок из палитры слева"}
                 : new String[]{"ничего не нашлось", "ищется имя, текст, переменная,",
@@ -241,7 +241,7 @@ public final class FindPanel {
                     i == 0 ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
     }
 
-    private void drawRow(DrawContext ctx, Finder.Hit hit, int ry, boolean hov, boolean cur) {
+    private void drawRow(GuiGraphics ctx, Finder.Hit hit, int ry, boolean hov, boolean cur) {
         int rx = x + 4, rw = w - 9;
         if (cur) Draw.round(ctx, rx, ry + 1, rw, ROW_H - 2, Ui.R_SM,
                 Draw.opaque(Draw.mix(Ui.PANEL, Theme.ACCENT, 0.24f)));
@@ -250,7 +250,7 @@ public final class FindPanel {
         Draw.round(ctx, rx + 3, ry + 5, 2, ROW_H - 11, 1, Draw.opaque(hit.color()));
 
         String num = String.valueOf(hit.line);
-        int numW = tr.getWidth(num);
+        int numW = tr.width(num);
         Draw.text(ctx, tr, num, rx + rw - 6 - numW, ry + 5,
                 cur ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
 
@@ -286,7 +286,7 @@ public final class FindPanel {
         return node.action.icon();
     }
 
-    private void drawFoot(DrawContext ctx) {
+    private void drawFoot(GuiGraphics ctx) {
         int fy = y + h - FOOT_H;
         Ui.hairline(ctx, x + 1, fy, w - 1);
         if (hits.isEmpty()) return;
@@ -302,7 +302,7 @@ public final class FindPanel {
         return i >= 0 && i < hits.size() ? i : -1;
     }
 
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         double mx = click.x(), my = click.y();
         if (!contains(mx, my)) return false;
         field.setFocused(true);
@@ -313,7 +313,7 @@ public final class FindPanel {
         }
         int iy = y + HEAD_H + 5;
         if (!query.isEmpty() && Ui.hit(mx, my, clearX(), iy, 14, INPUT_H)) {
-            field.setText("");
+            field.setValue("");
             field.setFocused(true);
             return true;
         }
@@ -335,7 +335,7 @@ public final class FindPanel {
         return true;
     }
 
-    public boolean mouseDragged(Click click) {
+    public boolean mouseDragged(MouseButtonEvent click) {
         if (bar.dragging()) {
             bar.dragged(click.y(), 1, pane.max(), v -> { pane.scroll = v; pane.clamp(); });
             return true;
@@ -354,13 +354,13 @@ public final class FindPanel {
         return true;
     }
 
-    public boolean keyPressed(KeyInput input) {
+    public boolean keyPressed(KeyEvent input) {
         int key = input.key();
         boolean shift = (input.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
         switch (key) {
             case GLFW.GLFW_KEY_ESCAPE -> {
                 if (query.isEmpty()) closed = true;
-                else field.setText("");
+                else field.setValue("");
                 return true;
             }
             case GLFW.GLFW_KEY_DOWN -> { step(1); return true; }
@@ -376,7 +376,7 @@ public final class FindPanel {
         return field.isFocused() && field.keyPressed(input);
     }
 
-    public boolean charTyped(CharInput input) {
+    public boolean charTyped(CharacterEvent input) {
         return field.isFocused() && field.charTyped(input);
     }
 }

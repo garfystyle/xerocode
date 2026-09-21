@@ -3,12 +3,11 @@ package com.xerocode.ui;
 import com.xerocode.Collab;
 import com.xerocode.Script;
 import com.xerocode.Settings;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.ScreenRect;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
 
 public final class Peers {
     private static final double TAU = 0.055;
@@ -101,8 +100,8 @@ public final class Peers {
         return POOL.get(shown++);
     }
 
-    public static void render(DrawContext ctx, TextRenderer tr, Script script, Layout layout,
-                              ScreenRect area, int left, int top, double panX, double panY,
+    public static void render(GuiGraphics ctx, Font tr, Script script, Layout layout,
+                              ScreenRectangle area, int left, int top, double panX, double panY,
                               double zoom, int width, int height) {
         if (Collab.peerCount() == 0 || !Collab.live() || !Settings.get().collabCursors) return;
 
@@ -130,7 +129,7 @@ public final class Peers {
             spot.x = sx;
             spot.y = sy;
             spot.name = peer.name.isEmpty() ? "…" : peer.name;
-            spot.nameW = tr.getWidth(spot.name) + 9;
+            spot.nameW = tr.width(spot.name) + 9;
             spot.nameX = Math.max(left + 2, Math.min(sx + LABEL_DX, width - spot.nameW - 2));
             spot.nameY = Math.max(top + 2, Math.min(sy + LABEL_DY, height - PILL_H - 2));
         }
@@ -157,7 +156,7 @@ public final class Peers {
         }
     }
 
-    private static void held(DrawContext ctx, Script script, Layout layout, Collab.Peer peer,
+    private static void held(GuiGraphics ctx, Script script, Layout layout, Collab.Peer peer,
                              int left, int top, double panX, double panY, double zoom) {
         if (peer.holding.isEmpty() || script == null || layout == null) return;
         Script.Root root = script.rootById(peer.holding);
@@ -173,7 +172,7 @@ public final class Peers {
         Draw.roundOutline(ctx, x0, y0, x1 - x0, y1 - y0, 4, Draw.argb(0xCC, peer.ink));
     }
 
-    private static void arrow(DrawContext ctx, int x, int y, int ink) {
+    private static void arrow(GuiGraphics ctx, int x, int y, int ink) {
         int edge = Draw.argb(0xC8, 0x000000);
         for (int i = 0; i < EDGE.length; i += 3)
             Draw.rect(ctx, x + EDGE[i], y + EDGE[i + 1], EDGE[i + 2], 1, edge);

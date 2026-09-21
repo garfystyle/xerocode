@@ -1,29 +1,29 @@
 package com.xerocode.ui;
 
 import com.xerocode.XeroCode;
+import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.xerocode.Script;
 import com.xerocode.Value;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.client.option.GameOptions;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.render.RenderLayers;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityType;
-import net.minecraft.entity.MarkerEntity;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.HitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.shape.VoxelShape;
-import net.minecraft.util.shape.VoxelShapes;
-import net.minecraft.world.RaycastContext;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Options;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Marker;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
 
@@ -69,7 +69,7 @@ public final class LocationPick {
     private static boolean fromSlot;
     private static boolean snapCam;
 
-    private static Vec3d frozen = Vec3d.ZERO;
+    private static Vec3 frozen = Vec3.ZERO;
     private static float lastYaw, lastPitch;
     private static boolean hudWas;
 
@@ -117,15 +117,15 @@ public final class LocationPick {
 
     public static boolean active() { return active; }
 
-    public static net.minecraft.util.ActionResult interceptHands(net.minecraft.world.World world) {
-        if (!active || !world.isClient()) return net.minecraft.util.ActionResult.PASS;
-        return net.minecraft.util.ActionResult.FAIL;
+    public static net.minecraft.world.InteractionResult interceptHands(net.minecraft.world.level.Level world) {
+        if (!active || !world.isClientSide()) return net.minecraft.world.InteractionResult.PASS;
+        return net.minecraft.world.InteractionResult.FAIL;
     }
 
     public static void start(Script.Node target, int arg, int valueIndex) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        ClientPlayerEntity player = client.player;
-        if (player == null || client.world == null) return;
+        Minecraft client = Minecraft.getInstance();
+        LocalPlayer player = client.player;
+        if (player == null || client.level == null) return;
         node = target;
         argIndex = arg;
         index = valueIndex;
@@ -154,13 +154,13 @@ public final class LocationPick {
 
         XeroCode.canvasClosed();
         XeroCode.cover("Выбор местоположения…", null);
-        hudWas = client.options.hudHidden;
-        client.options.hudHidden = true;
-        client.gameRenderer.setBlockOutlineEnabled(false);
+        hudWas = client.options.hideGui;
+        client.options.hideGui = true;
+        client.gameRenderer.setRenderBlockOutline(false);
         attach(client);
 
-        if (!client.isInSingleplayer() && client.getNetworkHandler() != null)
-            client.getNetworkHandler().sendChatCommand("build");
+        if (!client.isLocalServer() && client.getConnection() != null)
+            client.getConnection().sendCommand("build");
     }
 
     private static Value slotValue() {
@@ -169,23 +169,23 @@ public final class LocationPick {
         return index >= 0 && index < slot.size() ? slot.get(index) : null;
     }
 
-    private static void attach(MinecraftClient client) {
-        ClientPlayerEntity player = client.player;
-        if (player == null || client.world == null) return;
-        frozen = player.getEntityPos();
-        Vec3d eye = player.getEyePos();
+    private static void attach(Minecraft client) {
+        LocalPlayer player = client.player;
+        if (player == null || client.level == null) return;
+        frozen = player.position();
+        Vec3 eye = player.getEyePosition();
         cx = eye.x;
         cy = eye.y;
         cz = eye.z;
-        camYaw = player.getYaw();
-        camPitch = player.getPitch();
+        camYaw = player.getYRot();
+        camPitch = player.getXRot();
         lastYaw = camYaw;
         lastPitch = camPitch;
         if (fromSlot) frame();
         else placeUnderAim(client, false);
         try {
             if (cam != null) client.setCameraEntity(player);
-            cam = new MarkerEntity(EntityType.MARKER, client.world);
+            cam = new Marker(EntityType.MARKER, client.level);
             place(true);
             client.setCameraEntity(cam);
         } catch (Throwable e) {
@@ -198,103 +198,103 @@ public final class LocationPick {
     private static void place(boolean snapTo) {
         if (cam == null) return;
         if (snapTo) {
-            cam.lastX = cx;
-            cam.lastY = cy;
-            cam.lastZ = cz;
+            cam.xo = cx;
+            cam.yo = cy;
+            cam.zo = cz;
         } else {
-            cam.lastX = cam.getX();
-            cam.lastY = cam.getY();
-            cam.lastZ = cam.getZ();
+            cam.xo = cam.getX();
+            cam.yo = cam.getY();
+            cam.zo = cam.getZ();
         }
-        cam.lastRenderX = cam.lastX;
-        cam.lastRenderY = cam.lastY;
-        cam.lastRenderZ = cam.lastZ;
-        cam.setPosition(cx, cy, cz);
-        cam.setYaw(camYaw);
-        cam.setPitch(camPitch);
-        cam.lastYaw = camYaw;
-        cam.lastPitch = camPitch;
+        cam.xOld = cam.xo;
+        cam.yOld = cam.yo;
+        cam.zOld = cam.zo;
+        cam.setPos(cx, cy, cz);
+        cam.setYRot(camYaw);
+        cam.setXRot(camPitch);
+        cam.yRotO = camYaw;
+        cam.xRotO = camPitch;
     }
 
-    private static Vec3d eye(MinecraftClient client) {
-        if (cam != null) return new Vec3d(cx, cy, cz);
-        return client.player == null ? Vec3d.ZERO : client.player.getEyePos();
+    private static Vec3 eye(Minecraft client) {
+        if (cam != null) return new Vec3(cx, cy, cz);
+        return client.player == null ? Vec3.ZERO : client.player.getEyePosition();
     }
 
-    private static Vec3d look(float yaw, float pitch) {
+    private static Vec3 look(float yaw, float pitch) {
         float p = pitch * 0.017453292F, y = -yaw * 0.017453292F;
-        float cosY = MathHelper.cos(y), sinY = MathHelper.sin(y);
-        float cosP = MathHelper.cos(p), sinP = MathHelper.sin(p);
-        return new Vec3d(sinY * cosP, -sinP, cosY * cosP);
+        float cosY = Mth.cos(y), sinY = Mth.sin(y);
+        float cosP = Mth.cos(p), sinP = Mth.sin(p);
+        return new Vec3(sinY * cosP, -sinP, cosY * cosP);
     }
 
-    private static Vec3d side(Vec3d dir) {
-        Vec3d s = new Vec3d(-dir.z, 0, dir.x);
-        return s.lengthSquared() < 1.0E-6 ? new Vec3d(1, 0, 0) : s.normalize();
+    private static Vec3 side(Vec3 dir) {
+        Vec3 s = new Vec3(-dir.z, 0, dir.x);
+        return s.lengthSqr() < 1.0E-6 ? new Vec3(1, 0, 0) : s.normalize();
     }
 
-    private static Vec3d forward() { return look(camYaw, camPitch); }
-    private static Vec3d right()   { return side(forward()); }
-    private static Vec3d up()      { return right().crossProduct(forward()).normalize(); }
+    private static Vec3 forward() { return look(camYaw, camPitch); }
+    private static Vec3 right()   { return side(forward()); }
+    private static Vec3 up()      { return right().cross(forward()).normalize(); }
 
-    private static Vec3d point() { return new Vec3d(px, py, pz); }
+    private static Vec3 point() { return new Vec3(px, py, pz); }
 
-    private static Vec3d axisVec(int i) {
-        return i == 0 ? new Vec3d(1, 0, 0) : i == 1 ? new Vec3d(0, 1, 0) : new Vec3d(0, 0, 1);
+    private static Vec3 axisVec(int i) {
+        return i == 0 ? new Vec3(1, 0, 0) : i == 1 ? new Vec3(0, 1, 0) : new Vec3(0, 0, 1);
     }
 
     private static int axisColor(int i) { return i == 0 ? AX_X : i == 1 ? AX_Y : AX_Z; }
 
-    private static BlockHitResult aim(MinecraftClient client) {
-        if (client.world == null || client.player == null) return null;
-        Vec3d from = eye(client);
-        Vec3d to = from.add(forward().multiply(REACH));
-        BlockHitResult hit = client.world.raycast(new RaycastContext(from, to,
-                RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, client.player));
+    private static BlockHitResult aim(Minecraft client) {
+        if (client.level == null || client.player == null) return null;
+        Vec3 from = eye(client);
+        Vec3 to = from.add(forward().scale(REACH));
+        BlockHitResult hit = client.level.clip(new ClipContext(from, to,
+                ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, client.player));
         return hit != null && hit.getType() == HitResult.Type.BLOCK ? hit : null;
     }
 
-    private static double ppu(MinecraftClient client, double depth) {
-        double fov = client.options.getFov().getValue();
-        double h = Math.max(1, client.getWindow().getHeight());
+    private static double ppu(Minecraft client, double depth) {
+        double fov = client.options.fov().get();
+        double h = Math.max(1, client.getWindow().getScreenHeight());
         return (h / 2.0) / Math.tan(Math.toRadians(Math.max(1, fov) / 2.0)) / Math.max(0.05, depth);
     }
 
     private static double depth() {
-        return point().subtract(eye(MinecraftClient.getInstance())).dotProduct(forward());
+        return point().subtract(eye(Minecraft.getInstance())).dot(forward());
     }
 
-    private static double handleLen(MinecraftClient client) {
+    private static double handleLen(Minecraft client) {
         double d = Math.max(0.5, depth());
-        return MathHelper.clamp(HANDLE_PX / ppu(client, d), 0.25, 24);
+        return Mth.clamp(HANDLE_PX / ppu(client, d), 0.25, 24);
     }
 
     private static double snapTo(double v, double step) {
         return step <= 0 ? v : Math.round(v / step) * step;
     }
 
-    private static Vec3d snapPoint(Vec3d p) {
+    private static Vec3 snapPoint(Vec3 p) {
         return switch (snap) {
-            case FREE -> new Vec3d(snapTo(p.x, 1), snapTo(p.y, 1), snapTo(p.z, 1));
-            case Q, HALF, ONE -> new Vec3d(snapTo(p.x, snap.step), snapTo(p.y, snap.step),
+            case FREE -> new Vec3(snapTo(p.x, 1), snapTo(p.y, 1), snapTo(p.z, 1));
+            case Q, HALF, ONE -> new Vec3(snapTo(p.x, snap.step), snapTo(p.y, snap.step),
                     snapTo(p.z, snap.step));
-            case CENTER -> new Vec3d(Math.floor(p.x) + 0.5, Math.floor(p.y) + 0.5,
+            case CENTER -> new Vec3(Math.floor(p.x) + 0.5, Math.floor(p.y) + 0.5,
                     Math.floor(p.z) + 0.5);
-            case TOP -> new Vec3d(Math.floor(p.x) + 0.5, Math.round(p.y), Math.floor(p.z) + 0.5);
+            case TOP -> new Vec3(Math.floor(p.x) + 0.5, Math.round(p.y), Math.floor(p.z) + 0.5);
         };
     }
 
-    private static Vec3d preview(MinecraftClient client) {
+    private static Vec3 preview(Minecraft client) {
         BlockHitResult hit = aim(client);
         if (hit == null) return null;
         BlockPos at = hit.getBlockPos();
-        Vec3d exact = hit.getPos();
+        Vec3 exact = hit.getLocation();
         return switch (snap) {
             case FREE -> exact;
-            case Q, HALF, ONE -> new Vec3d(snapTo(exact.x, snap.step), snapTo(exact.y, snap.step),
+            case Q, HALF, ONE -> new Vec3(snapTo(exact.x, snap.step), snapTo(exact.y, snap.step),
                     snapTo(exact.z, snap.step));
-            case CENTER -> new Vec3d(at.getX() + 0.5, at.getY() + 0.5, at.getZ() + 0.5);
-            case TOP -> new Vec3d(at.getX() + 0.5, at.getY() + 1, at.getZ() + 0.5);
+            case CENTER -> new Vec3(at.getX() + 0.5, at.getY() + 0.5, at.getZ() + 0.5);
+            case TOP -> new Vec3(at.getX() + 0.5, at.getY() + 1, at.getZ() + 0.5);
         };
     }
 
@@ -322,7 +322,7 @@ public final class LocationPick {
         restore(redo.pop());
     }
 
-    public static void render(DrawContext ctx) {
+    public static void render(GuiGraphics ctx) {
         if (!active) return;
         try {
             renderFrame(ctx);
@@ -332,15 +332,15 @@ public final class LocationPick {
         }
     }
 
-    private static void renderFrame(DrawContext ctx) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        ClientPlayerEntity player = client.player;
+    private static void renderFrame(GuiGraphics ctx) {
+        Minecraft client = Minecraft.getInstance();
+        LocalPlayer player = client.player;
         if (player == null) return;
 
         readKeys(client);
         double[] d = cursorDelta(client);
-        float yaw = player.getYaw(), pitch = player.getPitch();
-        if (client.currentScreen != null) { d[0] = 0; d[1] = 0; }
+        float yaw = player.getYRot(), pitch = player.getXRot();
+        if (client.screen != null) { d[0] = 0; d[1] = 0; }
 
         if (op == Op.MOVE) {
             mdx += d[0];
@@ -349,20 +349,20 @@ public final class LocationPick {
         } else {
             if (op == Op.LOOK) {
                 typedLook(player);
-                yaw = player.getYaw();
-                pitch = player.getPitch();
+                yaw = player.getYRot();
+                pitch = player.getXRot();
             }
             camYaw = yaw;
             camPitch = pitch;
             if (cam != null) {
-                cam.setYaw(yaw);
-                cam.setPitch(pitch);
-                cam.lastYaw = yaw;
-                cam.lastPitch = pitch;
+                cam.setYRot(yaw);
+                cam.setXRot(pitch);
+                cam.yRotO = yaw;
+                cam.xRotO = pitch;
             }
             if (op == Op.LOOK) {
-                pyaw = MathHelper.wrapDegrees(yaw);
-                ppitch = MathHelper.clamp(pitch, -90f, 90f);
+                pyaw = Mth.wrapDegrees(yaw);
+                ppitch = Mth.clamp(pitch, -90f, 90f);
             } else {
                 hover = pickHandle(client);
             }
@@ -372,38 +372,38 @@ public final class LocationPick {
 
         keyActions(client);
 
-        if (client.currentScreen instanceof LocationForm) return;
+        if (client.screen instanceof LocationForm) return;
         SmoothText.clip(null);
         Draw.batch(null);
         hud(ctx, client);
     }
 
-    public static void startTick(MinecraftClient client) {
+    public static void startTick(Minecraft client) {
         if (!active) return;
-        GameOptions o = client.options;
-        drain(o.chatKey);
-        drain(o.commandKey);
-        drain(o.inventoryKey);
-        drain(o.dropKey);
-        drain(o.swapHandsKey);
-        drain(o.socialInteractionsKey);
-        drain(o.advancementsKey);
-        drain(o.togglePerspectiveKey);
-        drain(o.toggleGuiKey);
-        drain(o.quickActionsKey);
-        drain(o.pickItemKey);
-        drain(o.attackKey);
+        Options o = client.options;
+        drain(o.keyChat);
+        drain(o.keyCommand);
+        drain(o.keyInventory);
+        drain(o.keyDrop);
+        drain(o.keySwapOffhand);
+        drain(o.keySocialInteractions);
+        drain(o.keyAdvancements);
+        drain(o.keyTogglePerspective);
+        drain(o.keyToggleGui);
+        drain(o.keyQuickActions);
+        drain(o.keyPickItem);
+        drain(o.keyAttack);
     }
 
-    private static void drain(KeyBinding key) {
+    private static void drain(KeyMapping key) {
         if (key == null) return;
- while (key.wasPressed()) { }
+ while (key.consumeClick()) { }
     }
 
-    private static double[] cursorDelta(MinecraftClient client) {
+    private static double[] cursorDelta(Minecraft client) {
         if (client.getWindow() == null) return new double[]{0, 0};
         double[] xs = new double[1], ys = new double[1];
-        GLFW.glfwGetCursorPos(client.getWindow().getHandle(), xs, ys);
+        GLFW.glfwGetCursorPos(client.getWindow().handle(), xs, ys);
         double dx = curKnown ? xs[0] - curX : 0;
         double dy = curKnown ? ys[0] - curY : 0;
         curX = xs[0];
@@ -436,28 +436,28 @@ public final class LocationPick {
     }
 
     private static void aimPlayer(float yaw, float pitch) {
-        ClientPlayerEntity player = MinecraftClient.getInstance().player;
+        LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) return;
-        player.setYaw(yaw);
-        player.setPitch(pitch);
+        player.setYRot(yaw);
+        player.setXRot(pitch);
         lastYaw = yaw;
         lastPitch = pitch;
     }
 
-    private static void applyOp(MinecraftClient client) {
+    private static void applyOp(Minecraft client) {
         boolean ctrl = down(GLFW.GLFW_KEY_LEFT_CONTROL) || down(GLFW.GLFW_KEY_RIGHT_CONTROL);
         if (op == Op.MOVE) {
-            Vec3d start = new Vec3d(sx, sy, sz);
-            Vec3d moved;
+            Vec3 start = new Vec3(sx, sy, sz);
+            Vec3 moved;
             if (axis >= 0 && !planeMode) {
-                moved = start.add(axisVec(axis).multiply(along(client, axisVec(axis), start)));
+                moved = start.add(axisVec(axis).scale(along(client, axisVec(axis), start)));
             } else if (axis >= 0) {
                 moved = start;
                 for (int i = 0; i < 3; i++)
-                    if (i != axis) moved = moved.add(axisVec(i).multiply(along(client, axisVec(i), start)));
+                    if (i != axis) moved = moved.add(axisVec(i).scale(along(client, axisVec(i), start)));
             } else {
-                double k = ppu(client, Math.max(0.5, start.subtract(eye(client)).dotProduct(forward())));
-                moved = start.add(right().multiply(mdx / k)).add(up().multiply(-mdy / k));
+                double k = ppu(client, Math.max(0.5, start.subtract(eye(client)).dot(forward())));
+                moved = start.add(right().scale(mdx / k)).add(up().scale(-mdy / k));
             }
             if (ctrl) moved = snapPoint(moved);
             px = moved.x; py = moved.y; pz = moved.z;
@@ -470,12 +470,12 @@ public final class LocationPick {
         }
     }
 
-    private static double along(MinecraftClient client, Vec3d ax, Vec3d start) {
-        Vec3d rel = start.subtract(eye(client));
-        double depth = Math.max(0.5, rel.dotProduct(forward()));
+    private static double along(Minecraft client, Vec3 ax, Vec3 start) {
+        Vec3 rel = start.subtract(eye(client));
+        double depth = Math.max(0.5, rel.dot(forward()));
         double k = ppu(client, depth);
-        double sxp = ax.dotProduct(right()) * k;
-        double syp = -ax.dotProduct(up()) * k;
+        double sxp = ax.dot(right()) * k;
+        double syp = -ax.dot(up()) * k;
         double len2 = sxp * sxp + syp * syp;
         if (len2 < 1.0E-4) return 0;
         return (mdx * sxp + mdy * syp) / len2;
@@ -511,7 +511,7 @@ public final class LocationPick {
 
     private static double[] formBefore;
 
-    private static void openForm(MinecraftClient client) {
+    private static void openForm(Minecraft client) {
         formBefore = snapshot();
         push();
         client.setScreen(new LocationForm());
@@ -523,8 +523,8 @@ public final class LocationPick {
         px = x;
         py = y;
         pz = z;
-        pyaw = MathHelper.wrapDegrees((float) yaw);
-        ppitch = MathHelper.clamp((float) pitch, -90f, 90f);
+        pyaw = Mth.wrapDegrees((float) yaw);
+        ppitch = Mth.clamp((float) pitch, -90f, 90f);
     }
 
     public static void undoForm() {
@@ -535,7 +535,7 @@ public final class LocationPick {
 
     public static void doneFromForm() {
         write();
-        finish(MinecraftClient.getInstance(), true);
+        finish(Minecraft.getInstance(), true);
     }
 
     public static void formClosed() {
@@ -544,24 +544,24 @@ public final class LocationPick {
         formBefore = null;
     }
 
-    private static int pickHandle(MinecraftClient client) {
+    private static int pickHandle(Minecraft client) {
         if (depth() <= 0.2) return -1;
         double len = handleLen(client);
-        Vec3d o = eye(client), dir = forward(), p = point();
+        Vec3 o = eye(client), dir = forward(), p = point();
         int best = -1;
         double bestDist = GRAB_R * len;
         for (int i = 0; i < 3; i++) {
-            Vec3d a = p, b = p.add(axisVec(i).multiply(len));
+            Vec3 a = p, b = p.add(axisVec(i).scale(len));
             double dist = rayToSegment(o, dir, a, b);
             if (dist < bestDist) { bestDist = dist; best = i; }
         }
         return best;
     }
 
-    private static double rayToSegment(Vec3d o, Vec3d dir, Vec3d a, Vec3d b) {
-        Vec3d u = dir, v = b.subtract(a), w = o.subtract(a);
-        double aa = u.dotProduct(u), bb = u.dotProduct(v), cc = v.dotProduct(v);
-        double dd = u.dotProduct(w), ee = v.dotProduct(w);
+    private static double rayToSegment(Vec3 o, Vec3 dir, Vec3 a, Vec3 b) {
+        Vec3 u = dir, v = b.subtract(a), w = o.subtract(a);
+        double aa = u.dot(u), bb = u.dot(v), cc = v.dot(v);
+        double dd = u.dot(w), ee = v.dot(w);
         double den = aa * cc - bb * bb;
         double s, t;
         if (Math.abs(den) < 1.0E-8) { s = 0; t = cc < 1.0E-8 ? 0 : ee / cc; }
@@ -570,20 +570,20 @@ public final class LocationPick {
             t = (aa * ee - bb * dd) / den;
         }
         s = Math.max(0, s);
-        t = MathHelper.clamp(t, 0, 1);
-        Vec3d pa = o.add(u.multiply(s)), pb = a.add(v.multiply(t));
+        t = Mth.clamp(t, 0, 1);
+        Vec3 pa = o.add(u.scale(s)), pb = a.add(v.scale(t));
         return pa.distanceTo(pb);
     }
 
-    private static void readKeys(MinecraftClient client) {
+    private static void readKeys(Minecraft client) {
         System.arraycopy(keyNow, 0, keyWas, 0, keyNow.length);
         var window = client.getWindow();
         if (window == null) {
             java.util.Arrays.fill(keyNow, false);
             return;
         }
-        for (int i = 0; i < WATCH.length; i++) keyNow[i] = InputUtil.isKeyPressed(window, WATCH[i]);
-        long handle = window.getHandle();
+        for (int i = 0; i < WATCH.length; i++) keyNow[i] = InputConstants.isKeyDown(window, WATCH[i]);
+        long handle = window.handle();
         keyNow[MOUSE_L] =
                 GLFW.glfwGetMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
         keyNow[MOUSE_R] =
@@ -612,8 +612,8 @@ public final class LocationPick {
     private static boolean pressed(int slot)  { return keyNow[slot] && !keyWas[slot]; }
     private static boolean released(int slot) { return !keyNow[slot] && keyWas[slot]; }
 
-    private static void keyActions(MinecraftClient client) {
-        if (client.currentScreen != null) return;
+    private static void keyActions(Minecraft client) {
+        if (client.screen != null) return;
         boolean ctrl = down(GLFW.GLFW_KEY_LEFT_CONTROL) || down(GLFW.GLFW_KEY_RIGHT_CONTROL);
         boolean shift = down(GLFW.GLFW_KEY_LEFT_SHIFT) || down(GLFW.GLFW_KEY_RIGHT_SHIFT);
         boolean alt = down(GLFW.GLFW_KEY_LEFT_ALT) || down(GLFW.GLFW_KEY_RIGHT_ALT);
@@ -662,12 +662,12 @@ public final class LocationPick {
         }
     }
 
-    private static void typedLook(ClientPlayerEntity player) {
+    private static void typedLook(LocalPlayer player) {
         if (typed.isEmpty()) return;
         double v;
         try { v = Double.parseDouble(typed); } catch (NumberFormatException e) { return; }
-        if (typeAxis == 0) player.setYaw(MathHelper.wrapDegrees((float) v));
-        else player.setPitch(MathHelper.clamp((float) v, -90f, 90f));
+        if (typeAxis == 0) player.setYRot(Mth.wrapDegrees((float) v));
+        else player.setXRot(Mth.clamp((float) v, -90f, 90f));
     }
 
     private static void typeKeys() {
@@ -705,21 +705,21 @@ public final class LocationPick {
         } catch (NumberFormatException ignored) { }
     }
 
-    private static void placeUnderAim(MinecraftClient client, boolean undoable) {
-        Vec3d at = preview(client);
+    private static void placeUnderAim(Minecraft client, boolean undoable) {
+        Vec3 at = preview(client);
         if (at == null) {
-            if (!undoable) at = eye(client).add(forward().multiply(4));
+            if (!undoable) at = eye(client).add(forward().scale(4));
             else return;
         }
         if (undoable) push();
         px = at.x;
         py = at.y;
         pz = at.z;
-        if (!undoable) { pyaw = MathHelper.wrapDegrees(camYaw); ppitch = camPitch; }
+        if (!undoable) { pyaw = Mth.wrapDegrees(camYaw); ppitch = camPitch; }
     }
 
     private static void frame() {
-        Vec3d back = forward().multiply(FRAME_DIST);
+        Vec3 back = forward().scale(FRAME_DIST);
         cx = px - back.x;
         cy = py - back.y;
         cz = pz - back.z;
@@ -727,37 +727,37 @@ public final class LocationPick {
         place(true);
     }
 
-    public static void tick(MinecraftClient client) {
+    public static void tick(Minecraft client) {
         if (!active) return;
-        if (client.world == null && client.getNetworkHandler() == null) { abandon(); return; }
-        ClientPlayerEntity player = client.player;
-        if (player == null || client.world == null) return;
-        if (cam == null || cam.getEntityWorld() != client.world) { attach(client); return; }
+        if (client.level == null && client.getConnection() == null) { abandon(); return; }
+        LocalPlayer player = client.player;
+        if (player == null || client.level == null) return;
+        if (cam == null || cam.level() != client.level) { attach(client); return; }
 
-        if (client.currentScreen instanceof net.minecraft.client.gui.screen.GameMenuScreen) {
+        if (client.screen instanceof net.minecraft.client.gui.screens.PauseScreen) {
             client.setScreen(null);
             if (op != Op.NONE) { cancelOp(); return; }
             finish(client, false);
             return;
         }
-        if (client.currentScreen instanceof net.minecraft.client.gui.screen.ChatScreen)
+        if (client.screen instanceof net.minecraft.client.gui.screens.ChatScreen)
             client.setScreen(null);
 
-        player.setVelocity(Vec3d.ZERO);
-        player.setPosition(frozen.x, frozen.y, frozen.z);
-        player.lastX = player.lastRenderX = frozen.x;
-        player.lastY = player.lastRenderY = frozen.y;
-        player.lastZ = player.lastRenderZ = frozen.z;
+        player.setDeltaMovement(Vec3.ZERO);
+        player.setPos(frozen.x, frozen.y, frozen.z);
+        player.xo = player.xOld = frozen.x;
+        player.yo = player.yOld = frozen.y;
+        player.zo = player.zOld = frozen.z;
         player.fallDistance = 0;
         if (client.getCameraEntity() != cam) {
             client.setCameraEntity(cam);
         }
 
-        if (client.interactionManager != null) client.interactionManager.cancelBlockBreaking();
+        if (client.gameMode != null) client.gameMode.stopDestroyBlock();
 
-        boolean typing = client.currentScreen != null;
-        GameOptions o = client.options;
-        boolean fast = !typing && o.sprintKey.isPressed();
+        boolean typing = client.screen != null;
+        Options o = client.options;
+        boolean fast = !typing && o.keySprint.isDown();
         if (!typing) {
             if (op == Op.NONE) fly(client, fast);
             else if (op == Op.MOVE && axis < 0) depthKeys(client, fast);
@@ -767,40 +767,40 @@ public final class LocationPick {
         snapCam = false;
     }
 
-    private static void fly(MinecraftClient client, boolean fast) {
-        Vec3d move = walk(client);
+    private static void fly(Minecraft client, boolean fast) {
+        Vec3 move = walk(client);
         if (move == null) return;
-        move = move.normalize().multiply(fast ? FAST : SPEED);
+        move = move.normalize().scale(fast ? FAST : SPEED);
         cx += move.x;
         cy += move.y;
         cz += move.z;
     }
 
-    private static void depthKeys(MinecraftClient client, boolean fast) {
-        GameOptions o = client.options;
+    private static void depthKeys(Minecraft client, boolean fast) {
+        Options o = client.options;
         double step = (fast ? 0.5 : 0.12);
         double d = 0;
-        if (o.forwardKey.isPressed()) d += step;
-        if (o.backKey.isPressed()) d -= step;
+        if (o.keyUp.isDown()) d += step;
+        if (o.keyDown.isDown()) d -= step;
         if (d == 0) return;
-        Vec3d f = forward().multiply(d);
+        Vec3 f = forward().scale(d);
         sx += f.x; sy += f.y; sz += f.z;
         px += f.x; py += f.y; pz += f.z;
     }
 
-    private static Vec3d walk(MinecraftClient client) {
-        GameOptions o = client.options;
-        if (client.currentScreen != null) return null;
-        Vec3d dir = forward();
-        Vec3d s = side(dir);
-        Vec3d move = Vec3d.ZERO;
-        if (o.forwardKey.isPressed()) move = move.add(dir);
-        if (o.backKey.isPressed()) move = move.subtract(dir);
-        if (o.rightKey.isPressed()) move = move.add(s);
-        if (o.leftKey.isPressed()) move = move.subtract(s);
-        if (o.jumpKey.isPressed()) move = move.add(0, 1, 0);
-        if (o.sneakKey.isPressed()) move = move.add(0, -1, 0);
-        return move.lengthSquared() < 1.0E-6 ? null : move;
+    private static Vec3 walk(Minecraft client) {
+        Options o = client.options;
+        if (client.screen != null) return null;
+        Vec3 dir = forward();
+        Vec3 s = side(dir);
+        Vec3 move = Vec3.ZERO;
+        if (o.keyUp.isDown()) move = move.add(dir);
+        if (o.keyDown.isDown()) move = move.subtract(dir);
+        if (o.keyRight.isDown()) move = move.add(s);
+        if (o.keyLeft.isDown()) move = move.subtract(s);
+        if (o.keyJump.isDown()) move = move.add(0, 1, 0);
+        if (o.keyShift.isDown()) move = move.add(0, -1, 0);
+        return move.lengthSqr() < 1.0E-6 ? null : move;
     }
 
     private static double r3(double d) { return Math.round(d * 1000.0) / 1000.0; }
@@ -818,11 +818,11 @@ public final class LocationPick {
         v.x = r3(px);
         v.y = r3(py);
         v.z = r3(pz);
-        v.yaw = r1(MathHelper.wrapDegrees(pyaw));
-        v.pitch = r1(MathHelper.clamp(ppitch, -90f, 90f));
+        v.yaw = r1(Mth.wrapDegrees(pyaw));
+        v.pitch = r1(Mth.clamp(ppitch, -90f, 90f));
     }
 
-    private static void finish(MinecraftClient client, boolean applied) {
+    private static void finish(Minecraft client, boolean applied) {
         Script.Node target = node;
         int arg = argIndex, i = index;
         abandon();
@@ -833,29 +833,29 @@ public final class LocationPick {
     public static void cancel() {
         if (!active) return;
         if (op != Op.NONE) { cancelOp(); return; }
-        finish(MinecraftClient.getInstance(), false);
+        finish(Minecraft.getInstance(), false);
     }
 
     public static void abandon() {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         if (cam != null) {
             try { client.setCameraEntity(client.player); } catch (Throwable ignored) { }
             cam = null;
         }
         if (client.player != null) {
-            client.player.setYaw(camYaw);
-            client.player.setPitch(camPitch);
+            client.player.setYRot(camYaw);
+            client.player.setXRot(camPitch);
         }
-        client.options.hudHidden = hudWas;
-        client.gameRenderer.setBlockOutlineEnabled(true);
+        client.options.hideGui = hudWas;
+        client.gameRenderer.setRenderBlockOutline(true);
         active = false;
         op = Op.NONE;
         node = null;
     }
 
-    private static Vec3d origin = Vec3d.ZERO;
+    private static Vec3 origin = Vec3.ZERO;
     private static double ghostScale = 1, baseScale = 1;
-    private static MatrixStack.Entry entry;
+    private static PoseStack.Pose entry;
     private static VertexConsumer buffer;
     private static float hair = 1, thick = 2;
 
@@ -870,16 +870,16 @@ public final class LocationPick {
     }
 
     private static void worldFrame(WorldRenderContext ctx) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        MatrixStack matrices = ctx.matrices();
-        if (matrices == null || client.world == null || client.player == null) {
+        Minecraft client = Minecraft.getInstance();
+        PoseStack matrices = ctx.matrices();
+        if (matrices == null || client.level == null || client.player == null) {
             return;
         }
-        origin = client.gameRenderer.getCamera().getCameraPos();
-        buffer = ctx.consumers().getBuffer(RenderLayers.LINES);
-        entry = matrices.peek();
-        thick = Math.max(2f, client.getWindow().getMinimumLineWidth() * 2f);
-        hair = Math.max(1f, client.getWindow().getMinimumLineWidth());
+        origin = client.gameRenderer.getMainCamera().position();
+        buffer = ctx.consumers().getBuffer(RenderTypes.LINES);
+        entry = matrices.last();
+        thick = Math.max(2f, client.getWindow().getAppropriateLineWidth() * 2f);
+        hair = Math.max(1f, client.getWindow().getAppropriateLineWidth());
 
         if (op == Op.LOOK) {
             ghostScale = 1;
@@ -891,14 +891,14 @@ public final class LocationPick {
             BlockHitResult hit = aim(client);
             if (hit != null) {
                 BlockPos at = hit.getBlockPos();
-                if (!at.equals(BlockPos.ofFloored(px, py, pz))) {
-                    VoxelShape shape = client.world.getBlockState(at).getOutlineShape(client.world, at);
-                    if (shape.isEmpty()) shape = VoxelShapes.fullCube();
-                    xray(Vec3d.ofCenter(at));
-                    outline(shape.getBoundingBox().offset(at).expand(SKIN), BOX, thick);
+                if (!at.equals(BlockPos.containing(px, py, pz))) {
+                    VoxelShape shape = client.level.getBlockState(at).getShape(client.level, at);
+                    if (shape.isEmpty()) shape = Shapes.block();
+                    xray(Vec3.atCenterOf(at));
+                    outline(shape.bounds().move(at).inflate(SKIN), BOX, thick);
                 }
-                Vec3d ghostAt = preview(client);
-                if (ghostAt != null && ghostAt.squaredDistanceTo(point()) > 0.01) {
+                Vec3 ghostAt = preview(client);
+                if (ghostAt != null && ghostAt.distanceToSqr(point()) > 0.01) {
                     xray(ghostAt);
                     marker(ghostAt, GHOST, handleLen(client) * 0.16);
                 }
@@ -913,32 +913,32 @@ public final class LocationPick {
 
     private static void layer(double k) { ghostScale = baseScale * k; }
 
-    private static void xray(Vec3d p) {
+    private static void xray(Vec3 p) {
         double d = p.subtract(origin).length();
         ghostScale = d > GHOST_D ? GHOST_D / d : 1;
     }
 
-    private static void outline(net.minecraft.util.math.Box b, int argb, float width) {
+    private static void outline(net.minecraft.world.phys.AABB b, int argb, float width) {
         double[][] xz = {{b.minX, b.minZ}, {b.maxX, b.minZ}, {b.maxX, b.maxZ}, {b.minX, b.maxZ}};
         for (int i = 0; i < 4; i++) {
             double[] a = xz[i], c = xz[(i + 1) % 4];
-            line(new Vec3d(a[0], b.minY, a[1]), new Vec3d(c[0], b.minY, c[1]), argb, width);
-            line(new Vec3d(a[0], b.maxY, a[1]), new Vec3d(c[0], b.maxY, c[1]), argb, width);
-            line(new Vec3d(a[0], b.minY, a[1]), new Vec3d(a[0], b.maxY, a[1]), argb, width);
+            line(new Vec3(a[0], b.minY, a[1]), new Vec3(c[0], b.minY, c[1]), argb, width);
+            line(new Vec3(a[0], b.maxY, a[1]), new Vec3(c[0], b.maxY, c[1]), argb, width);
+            line(new Vec3(a[0], b.minY, a[1]), new Vec3(a[0], b.maxY, a[1]), argb, width);
         }
     }
 
-    private static void gizmo(MinecraftClient client) {
+    private static void gizmo(Minecraft client) {
         double len = handleLen(client);
-        Vec3d p = point();
+        Vec3 p = point();
 
         layer(1.06);
         cell(p, Draw.argb(0x60, 0x9BB4CC));
         drop(client, p, Draw.argb(0x50, 0x9BB4CC));
         if (op != Op.NONE && axis >= 0 && !planeMode) guide(p, axisVec(axis), len, axis);
         if (op != Op.NONE) {
-            Vec3d s = new Vec3d(sx, sy, sz);
-            if (s.squaredDistanceTo(p) > 1.0E-4) {
+            Vec3 s = new Vec3(sx, sy, sz);
+            if (s.distanceToSqr(p) > 1.0E-4) {
                 marker(s, Draw.argb(0x70, POINT), len * 0.10);
                 dashed(s, p, Draw.argb(0x80, 0xFFFFFF), 0.25);
             }
@@ -959,63 +959,63 @@ public final class LocationPick {
         rotArrow(p, len * 1.5, Draw.argb(0xD0, ROT));
     }
 
-    private static void guide(Vec3d p, Vec3d ax, double len, int i) {
+    private static void guide(Vec3 p, Vec3 ax, double len, int i) {
         int argb = Draw.argb(0x55, axisColor(i));
         double dash = Math.max(0.25, len * 0.5);
-        dashed(p.subtract(ax.multiply(48)), p, argb, dash);
-        dashed(p.add(ax.multiply(len)), p.add(ax.multiply(48)), argb, dash);
+        dashed(p.subtract(ax.scale(48)), p, argb, dash);
+        dashed(p.add(ax.scale(len)), p.add(ax.scale(48)), argb, dash);
     }
 
-    private static void marker(Vec3d o, int argb, double r) {
-        Vec3d[] ring = {o.add(r, 0, 0), o.add(0, 0, r), o.add(-r, 0, 0), o.add(0, 0, -r)};
-        Vec3d top = o.add(0, r, 0), bottom = o.add(0, -r, 0);
+    private static void marker(Vec3 o, int argb, double r) {
+        Vec3[] ring = {o.add(r, 0, 0), o.add(0, 0, r), o.add(-r, 0, 0), o.add(0, 0, -r)};
+        Vec3 top = o.add(0, r, 0), bottom = o.add(0, -r, 0);
         for (int i = 0; i < 4; i++) {
-            Vec3d a = ring[i], b = ring[(i + 1) % 4];
+            Vec3 a = ring[i], b = ring[(i + 1) % 4];
             line(a, b, argb, hair);
             line(a, top, argb, hair);
             line(a, bottom, argb, hair);
         }
     }
 
-    private static void arrow(Vec3d from, Vec3d dir, double len, int argb, float width) {
-        Vec3d tip = from.add(dir.multiply(len));
+    private static void arrow(Vec3 from, Vec3 dir, double len, int argb, float width) {
+        Vec3 tip = from.add(dir.scale(len));
         line(from, tip, argb, width);
-        Vec3d any = Math.abs(dir.y) > 0.9 ? new Vec3d(1, 0, 0) : new Vec3d(0, 1, 0);
-        Vec3d a1 = dir.crossProduct(any).normalize();
-        Vec3d a2 = dir.crossProduct(a1).normalize();
-        Vec3d back = tip.subtract(dir.multiply(len * 0.22));
+        Vec3 any = Math.abs(dir.y) > 0.9 ? new Vec3(1, 0, 0) : new Vec3(0, 1, 0);
+        Vec3 a1 = dir.cross(any).normalize();
+        Vec3 a2 = dir.cross(a1).normalize();
+        Vec3 back = tip.subtract(dir.scale(len * 0.22));
         double s = len * 0.09;
-        line(tip, back.add(a1.multiply(s)), argb, width);
-        line(tip, back.subtract(a1.multiply(s)), argb, width);
-        line(tip, back.add(a2.multiply(s)), argb, width);
-        line(tip, back.subtract(a2.multiply(s)), argb, width);
+        line(tip, back.add(a1.scale(s)), argb, width);
+        line(tip, back.subtract(a1.scale(s)), argb, width);
+        line(tip, back.add(a2.scale(s)), argb, width);
+        line(tip, back.subtract(a2.scale(s)), argb, width);
     }
 
-    private static void rotArrow(Vec3d o, double len, int argb) {
-        Vec3d dir = look(pyaw, ppitch);
+    private static void rotArrow(Vec3 o, double len, int argb) {
+        Vec3 dir = look(pyaw, ppitch);
         arrow(o, dir, len, argb, hair);
     }
 
-    private static void cell(Vec3d p, int argb) {
+    private static void cell(Vec3 p, int argb) {
         double bx = Math.floor(p.x) + SKIN, by = Math.floor(p.y) + SKIN, bz = Math.floor(p.z) + SKIN;
         double s = 1 - SKIN * 2;
         double[][] corners = {{0, 0}, {s, 0}, {s, s}, {0, s}};
         for (int i = 0; i < 4; i++) {
             double[] a = corners[i], b = corners[(i + 1) % 4];
             for (int lvl = 0; lvl <= 1; lvl++)
-                line(new Vec3d(bx + a[0], by + lvl * s, bz + a[1]),
-                        new Vec3d(bx + b[0], by + lvl * s, bz + b[1]), argb, hair);
-            line(new Vec3d(bx + a[0], by, bz + a[1]),
-                    new Vec3d(bx + a[0], by + s, bz + a[1]), argb, hair);
+                line(new Vec3(bx + a[0], by + lvl * s, bz + a[1]),
+                        new Vec3(bx + b[0], by + lvl * s, bz + b[1]), argb, hair);
+            line(new Vec3(bx + a[0], by, bz + a[1]),
+                    new Vec3(bx + a[0], by + s, bz + a[1]), argb, hair);
         }
     }
 
-    private static void drop(MinecraftClient client, Vec3d p, int argb) {
-        if (client.world == null || client.player == null) return;
-        Vec3d to = p.subtract(0, 40, 0);
-        BlockHitResult hit = client.world.raycast(new RaycastContext(p, to,
-                RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, client.player));
-        Vec3d end = hit != null && hit.getType() == HitResult.Type.BLOCK ? hit.getPos() : to;
+    private static void drop(Minecraft client, Vec3 p, int argb) {
+        if (client.level == null || client.player == null) return;
+        Vec3 to = p.subtract(0, 40, 0);
+        BlockHitResult hit = client.level.clip(new ClipContext(p, to,
+                ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, client.player));
+        Vec3 end = hit != null && hit.getType() == HitResult.Type.BLOCK ? hit.getLocation() : to;
         dashed(p, end, argb, 0.3);
         if (hit != null && hit.getType() == HitResult.Type.BLOCK) {
             double r = 0.15;
@@ -1024,18 +1024,18 @@ public final class LocationPick {
         }
     }
 
-    private static void dashed(Vec3d a, Vec3d b, int argb, double dash) {
+    private static void dashed(Vec3 a, Vec3 b, int argb, double dash) {
         double len = a.distanceTo(b);
         if (len < 1.0E-4) return;
-        Vec3d dir = b.subtract(a).multiply(1 / len);
+        Vec3 dir = b.subtract(a).scale(1 / len);
         for (double t = 0; t < len; t += dash * 2) {
-            Vec3d s = a.add(dir.multiply(t));
-            Vec3d e = a.add(dir.multiply(Math.min(len, t + dash)));
+            Vec3 s = a.add(dir.scale(t));
+            Vec3 e = a.add(dir.scale(Math.min(len, t + dash)));
             line(s, e, argb, hair);
         }
     }
 
-    private static void line(Vec3d a, Vec3d b, int argb, float width) {
+    private static void line(Vec3 a, Vec3 b, int argb, float width) {
         double ax = (a.x - origin.x) * ghostScale, ay = (a.y - origin.y) * ghostScale,
                 az = (a.z - origin.z) * ghostScale;
         double bx = (b.x - origin.x) * ghostScale, by = (b.y - origin.y) * ghostScale,
@@ -1043,19 +1043,19 @@ public final class LocationPick {
         Vector3f dir = new Vector3f((float) (bx - ax), (float) (by - ay), (float) (bz - az));
         if (dir.lengthSquared() < 1.0E-10f) return;
         dir.normalize();
-        buffer.vertex(entry, (float) ax, (float) ay, (float) az)
-                .color(argb).normal(entry, dir).lineWidth(width);
-        buffer.vertex(entry, (float) bx, (float) by, (float) bz)
-                .color(argb).normal(entry, dir).lineWidth(width);
+        buffer.addVertex(entry, (float) ax, (float) ay, (float) az)
+                .setColor(argb).setNormal(entry, dir).setLineWidth(width);
+        buffer.addVertex(entry, (float) bx, (float) by, (float) bz)
+                .setColor(argb).setNormal(entry, dir).setLineWidth(width);
     }
 
     private static String f3(double d) { return String.format("%.3f", d); }
     private static String f1(double d) { return String.format("%.1f", d); }
     private static String sign(double d) { return (d >= 0 ? "+" : "") + f3(d); }
 
-    private static void hud(DrawContext ctx, MinecraftClient client) {
-        var tr = client.textRenderer;
-        int sw = ctx.getScaledWindowWidth(), sh = ctx.getScaledWindowHeight();
+    private static void hud(GuiGraphics ctx, Minecraft client) {
+        var tr = client.font;
+        int sw = ctx.guiWidth(), sh = ctx.guiHeight();
         crosshair(ctx, sw, sh);
 
         int w = Math.max(Math.min(MIN_W, sw - 8), Ui.fitW(sw, PANEL_W));
@@ -1072,7 +1072,7 @@ public final class LocationPick {
             default -> "МЕСТОПОЛОЖЕНИЕ";
         };
         String hint = op == Op.NONE ? "Enter — готово" : "Enter — применить";
-        Draw.textFit(ctx, tr, title, x + PAD, cy, w - PAD * 2 - tr.getWidth(hint) - 8,
+        Draw.textFit(ctx, tr, title, x + PAD, cy, w - PAD * 2 - tr.width(hint) - 8,
                 op == Op.NONE ? Theme.TEXT : Theme.ACCENT, false);
         Draw.textRight(ctx, tr, hint, x + w - PAD, cy, Theme.TEXT_FAINT, false);
         cy += 11 + 3;
@@ -1081,7 +1081,7 @@ public final class LocationPick {
         int cw = (inner - 4 * 3) / 5;
         String[] caps = {"X", "Y", "Z", "yaw", "pitch"};
         int[] cols = {AX_X, AX_Y, AX_Z, ROT, ROT};
-        String[] vals = {f3(px), f3(py), f3(pz), f1(MathHelper.wrapDegrees(pyaw)), f1(ppitch)};
+        String[] vals = {f3(px), f3(py), f3(pz), f1(Mth.wrapDegrees(pyaw)), f1(ppitch)};
         int fx = x + PAD;
         for (int i = 0; i < 5; i++) {
             boolean lit = op == Op.MOVE ? (axis == i && !planeMode) : op == Op.LOOK && i >= 3;
@@ -1093,10 +1093,10 @@ public final class LocationPick {
         cy += 16 + 5;
 
         Draw.textFit(ctx, tr, "ПРИЛИПАНИЕ", x + PAD, cy + 4, 70, Theme.TEXT_FAINT, false);
-        int sx2 = x + PAD + tr.getWidth("ПРИЛИПАНИЕ") + 6;
-        int limit = x + w - PAD - tr.getWidth("Tab") - 6;
+        int sx2 = x + PAD + tr.width("ПРИЛИПАНИЕ") + 6;
+        int limit = x + w - PAD - tr.width("Tab") - 6;
         for (Snap s : Snap.values()) {
-            int pw = tr.getWidth(s.label) + 12;
+            int pw = tr.width(s.label) + 12;
             if (sx2 + pw > limit) break;
             pill(ctx, tr, sx2, cy, pw, s.label, s == snap);
             sx2 += pw + 3;
@@ -1108,7 +1108,7 @@ public final class LocationPick {
         else if (hover >= 0) hoverHint(ctx, tr, sw, sh);
     }
 
-    private static void field(DrawContext ctx, net.minecraft.client.font.TextRenderer tr,
+    private static void field(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
                               int x, int y, int w, String cap, String value, int color,
                               boolean lit, boolean typing) {
         int border = lit || typing ? color : Ui.LINE_IN;
@@ -1117,11 +1117,11 @@ public final class LocationPick {
         Draw.roundRect(ctx, x + 1, y + 1, 3, 14, Ui.R_SM - 1, 0, 0, Ui.R_SM - 1,
                 Draw.opaque(color));
         Draw.textFit(ctx, tr, cap, x + 6, y + 4, w - 12, color, false);
-        String s = Draw.fit(tr, value, w - (9 + tr.getWidth(cap)));
+        String s = Draw.fit(tr, value, w - (9 + tr.width(cap)));
         Draw.textRight(ctx, tr, s, x + w - 4, y + 4, typing ? Theme.ACCENT : Theme.TEXT, false);
     }
 
-    private static void pill(DrawContext ctx, net.minecraft.client.font.TextRenderer tr,
+    private static void pill(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
                              int x, int y, int w, String label, boolean on) {
         int accent = Theme.ACCENT;
         Draw.pill(ctx, x, y, w, 15, Draw.opaque(on ? Draw.shade(accent, -0.30f) : Ui.LINE_IN));
@@ -1132,7 +1132,7 @@ public final class LocationPick {
                 on ? Theme.ON_ACCENT : Theme.TEXT_DIM, false);
     }
 
-    private static void keyStrip(DrawContext ctx, net.minecraft.client.font.TextRenderer tr,
+    private static void keyStrip(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
                                  int sw, int sh) {
         String[][] items = op == Op.MOVE ? (byHandle ? new String[][]{
                 {"мышь", "тянуть по оси"}, {"Ctrl", "прилипание"}, {"цифры", "точно"},
@@ -1155,7 +1155,7 @@ public final class LocationPick {
         while (true) {
             total = 0;
             for (int i = 0; i < n; i++)
-                total += tr.getWidth(items[i][0]) + 4 + tr.getWidth(items[i][1]) + (i > 0 ? 10 : 0);
+                total += tr.width(items[i][0]) + 4 + tr.width(items[i][1]) + (i > 0 ? 10 : 0);
             if (total <= sw - 16 || n <= 1) break;
             n--;
         }
@@ -1168,13 +1168,13 @@ public final class LocationPick {
                 x += 10;
             }
             Draw.text(ctx, tr, items[i][0], x, y, Theme.ACCENT, false);
-            x += tr.getWidth(items[i][0]) + 4;
+            x += tr.width(items[i][0]) + 4;
             Draw.text(ctx, tr, items[i][1], x, y, Theme.TEXT_DIM, false);
-            x += tr.getWidth(items[i][1]);
+            x += tr.width(items[i][1]);
         }
     }
 
-    private static void opReadout(DrawContext ctx, net.minecraft.client.font.TextRenderer tr,
+    private static void opReadout(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
                                   int sw, int sh) {
         String s;
         if (op == Op.MOVE) {
@@ -1186,25 +1186,25 @@ public final class LocationPick {
                 s = "XYZ".charAt(axis) + "  " + sign(d);
             }
         } else {
-            s = "yaw " + f1(MathHelper.wrapDegrees(pyaw)) + "   pitch " + f1(ppitch);
+            s = "yaw " + f1(Mth.wrapDegrees(pyaw)) + "   pitch " + f1(ppitch);
         }
         centerLabel(ctx, tr, sw, sh, s, Theme.ACCENT);
     }
 
-    private static void hoverHint(DrawContext ctx, net.minecraft.client.font.TextRenderer tr,
+    private static void hoverHint(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
                                   int sw, int sh) {
         centerLabel(ctx, tr, sw, sh, "ПКМ — тянуть по " + "XYZ".charAt(hover), axisColor(hover));
     }
 
-    private static void centerLabel(DrawContext ctx, net.minecraft.client.font.TextRenderer tr,
+    private static void centerLabel(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
                                     int sw, int sh, String s, int color) {
-        int w = tr.getWidth(s) + 14;
+        int w = tr.width(s) + 14;
         int x = (sw - w) / 2, y = sh / 2 + 12;
         Draw.card(ctx, x, y, w, 15, Ui.R_SM, Draw.argb(0xD8, Ui.WELL), Draw.opaque(color));
         Draw.textCenter(ctx, tr, s, x, y + 4, w, w - 8, color, false);
     }
 
-    private static void crosshair(DrawContext ctx, int sw, int sh) {
+    private static void crosshair(GuiGraphics ctx, int sw, int sh) {
         int cx2 = sw / 2, cy2 = sh / 2;
         int argb = Draw.argb(0xB4, hover >= 0 ? axisColor(hover) : 0xFFFFFF);
         Draw.rect(ctx, cx2 - 5, cy2, 4, 1, argb);

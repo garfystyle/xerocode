@@ -1,10 +1,6 @@
 package com.xerocode;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.util.Identifier;
-
+import com.mojang.blaze3d.platform.NativeImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -13,6 +9,9 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.Identifier;
 
 public final class MarketImage {
     public static final int AVATAR_MAX = 96;
@@ -57,7 +56,7 @@ public final class MarketImage {
     }
 
     private static Path cacheDir() {
-        return MinecraftClient.getInstance().runDirectory.toPath()
+        return Minecraft.getInstance().gameDirectory.toPath()
                 .resolve("xerocode/market-cache");
     }
 
@@ -82,14 +81,14 @@ public final class MarketImage {
             }
         }
         byte[] bytes = raw;
-        MinecraftClient.getInstance().execute(() -> {
+        Minecraft.getInstance().execute(() -> {
             BUSY.remove(hash);
             try {
                 NativeImage image = NativeImage.read(bytes);
-                Identifier id = Identifier.of("xerocode", "market/" + hash);
-                NativeImageBackedTexture texture =
-                        new NativeImageBackedTexture(() -> "xerocode market " + hash, image);
-                MinecraftClient.getInstance().getTextureManager().registerTexture(id, texture);
+                Identifier id = Identifier.fromNamespaceAndPath("xerocode", "market/" + hash);
+                DynamicTexture texture =
+                        new DynamicTexture(() -> "xerocode market " + hash, image);
+                Minecraft.getInstance().getTextureManager().register(id, texture);
                 READY.put(hash, new Shot(id, image.getWidth(), image.getHeight()));
                 ORDER.addLast(hash);
                 trim();
@@ -118,7 +117,7 @@ public final class MarketImage {
     private static void drop(Shot gone) {
         if (gone == null) return;
         try {
-            MinecraftClient.getInstance().getTextureManager().destroyTexture(gone.id);
+            Minecraft.getInstance().getTextureManager().release(gone.id);
         } catch (Throwable ignored) {
         }
     }
@@ -130,7 +129,7 @@ public final class MarketImage {
             int w = image.getWidth(), h = image.getHeight();
             if ((long) w * h > 40_000_000L)
                 throw new IllegalArgumentException("картинка слишком большая");
-            shot = new Png.Bitmap(image.copyPixelsArgb(), w, h);
+            shot = new Png.Bitmap(image.getPixels(), w, h);
         }
         int wantW = banner ? BANNER_W : AVATAR_MAX;
         int wantH = banner ? BANNER_H : AVATAR_MAX;

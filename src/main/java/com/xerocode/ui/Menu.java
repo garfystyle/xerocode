@@ -1,15 +1,14 @@
 package com.xerocode.ui;
 
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.item.ItemStack;
-import net.minecraft.text.OrderedText;
-import net.minecraft.text.Text;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.item.ItemStack;
 
 public final class Menu {
     public static final class Item {
@@ -20,7 +19,7 @@ public final class Menu {
         public final String note;
         public final List<String> desc;
         public boolean enabled = true;
-        final List<OrderedText> wrapped = new ArrayList<>();
+        final List<FormattedCharSequence> wrapped = new ArrayList<>();
 
         public Item(String label) { this(label, false, null); }
         public Item(String label, boolean danger, String[] icon) {
@@ -76,7 +75,7 @@ public final class Menu {
 
     private boolean multi() { return multi != null; }
 
-    private Menu(int screenW, int screenH, int ax, int ay, TextRenderer tr,
+    private Menu(int screenW, int screenH, int ax, int ay, Font tr,
                  String title, List<Item> items, int checked, IntConsumer onPick, Multi multi) {
         this.items = items;
         this.title = title;
@@ -93,20 +92,20 @@ public final class Menu {
         this.anyRich = rich;
         this.inkX = RICH_INK_X + (multi() ? TICK_W : 0);
 
-        int textW = title == null ? 0 : tr.getWidth(title) + (multi() ? 70 : 24);
+        int textW = title == null ? 0 : tr.width(title) + (multi() ? 70 : 24);
         for (Item it : items) {
             int inset = rich ? inkX + 12 : 34 + (multi() ? TICK_W : 0);
-            textW = Math.max(textW, tr.getWidth(it.label) + inset);
-            if (it.note != null) textW = Math.max(textW, tr.getWidth(it.note) + inset);
-            for (String d : it.desc) textW = Math.max(textW, tr.getWidth(d) + inset);
+            textW = Math.max(textW, tr.width(it.label) + inset);
+            if (it.note != null) textW = Math.max(textW, tr.width(it.note) + inset);
+            for (String d : it.desc) textW = Math.max(textW, tr.width(d) + inset);
         }
-        if (multi()) textW = Math.max(textW, ALL_W + 17 + tr.getWidth(multi.confirm() + " (00)") + 22);
+        if (multi()) textW = Math.max(textW, ALL_W + 17 + tr.width(multi.confirm() + " (00)") + 22);
         this.w = Math.max(Math.min(96, screenW - 4),
                 Math.min(Math.min(rich ? RICH_W : 300, screenW - 4), textW));
 
         int room = Math.max(40, w - inkX - 10);
         for (Item it : items)
-            for (String d : it.desc) it.wrapped.addAll(tr.wrapLines(Text.literal(d), room));
+            for (String d : it.desc) it.wrapped.addAll(tr.split(Component.literal(d), room));
 
         this.offs = new int[items.size()];
         int at = 0;
@@ -137,24 +136,24 @@ public final class Menu {
         return Math.max(22, RICH_PAD * 2 + lines * LINE - 1);
     }
 
-    public static Menu options(int screenW, int screenH, int x, int y, TextRenderer tr,
+    public static Menu options(int screenW, int screenH, int x, int y, Font tr,
                                String title, List<String> options, int checked, IntConsumer onPick) {
         List<Item> items = new ArrayList<>();
         for (String o : options) items.add(new Item(o));
         return picker(screenW, screenH, x, y, tr, title, items, checked, onPick);
     }
 
-    public static Menu actions(int screenW, int screenH, int x, int y, TextRenderer tr,
+    public static Menu actions(int screenW, int screenH, int x, int y, Font tr,
                                List<Item> items, IntConsumer onPick) {
         return picker(screenW, screenH, x, y, tr, null, items, -1, onPick);
     }
 
-    public static Menu picker(int screenW, int screenH, int x, int y, TextRenderer tr,
+    public static Menu picker(int screenW, int screenH, int x, int y, Font tr,
                               String title, List<Item> items, int checked, IntConsumer onPick) {
         return new Menu(screenW, screenH, x, y, tr, title, items, checked, onPick, null);
     }
 
-    public static Menu multi(int screenW, int screenH, int x, int y, TextRenderer tr,
+    public static Menu multi(int screenW, int screenH, int x, int y, Font tr,
                              String title, List<Item> items, boolean[] on, String confirm,
                              Consumer<List<Integer>> onDone) {
         return new Menu(screenW, screenH, x, y, tr, title, items, -1, i -> {},
@@ -178,7 +177,7 @@ public final class Menu {
     private int confirmX() { return x + 6 + ALL_W + 5; }
     private int confirmW() { return x + w - 6 - confirmX(); }
 
-    private static void tickBox(DrawContext ctx, int x, int y, boolean on, boolean hov) {
+    private static void tickBox(GuiGraphics ctx, int x, int y, boolean on, boolean hov) {
         Draw.round(ctx, x, y, TICK, TICK, 2, Draw.opaque(on ? Theme.ACCENT : Ui.WELL));
         Draw.roundOutline(ctx, x, y, TICK, TICK, 2,
                 Draw.opaque(on ? Draw.shade(Theme.ACCENT, -0.30f) : hov ? Ui.BORDER : Ui.LINE_IN));
@@ -191,7 +190,7 @@ public final class Menu {
     public boolean isClosed() { return closed; }
     public void close() { closed = true; }
 
-    public void render(DrawContext ctx, TextRenderer tr, int mouseX, int mouseY) {
+    public void render(GuiGraphics ctx, Font tr, int mouseX, int mouseY) {
         lastMx = mouseX;
         lastMy = mouseY;
         Draw.shadow(ctx, x, y, w, h, 5);
@@ -200,7 +199,7 @@ public final class Menu {
         int ticks = multi() ? count() : 0;
         if (title != null) {
             String tally = multi() ? ticks + " из " + items.size() : null;
-            int tallyW = tally == null ? 0 : tr.getWidth(tally) + 8;
+            int tallyW = tally == null ? 0 : tr.width(tally) + 8;
             Draw.textFit(ctx, tr, title, x + 9, y + 5, w - 18 - tallyW, Theme.TEXT_FAINT, false);
             if (tally != null)
                 Draw.textRight(ctx, tr, tally, x + w - 9, y + 5,
@@ -227,7 +226,7 @@ public final class Menu {
                 if (i > 0) Draw.rect(ctx, x + 6, iy - 1, w - 12, 1, Draw.opaque(Ui.LINE));
                 if (multi()) tickBox(ctx, x + 7, iy + (rh - TICK) / 2, ticked[i], i == hovered);
                 if (it.stack != null && !it.stack.isEmpty())
-                    ctx.drawItem(it.stack, x + (multi() ? 6 + TICK_W : 6), iy + (rh - 16) / 2);
+                    ctx.renderItem(it.stack, x + (multi() ? 6 + TICK_W : 6), iy + (rh - 16) / 2);
                 int right = x + w - 8;
                 if (i == checked) {
                     Draw.glyph(ctx, Draw.CHECK, right - Draw.glyphW(Draw.CHECK), nameY + 1,
@@ -241,7 +240,7 @@ public final class Menu {
                     Draw.textFit(ctx, tr, it.note, textX, ly, room, Theme.TEXT_DIM, false);
                     ly += LINE;
                 }
-                for (OrderedText d : it.wrapped) {
+                for (FormattedCharSequence d : it.wrapped) {
                     Draw.text(ctx, tr, d, textX, ly, Theme.TEXT_FAINT, false);
                     ly += LINE;
                 }
@@ -270,7 +269,7 @@ public final class Menu {
         if (multi()) drawFoot(ctx, tr, mouseX, mouseY, ticks);
     }
 
-    private void drawFoot(DrawContext ctx, TextRenderer tr, int mouseX, int mouseY, int ticks) {
+    private void drawFoot(GuiGraphics ctx, Font tr, int mouseX, int mouseY, int ticks) {
         Draw.rect(ctx, x + 6, y + h - FOOT_H, w - 12, 1, Draw.opaque(Ui.LINE));
         String confirm = multi.confirm();
         Ui.button(ctx, tr, mouseX, mouseY, x + 6, footY(), ALL_W, footBtnH(),

@@ -5,12 +5,11 @@ import com.xerocode.Importer;
 import com.xerocode.Sync;
 import com.xerocode.XeroCode;
 import com.xerocode.Script;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.util.math.BlockPos;
-
 import java.nio.file.Path;
 import java.util.List;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.core.BlockPos;
 
 public final class ImportScreen extends DialogScreen {
     public enum Mode { EMPTY, DIVERGED, RELOAD }
@@ -44,8 +43,8 @@ public final class ImportScreen extends DialogScreen {
         this.script = script;
         this.mode = mode;
         this.lines = lines;
-        MinecraftClient mc = MinecraftClient.getInstance();
-        this.memo = mc.world == null ? null : Codespace.Memo.read(Codespace.worldId(mc.world));
+        Minecraft mc = Minecraft.getInstance();
+        this.memo = mc.level == null ? null : Codespace.Memo.read(Codespace.worldId(mc.level));
         this.resumable = mode == Mode.EMPTY && memo != null && memo.fits(lines.size());
     }
 
@@ -88,7 +87,7 @@ public final class ImportScreen extends DialogScreen {
     }
 
     @Override
-    protected void drawBody(DrawContext ctx, int mouseX, int mouseY, int x, int y, int w) {
+    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
         switch (phase) {
             case ASK -> drawAsk(ctx, mouseX, mouseY, x, y, w);
             case RUNNING -> drawRunning(ctx, mouseX, mouseY, x, y, w);
@@ -96,17 +95,17 @@ public final class ImportScreen extends DialogScreen {
         }
     }
 
-    private void drawAsk(DrawContext ctx, int mouseX, int mouseY, int x, int y, int w) {
+    private void drawAsk(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
         if (resumable) {
-            Draw.textFit(ctx, textRenderer,
+            Draw.textFit(ctx, font,
                     "Прошлое чтение оборвалось на строке " + (memo.next) + ".", x, y, w,
                     Theme.TEXT, false);
-            Draw.textFit(ctx, textRenderer,
+            Draw.textFit(ctx, font,
                     "Прочитано " + memo.done() + " из " + lines.size()
                             + (memo.skip.isEmpty() ? ""
                             : " · сервер не отдаёт строк: " + memo.skip.size()),
                     x, y + ROW, w, Theme.TEXT_DIM, false);
-            Draw.textFit(ctx, textRenderer, "Продолжить с " + (memo.next + 1) + "-й строки?",
+            Draw.textFit(ctx, font, "Продолжить с " + (memo.next + 1) + "-й строки?",
                     x, y + ROW * 2, w, Theme.TEXT, false);
             buttons(ctx, mouseX, mouseY, x, w, GO_ON, AFRESH);
             return;
@@ -115,12 +114,12 @@ public final class ImportScreen extends DialogScreen {
             drawDivergedAsk(ctx, mouseX, mouseY, x, y, w);
             return;
         }
-        Draw.textFit(ctx, textRenderer, "В редакторе нет ни одного блока.", x, y, w,
+        Draw.textFit(ctx, font, "В редакторе нет ни одного блока.", x, y, w,
                 Theme.TEXT, false);
-        Draw.textFit(ctx, textRenderer,
+        Draw.textFit(ctx, font,
                 "В этом мире " + lineWord(lines.size()) + " кода.", x, y + ROW, w,
                 Theme.TEXT_DIM, false);
-        Draw.textFit(ctx, textRenderer, "Загрузить их на полотно?", x, y + ROW * 2, w,
+        Draw.textFit(ctx, font, "Загрузить их на полотно?", x, y + ROW * 2, w,
                 Theme.TEXT, false);
         buttons(ctx, mouseX, mouseY, x, w, YES, NO);
     }
@@ -134,23 +133,23 @@ public final class ImportScreen extends DialogScreen {
         return paragraphRows(askWhat(), bodyW()) * ROW + GAP + ROW;
     }
 
-    private void drawDivergedAsk(DrawContext ctx, int mouseX, int mouseY, int x, int y, int w) {
+    private void drawDivergedAsk(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
         int at = y + paragraph(ctx, askWhat(), x, y, w, Theme.TEXT) * ROW + GAP;
-        Draw.textFit(ctx, textRenderer,
+        Draw.textFit(ctx, font,
                 "в мире " + lines.size() + "   ·   на полотне " + script.roots.size(),
                 x, at, w, Theme.TEXT_DIM, false);
         if (mode == Mode.RELOAD) buttons(ctx, mouseX, mouseY, x, w, RELOAD, CANCEL);
         else rowButtons(ctx, mouseX, mouseY, x, w, Ui.ACCENT, KEEP, BESIDE, RELOAD);
     }
 
-    private void drawRunning(DrawContext ctx, int mouseX, int mouseY, int x, int y, int w) {
+    private void drawRunning(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
         int done = scan == null ? 0 : scan.index();
         int total = scan == null ? lines.size() : scan.total();
         float progress = scan == null ? 0 : scan.progress();
 
-        Draw.textFit(ctx, textRenderer, "Строка " + done + " из " + total, x, y,
+        Draw.textFit(ctx, font, "Строка " + done + " из " + total, x, y,
                 w - 34, Theme.TEXT, false);
-        Draw.textRight(ctx, textRenderer, Math.round(progress * 100) + " %", x + w, y,
+        Draw.textRight(ctx, font, Math.round(progress * 100) + " %", x + w, y,
                 Theme.ACCENT, false);
 
         int by = y + ROW + 8;
@@ -160,51 +159,51 @@ public final class ImportScreen extends DialogScreen {
         String note = "блоков прочитано: " + (scan == null ? 0 : scan.blocks());
         float left = scan == null ? -1 : scan.remaining();
         if (left >= 0) note += "   ·   осталось ~" + Math.max(1, Math.round(left)) + " с";
-        Draw.textFit(ctx, textRenderer, note, x, by + BAR_H + 6, w, Theme.TEXT_FAINT, false);
+        Draw.textFit(ctx, font, note, x, by + BAR_H + 6, w, Theme.TEXT_FAINT, false);
 
         buttons(ctx, mouseX, mouseY, x, w, null, CANCEL);
     }
 
-    private void drawDone(DrawContext ctx, int mouseX, int mouseY, int x, int y, int w) {
+    private void drawDone(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
         int blocks = result == null ? 0 : result.blocks;
         int roots = result == null ? 0 : result.lines;
-        Draw.textFit(ctx, textRenderer,
+        Draw.textFit(ctx, font,
                 broke() ? "Прочитано " + lineWord(scan.blocks()) + " — отложены до продолжения"
                         : lineWord(roots) + " · " + blocks + " блоков на полотне", x, y, w,
                 Theme.TEXT, false);
 
         String file = scan == null || scan.file == null
                 ? "файл сохранить не удалось" : "Сохранено: " + scan.file.getFileName();
-        Draw.textFit(ctx, textRenderer, file, x, y + ROW, w, Theme.TEXT_DIM, false);
+        Draw.textFit(ctx, font, file, x, y + ROW, w, Theme.TEXT_DIM, false);
 
         String time = scan == null ? "" : "за " + String.format("%.1f", scan.millis / 1000f) + " с";
         int failed = scan == null ? 0 : scan.failedLines();
         if (failed > 0) time += "   ·   не прочитано строк: " + failed;
-        Draw.textFit(ctx, textRenderer, time, x, y + ROW * 2, w, Theme.TEXT_FAINT, false);
+        Draw.textFit(ctx, font, time, x, y + ROW * 2, w, Theme.TEXT_FAINT, false);
 
         int row = 3;
         if (saved != null)
-            Draw.textFit(ctx, textRenderer, "прежнее полотно: " + saved.getFileName(),
+            Draw.textFit(ctx, font, "прежнее полотно: " + saved.getFileName(),
                     x, y + ROW * row++, w, Theme.TEXT_FAINT, false);
         if (broke()) {
-            Draw.textFit(ctx, textRenderer, "оборвалось: " + scan.error,
+            Draw.textFit(ctx, font, "оборвалось: " + scan.error,
                     x, y + ROW * row++, w, Theme.DANGER, false);
-            Draw.textFit(ctx, textRenderer,
+            Draw.textFit(ctx, font,
                     "зайдите в /dev — предложу дочитать",
                     x, y + ROW * row++, w, Theme.TEXT_DIM, false);
         }
         if (scan != null && !scan.skipList().isEmpty())
-            Draw.textFit(ctx, textRenderer, "сервер не отдаёт строк: " + scan.skipList().size()
+            Draw.textFit(ctx, font, "сервер не отдаёт строк: " + scan.skipList().size()
                             + " (" + String.join("  ", scan.skipList()) + ")",
                     x, y + ROW * row++, w, Theme.DANGER, false);
         if (failure != null)
-            Draw.textFit(ctx, textRenderer, "разбор не удался: " + failure,
+            Draw.textFit(ctx, font, "разбор не удался: " + failure,
                     x, y + ROW * row++, w, Theme.DANGER, false);
         else if (result != null && result.brokenLines > 0)
-            Draw.textFit(ctx, textRenderer, "строк не разобралось: " + result.brokenLines,
+            Draw.textFit(ctx, font, "строк не разобралось: " + result.brokenLines,
                     x, y + ROW * row++, w, Theme.DANGER, false);
         if (result != null && result.unknownCount > 0)
-            Draw.textFit(ctx, textRenderer,
+            Draw.textFit(ctx, font,
                     "сохранены как есть, нет в каталоге: " + result.unknownCount
                             + " (" + String.join(", ", result.unknown) + ")",
                     x, y + ROW * row++, w, Theme.TEXT_DIM, false);
@@ -226,24 +225,24 @@ public final class ImportScreen extends DialogScreen {
                 }
                 if (mode == Mode.RELOAD) {
                     if (hitPrimary(mx, my, RELOAD)) { begin(false, true); return true; }
-                    if (hitGhost(mx, my, RELOAD, CANCEL)) { close(); return true; }
+                    if (hitGhost(mx, my, RELOAD, CANCEL)) { onClose(); return true; }
                     return false;
                 }
                 if (mode == Mode.DIVERGED) {
                     int hit = hitRow(mx, my, bodyX(), bodyW(), KEEP, BESIDE, RELOAD);
-                    if (hit == 0) { Sync.hush(script); close(); return true; }
+                    if (hit == 0) { Sync.hush(script); onClose(); return true; }
                     if (hit == 1) { begin(false, false); return true; }
                     if (hit == 2) { begin(false, true); return true; }
                     return false;
                 }
                 if (hitPrimary(mx, my, YES)) { begin(false, false); return true; }
-                if (hitGhost(mx, my, YES, NO)) { close(); return true; }
+                if (hitGhost(mx, my, YES, NO)) { onClose(); return true; }
             }
             case RUNNING -> {
                 if (hitGhost(mx, my, null, CANCEL)) { stop(); return true; }
             }
             case DONE -> {
-                if (hitPrimary(mx, my, OPEN)) { close(); return true; }
+                if (hitPrimary(mx, my, OPEN)) { onClose(); return true; }
             }
         }
         return false;
@@ -256,7 +255,7 @@ public final class ImportScreen extends DialogScreen {
             begin(resumable, mode == Mode.RELOAD);
             return true;
         }
-        if (phase == Phase.DONE) { close(); return true; }
+        if (phase == Phase.DONE) { onClose(); return true; }
         return false;
     }
 
@@ -265,15 +264,15 @@ public final class ImportScreen extends DialogScreen {
         if (phase == Phase.RUNNING) stop();
         else {
             if (phase == Phase.ASK && mode == Mode.DIVERGED) Sync.hush(script);
-            close();
+            onClose();
         }
     }
 
     private void begin(boolean carryOn, boolean replace) {
-        if (client == null || client.world == null) { close(); return; }
+        if (minecraft == null || minecraft.level == null) { onClose(); return; }
         replacing = replace;
-        scan = Codespace.start(client.world, lines, carryOn && resumable ? memo
-                : Codespace.Memo.fresh(Codespace.worldId(client.world), memo));
+        scan = Codespace.start(minecraft.level, lines, carryOn && resumable ? memo
+                : Codespace.Memo.fresh(Codespace.worldId(minecraft.level), memo));
         phase = Phase.RUNNING;
     }
 
@@ -304,13 +303,13 @@ public final class ImportScreen extends DialogScreen {
             } else if (!wasEmpty) {
                 startX = (int) Math.round(script.lastRootX()) + BESIDE_STEP;
             }
-            result = Importer.importInto(script, scan.handlers(), textRenderer, startX);
+            result = Importer.importInto(script, scan.handlers(), font, startX);
             if (result.lines > 0) script.fitOnOpen = true;
             script.save();
             if ((replacing || wasEmpty) && !cancelled && scan.state == Codespace.State.DONE
                     && scan.failedLines() == 0 && scan.skipList().isEmpty()
                     && result.brokenLines == 0)
-                Sync.mark(script, client == null ? null : client.world);
+                Sync.mark(script, minecraft == null ? null : minecraft.level);
         } catch (Throwable e) {
             failure = e.getClass().getSimpleName();
             XeroCode.LOG.error("[xerocode] импорт не удался", e);
@@ -318,9 +317,9 @@ public final class ImportScreen extends DialogScreen {
     }
 
     @Override
-    public void close() {
+    public void onClose() {
         if (scan != null && scan.state == Codespace.State.RUNNING) scan.cancel();
-        MinecraftClient mc = client == null ? MinecraftClient.getInstance() : client;
+        Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         mc.setScreen(new EditorScreen(script));
     }
 }

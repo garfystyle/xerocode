@@ -2,16 +2,15 @@ package com.xerocode;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.math.BlockPos;
-
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.level.block.state.BlockState;
 
 public final class Sync {
     private static final int LINE_END = 92;
@@ -48,7 +47,7 @@ public final class Sync {
     private static Base cached;
     private static String cachedPlot;
 
-    private static Stamp stamp(ClientWorld world) {
+    private static Stamp stamp(ClientLevel world) {
         if (world == null || !Codespace.inDev(world) || !Codespace.chunksReady(world)) return null;
         List<BlockPos> heads = Codespace.lines(world);
         int hh = 17;
@@ -57,28 +56,28 @@ public final class Sync {
         boolean full = rowsReady(world);
         int raster = 0;
         if (full) {
-            BlockPos.Mutable at = new BlockPos.Mutable();
+            BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
             for (BlockPos head : heads) {
                 raster = (raster * 31 + head.getY()) * 31 + head.getZ();
                 for (int x = Codespace.LINE_X; x <= LINE_END; x++) {
                     at.set(x, head.getY(), head.getZ());
                     BlockState state = world.getBlockState(at);
                     raster = raster * 31
-                            + (state.isAir() ? 0 : Registries.BLOCK.getId(state.getBlock()).hashCode());
+                            + (state.isAir() ? 0 : BuiltInRegistries.BLOCK.getKey(state.getBlock()).hashCode());
                 }
             }
         }
         return new Stamp(heads.size(), hh, raster, full);
     }
 
-    private static boolean rowsReady(ClientWorld world) {
+    private static boolean rowsReady(ClientLevel world) {
         for (int cx = Codespace.LINE_X >> 4; cx <= LINE_END >> 4; cx++)
             for (int cz = Codespace.FIRST_Z >> 4; cz <= Codespace.LAST_Z >> 4; cz++)
-                if (!world.getChunkManager().isChunkLoaded(cx, cz)) return false;
+                if (!world.getChunkSource().hasChunk(cx, cz)) return false;
         return true;
     }
 
-    public static State state(Script script, ClientWorld world) {
+    public static State state(Script script, ClientLevel world) {
         if (script == null) return State.UNKNOWN;
         Base base = read(script.plot);
         boolean canvasFilled = !script.roots.isEmpty();
@@ -98,12 +97,12 @@ public final class Sync {
         return canvasChanged ? State.CANVAS_AHEAD : State.IN_SYNC;
     }
 
-    public static int worldLines(ClientWorld world) {
+    public static int worldLines(ClientLevel world) {
         if (world == null || !Codespace.inDev(world) || !Codespace.chunksReady(world)) return -1;
         return Codespace.lines(world).size();
     }
 
-    public static void mark(Script script, ClientWorld world) {
+    public static void mark(Script script, ClientLevel world) {
         if (script == null) return;
         Base base = new Base();
         base.stamp = stamp(world);
@@ -122,7 +121,7 @@ public final class Sync {
         sampleAt = 0;
     }
 
-    public static void settle(Script script, ClientWorld world) {
+    public static void settle(Script script, ClientLevel world) {
         if (script == null) return;
         Base base = read(script.plot);
         if (base == null) return;
@@ -168,7 +167,7 @@ public final class Sync {
     private static String plotKey(String plot) { return plot == null ? "" : plot; }
 
     private static Path file(String plot) {
-        Path dir = MinecraftClient.getInstance().runDirectory.toPath().resolve("xerocode");
+        Path dir = Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode");
         return plot == null || plot.isEmpty() ? dir.resolve("sync.json")
                 : dir.resolve("worlds").resolve(plot + ".sync.json");
     }

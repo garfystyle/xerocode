@@ -3,12 +3,6 @@ package com.xerocode;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.texture.Sprite;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.Atlases;
-import net.minecraft.util.Identifier;
-
 import java.io.BufferedReader;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -16,6 +10,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.data.AtlasIds;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.ItemStack;
 
 public final class ParticleLook {
     public enum Motion { FALL, RISE, BURST, SWIRL, DRIP, DRIFT }
@@ -69,7 +68,7 @@ public final class ParticleLook {
     private static List<Identifier> read(String enumName) {
         Identifier definition = Identifier.tryParse(
                 "minecraft:particles/" + enumName.toLowerCase(Locale.ROOT) + ".json");
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         if (definition == null || client.getResourceManager() == null) return List.of();
         try (BufferedReader in = client.getResourceManager().openAsReader(definition)) {
             JsonObject root = JsonParser.parseReader(in).getAsJsonObject();
@@ -85,10 +84,10 @@ public final class ParticleLook {
         }
     }
 
-    public static Sprite sprite(Identifier texture) {
-        MinecraftClient client = MinecraftClient.getInstance();
+    public static TextureAtlasSprite sprite(Identifier texture) {
+        Minecraft client = Minecraft.getInstance();
         try {
-            return client.getAtlasManager().getAtlasTexture(Atlases.PARTICLES).getSprite(texture);
+            return client.getAtlasManager().getAtlasOrThrow(AtlasIds.PARTICLES).getSprite(texture);
         } catch (Throwable t) {
             return null;
         }

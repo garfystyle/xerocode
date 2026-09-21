@@ -200,8 +200,8 @@ public final class Market {
 
     public static String playerName() {
         try {
-            var client = net.minecraft.client.MinecraftClient.getInstance();
-            String name = client.getSession() == null ? "" : client.getSession().getUsername();
+            var client = net.minecraft.client.Minecraft.getInstance();
+            String name = client.getUser() == null ? "" : client.getUser().getName();
             return name == null || name.isBlank() ? "игрок" : name;
         } catch (Throwable e) {
             return "игрок";

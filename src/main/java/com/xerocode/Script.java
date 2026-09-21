@@ -4,8 +4,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import net.minecraft.client.MinecraftClient;
-
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
@@ -18,6 +16,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.client.Minecraft;
 
 public final class Script {
     public static final class Node {
@@ -206,7 +205,7 @@ public final class Script {
     public transient String plot = "";
 
     private static Path dir() {
-        return MinecraftClient.getInstance().runDirectory.toPath().resolve("xerocode");
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode");
     }
 
     public static Path file() { return dir().resolve("script.json"); }

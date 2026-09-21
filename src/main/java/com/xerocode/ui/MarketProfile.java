@@ -5,16 +5,15 @@ import com.google.gson.JsonObject;
 import com.xerocode.Json;
 import com.xerocode.Market;
 import com.xerocode.MarketId;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.input.MouseButtonEvent;
 
 public final class MarketProfile extends MarketPanel {
-    private TextFieldWidget bio;
+    private EditBox bio;
     private String icon = "";
     private String seeded = "";
     private String watched = "";
@@ -44,7 +43,7 @@ public final class MarketProfile extends MarketPanel {
     protected void placed() { Ui.width(bio, fieldW() - 10); }
 
     @Override
-    public void draw(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void draw(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         seed();
         Draw.rect(ctx, x, y, w, h, Draw.opaque(Ui.WELL));
         hits.clear();
@@ -73,7 +72,7 @@ public final class MarketProfile extends MarketPanel {
         }
     }
 
-    private void drawJoin(DrawContext ctx, int at, int mouseX, int mouseY) {
+    private void drawJoin(GuiGraphics ctx, int at, int mouseX, int mouseY) {
         Draw.textFit(ctx, tr, Market.joining() ? "завожу аккаунт…" : "аккаунта пока нет",
                 fieldX(), at, inner(), Theme.TEXT_DIM, false);
         at += 16;
@@ -91,7 +90,7 @@ public final class MarketProfile extends MarketPanel {
         content = at + ROW + PAD + scroll - y;
     }
 
-    private void drawSide(DrawContext ctx, int sx, int sy, int sw, Market.Me me) {
+    private void drawSide(GuiGraphics ctx, int sx, int sy, int sw, Market.Me me) {
         int pad = 14, room = sw - pad * 2;
         if (room < 80) return;
         int at = sy + pad;
@@ -114,14 +113,14 @@ public final class MarketProfile extends MarketPanel {
         drawQuotas(ctx, at + 8, me, sx + pad, room);
     }
 
-    private void who(DrawContext ctx, Market.Me me, int tx, int at, int room) {
+    private void who(GuiGraphics ctx, Market.Me me, int tx, int at, int room) {
         Draw.textFit(ctx, tr, me.name, tx, at + 6, room, Theme.TEXT, false);
         if (!me.verified) return;
-        int nw = Math.min(room, tr.getWidth(me.name));
+        int nw = Math.min(room, tr.width(me.name));
         Draw.glyph(ctx, Draw.CHECK, tx + nw + 5, at + 6, Theme.OK);
     }
 
-    private int drawHead(DrawContext ctx, int at, Market.Me me) {
+    private int drawHead(GuiGraphics ctx, int at, Market.Me me) {
         MarketArt.avatar(ctx, me.icon, me.name, fieldX(), at, 44, Theme.ACCENT, me.name, tr);
         int tx = fieldX() + 54, room = inner() - 60;
         who(ctx, me, tx, at, room);
@@ -134,7 +133,7 @@ public final class MarketProfile extends MarketPanel {
         return at + 44 + GAP;
     }
 
-    private int drawQuotas(DrawContext ctx, int at, Market.Me me, int qx, int qw) {
+    private int drawQuotas(GuiGraphics ctx, int at, Market.Me me, int qx, int qw) {
         Ui.caption(ctx, tr, "СЕГОДНЯ", qx, at, qw);
         at += LABEL;
         at = meter(ctx, at, qx, qw, "Публикации", me.spent("publish"), me.limit("publish_day"));
@@ -149,9 +148,9 @@ public final class MarketProfile extends MarketPanel {
         return at + 12 + GAP;
     }
 
-    private int meter(DrawContext ctx, int at, int qx, int qw, String label, int used, int cap) {
+    private int meter(GuiGraphics ctx, int at, int qx, int qw, String label, int used, int cap) {
         String num = used + " / " + cap;
-        int nw = tr.getWidth(num);
+        int nw = tr.width(num);
         Draw.textFit(ctx, tr, label, qx, at, qw - nw - 8, Theme.TEXT_DIM, false);
         Draw.textRight(ctx, tr, num, qx + qw, at, Theme.TEXT_FAINT, false);
         at += 11;
@@ -163,7 +162,7 @@ public final class MarketProfile extends MarketPanel {
         return at + 12;
     }
 
-    private int drawStanding(DrawContext ctx, int at, Market.Me me) {
+    private int drawStanding(GuiGraphics ctx, int at, Market.Me me) {
         Ui.caption(ctx, tr, "ИМЯ", fieldX(), at, fieldW());
         at += LABEL;
         Draw.textFit(ctx, tr, me.name, fieldX(), at, fieldW(), Theme.TEXT, false);
@@ -178,7 +177,7 @@ public final class MarketProfile extends MarketPanel {
         return at + GAP;
     }
 
-    private int drawIcon(DrawContext ctx, int at, int mouseX, int mouseY) {
+    private int drawIcon(GuiGraphics ctx, int at, int mouseX, int mouseY) {
         Ui.caption(ctx, tr, "ЗНАЧОК", fieldX(), at, fieldW());
         at += LABEL;
         Market.Me who = Market.me();
@@ -191,7 +190,7 @@ public final class MarketProfile extends MarketPanel {
         return at + 30 + GAP;
     }
 
-    private int drawFacts(DrawContext ctx, int at, Market.Me me, int mouseX, int mouseY) {
+    private int drawFacts(GuiGraphics ctx, int at, Market.Me me, int mouseX, int mouseY) {
         Ui.hairline(ctx, fieldX(), at, inner());
         at += 8;
         if (me.admin) {
@@ -251,7 +250,7 @@ public final class MarketProfile extends MarketPanel {
         saving = true;
         busy = "сохраняю…";
         trouble = "";
-        Market.saveMe(bio.getText().trim(), icon, () -> {
+        Market.saveMe(bio.getValue().trim(), icon, () -> {
             saving = false;
             busy = "";
             seeded = "";
@@ -263,7 +262,7 @@ public final class MarketProfile extends MarketPanel {
     }
 
     @Override
-    protected void tapped(Hit hit, Click click, boolean doubled) {
+    protected void tapped(Hit hit, MouseButtonEvent click, boolean doubled) {
         switch (hit.what()) {
             case "make" -> Market.hello();
             case "bio" -> focus(bio, click, doubled);
@@ -332,12 +331,12 @@ public final class MarketProfile extends MarketPanel {
             owner.toast("ключа нет");
             return;
         }
-        MinecraftClient.getInstance().keyboard.setClipboard(key);
+        Minecraft.getInstance().keyboardHandler.setClipboard(key);
         owner.toast("ключ в буфере обмена — храни его как пароль");
     }
 
     private void pasteKey() {
-        if (!MarketId.adopt(MinecraftClient.getInstance().keyboard.getClipboard())) {
+        if (!MarketId.adopt(Minecraft.getInstance().keyboardHandler.getClipboard())) {
             owner.toast("в буфере не ключ магазина");
             return;
         }

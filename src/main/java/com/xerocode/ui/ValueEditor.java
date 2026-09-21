@@ -1,6 +1,7 @@
 package com.xerocode.ui;
 
 import com.google.gson.JsonObject;
+import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.xerocode.Audio;
 import com.xerocode.Blocks;
 import com.xerocode.Catalog;
@@ -11,16 +12,6 @@ import com.xerocode.Script;
 import com.xerocode.Stacks;
 import com.xerocode.Value;
 import com.xerocode.Values;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.cursor.StandardCursors;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -30,6 +21,15 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.world.item.ItemStack;
 
 public final class ValueEditor {
     private static final int PAD = 10;
@@ -80,7 +80,7 @@ public final class ValueEditor {
     private final Script.Node node;
     private final int argIndex;
     private final Catalog.Arg arg;
-    private final TextRenderer tr;
+    private final Font tr;
     private int screenW, screenH;
     private final int anchorX, anchorY;
     private final List<String> knownVars, knownParams;
@@ -88,7 +88,7 @@ public final class ValueEditor {
     private final List<Value> values = new ArrayList<>();
     private int sel;
 
-    private final List<TextFieldWidget> fields = new ArrayList<>();
+    private final List<EditBox> fields = new ArrayList<>();
     private Ui.Chips paramChips, targetChips, scopeChips, modeChips, sourceChips;
     private Ui.Chips kindChips, elemChips;
     private final Ui.Bar bodyBar = new Ui.Bar(), listBar = new Ui.Bar(), cellBar = new Ui.Bar();
@@ -133,7 +133,7 @@ public final class ValueEditor {
     private final Cell cell;
 
     private ValueEditor(Script.Node node, int argIndex, Catalog.Arg arg, Cell cell,
-                        TextRenderer tr, int anchorX, int anchorY, int screenW, int screenH,
+                        Font tr, int anchorX, int anchorY, int screenW, int screenH,
                         List<String> knownVars, List<String> knownParams) {
         this.node = node;
         this.argIndex = argIndex;
@@ -149,7 +149,7 @@ public final class ValueEditor {
         this.w = Ui.fitW(screenW, WIDTH);
     }
 
-    public ValueEditor(Script.Node node, int argIndex, TextRenderer tr,
+    public ValueEditor(Script.Node node, int argIndex, Font tr,
                        int anchorX, int anchorY, int screenW, int screenH,
                        List<String> knownVars, List<String> knownParams) {
         this(node, argIndex, node.args().get(argIndex), null, tr, anchorX, anchorY,
@@ -250,7 +250,7 @@ public final class ValueEditor {
         buildForm();
     }
 
-    private ValueEditor(Value value, String purpose, TextRenderer tr,
+    private ValueEditor(Value value, String purpose, Font tr,
                         int anchorX, int anchorY, int screenW, int screenH,
                         List<String> knownVars, List<String> knownParams, Cell done) {
         this(null, -1, Catalog.Arg.cell(purpose), done, tr, anchorX, anchorY,
@@ -261,7 +261,7 @@ public final class ValueEditor {
     }
 
     public static ValueEditor forCell(Value value, String purpose, String onlyKind,
-                                      TextRenderer tr, int anchorX, int anchorY,
+                                      Font tr, int anchorX, int anchorY,
                                       int screenW, int screenH, List<String> knownVars,
                                       List<String> knownParams, Cell done) {
         ValueEditor editor = new ValueEditor(value, purpose, tr, anchorX, anchorY,
@@ -391,7 +391,7 @@ public final class ValueEditor {
         return has(id) && Ui.hit(mx, my, x + PAD, py(id), inner(), ph(id));
     }
 
-    private TextFieldWidget field(String text, String placeholder) {
+    private EditBox field(String text, String placeholder) {
         return Ui.field(tr, text, placeholder, 256);
     }
 
@@ -615,7 +615,7 @@ public final class ValueEditor {
     private void refreshSuggestions() {
         Value v = current();
         List<String> pool = Value.PARAMETER.equals(v.type) ? knownParams : knownVars;
-        String typed = (fields.isEmpty() ? v.name : fields.get(0).getText())
+        String typed = (fields.isEmpty() ? v.name : fields.get(0).getValue())
                 .trim().toLowerCase(Locale.ROOT);
         List<String> out = new ArrayList<>();
         for (String name : new LinkedHashSet<>(pool)) {
@@ -738,13 +738,13 @@ public final class ValueEditor {
         buildForm();
     }
 
-    private void drawDraggedSlot(DrawContext ctx) {
+    private void drawDraggedSlot(GuiGraphics ctx) {
         Catalog.Slots grid = slots();
         if (dragSlot < 0 || !slotMoved || grid == null || dragSlot >= values.size()) return;
         Value it = values.get(dragSlot);
         if (it.isBlank()) return;
-        ctx.createNewRootLayer();
-        ctx.drawItem(Stacks.preview(it), lastMx - 8, lastMy - 8);
+        ctx.nextStratum();
+        ctx.renderItem(Stacks.preview(it), lastMx - 8, lastMy - 8);
     }
 
     private boolean clearSlot(double mx, double my) {
@@ -811,7 +811,7 @@ public final class ValueEditor {
         for (FieldRow r : fieldRows) {
             int cw = colW(r), ry = py(r.id()) + 9 + (FIELD_H - 12) / 2 + 2;
             for (int i = 0; i < r.count(); i++) {
-                TextFieldWidget f = fields.get(r.from() + i);
+                EditBox f = fields.get(r.from() + i);
                 f.setX(colX(r, i) + 6);
                 f.setY(ry);
                 Ui.width(f, cw - 12);
@@ -819,7 +819,7 @@ public final class ValueEditor {
         }
         String single = has("input") ? "input" : has("material") ? "material" : null;
         if (single == null) return;
-        TextFieldWidget f = null;
+        EditBox f = null;
         for (int i = 0; i < fields.size() && f == null; i++) {
             boolean owned = false;
             for (FieldRow r : fieldRows)
@@ -844,7 +844,7 @@ public final class ValueEditor {
         };
     }
 
-    private void drawFieldRow(DrawContext ctx, int mouseX, int mouseY, float delta, FieldRow r) {
+    private void drawFieldRow(GuiGraphics ctx, int mouseX, int mouseY, float delta, FieldRow r) {
         if (r == null) return;
         boolean axes = "coords".equals(r.id());
         boolean drag = scrubbable(r);
@@ -853,9 +853,9 @@ public final class ValueEditor {
             int cx = colX(r, i);
             int ink = axes && i < AXIS_INK.length ? AXIS_INK[i] : Theme.TEXT_FAINT;
             if (drag && Ui.hit(mouseX, mouseY, cx, ry, cw, 9))
-                ctx.setCursor(StandardCursors.RESIZE_EW);
+                ctx.requestCursor(CursorTypes.RESIZE_EW);
             else if (Ui.hit(mouseX, mouseY, cx, ry + 9, cw, FIELD_H))
-                ctx.setCursor(StandardCursors.IBEAM);
+                ctx.requestCursor(CursorTypes.IBEAM);
             Draw.textFit(ctx, tr, r.caps()[i], cx + 2, ry, cw - 4, ink, false);
             Ui.input(ctx, cx, ry + 9, cw, FIELD_H, r.from() + i == focus);
             if (axes && i < AXIS_INK.length)
@@ -871,10 +871,10 @@ public final class ValueEditor {
         complete.reset();
         focus = Math.max(0, Math.min(fields.size() - 1, i));
         for (int k = 0; k < fields.size(); k++) fields.get(k).setFocused(k == focus);
-        fields.get(focus).setCursorToStart(false);
+        fields.get(focus).moveCursorToStart(false);
     }
 
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         lastMx = mouseX;
         lastMy = mouseY;
         if (nested != null) { nested.render(ctx, mouseX, mouseY, delta); return; }
@@ -901,27 +901,27 @@ public final class ValueEditor {
         drawFooter(ctx, mouseX, mouseY, accent);
 
         if (colors != null) {
-            ctx.createNewRootLayer();
+            ctx.nextStratum();
             colors.render(ctx, mouseX, mouseY, delta);
         }
         if (menu != null) {
-            ctx.createNewRootLayer();
+            ctx.nextStratum();
             menu.render(ctx, tr, mouseX, mouseY);
         }
         if (complete.active()) {
-            ctx.createNewRootLayer();
+            ctx.nextStratum();
             complete.render(ctx, tr, mouseX, mouseY);
         }
         drawDraggedSlot(ctx);
     }
 
-    private void drawHeader(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawHeader(GuiGraphics ctx, int mouseX, int mouseY) {
         int tc = Catalog.TYPE_COLORS.getOrDefault(arg.type, 0xAAAAAA);
         int closeX0 = x + w - PAD - 14;
         boolean grab = dragging || (Ui.hit(mouseX, mouseY, x, y, w, HEAD_H)
                 && !Ui.hit(mouseX, mouseY, closeX0, y + 6, 14, 14));
         Ui.headerStrip(ctx, x, y, w, HEAD_H, grab ? Draw.shade(tc, 0.22f) : tc);
-        if (grab) ctx.setCursor(StandardCursors.RESIZE_ALL);
+        if (grab) ctx.requestCursor(CursorTypes.RESIZE_ALL);
         Draw.round(ctx, x + PAD, y + 8, 3, 10, 1, Draw.opaque(tc));
 
         String type = arg.type + (list() ? " ×" + arg.capacity : "");
@@ -960,12 +960,12 @@ public final class ValueEditor {
         return l.id().isEmpty() ? "по умолчанию" : l.id();
     }
 
-    private void drawLangs(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawLangs(GuiGraphics ctx, int mouseX, int mouseY) {
         Ui.caption(ctx, tr, "ЯЗЫКИ", x + PAD, railY() - CAP, inner());
         int rw = inner();
         int labelW = 0;
         for (Localized.Lang l : Localized.LANGS)
-            labelW = Math.max(labelW, tr.getWidth(langLabel(l)));
+            labelW = Math.max(labelW, tr.width(langLabel(l)));
         labelW += 10;
         for (int i = 0; i < Localized.LANGS.size(); i++) {
             Localized.Lang l = Localized.LANGS.get(i);
@@ -992,7 +992,7 @@ public final class ValueEditor {
                 rw - 4, Theme.TEXT_FAINT, false);
     }
 
-    private void drawList(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawList(GuiGraphics ctx, int mouseX, int mouseY) {
         Catalog.Slots grid = slots();
         if (grid != null) { drawSlots(ctx, grid, mouseX, mouseY); return; }
         Ui.caption(ctx, tr, "ЗНАЧЕНИЯ", x + PAD, listY(), inner(),
@@ -1012,7 +1012,7 @@ public final class ValueEditor {
                     active ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
             Draw.dot(ctx, x + PAD + 21, ry + 6, Draw.opaque(v.color()));
             String note = v.note();
-            int noteW = note.isEmpty() ? 0 : tr.getWidth(note) + 8;
+            int noteW = note.isEmpty() ? 0 : tr.width(note) + 8;
             Draw.textFit(ctx, tr, Layout.display(v), x + PAD + 29, ry + 5, rw - 35 - noteW,
                     v.isBlank() ? Theme.TEXT_FAINT : Theme.TEXT, false);
             if (!note.isEmpty())
@@ -1031,7 +1031,7 @@ public final class ValueEditor {
         }
     }
 
-    private void drawRail(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawRail(GuiGraphics ctx, int mouseX, int mouseY) {
         if (localizedField() != null) { drawLangs(ctx, mouseX, mouseY); return; }
         Ui.caption(ctx, tr, "ТИП ЗНАЧЕНИЯ", x + PAD, railY() - CAP, inner());
         Ui.Grid g = grid();
@@ -1061,13 +1061,13 @@ public final class ValueEditor {
         }
     }
 
-    private void drawCaptions(DrawContext ctx) {
+    private void drawCaptions(GuiGraphics ctx) {
         for (Part p : parts)
             if (p.caption() != null)
                 Ui.caption(ctx, tr, p.caption(), x + PAD, formY() + p.dy(), inner());
     }
 
-    private void drawForm(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    private void drawForm(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         Value v = current();
         int full = inner();
         switch (v.type) {
@@ -1090,7 +1090,7 @@ public final class ValueEditor {
                 fields.get(0).render(ctx, mouseX, mouseY, delta);
                 Ui.placeholder(ctx, tr, fields.get(0));
                 if (has("note")) {
-                    String text = fields.get(0).getText().trim();
+                    String text = fields.get(0).getValue().trim();
                     boolean bad = !text.isEmpty() && !isNumber(text);
                     Draw.textFit(ctx, tr, bad ? "это не число — станет 0 при сохранении"
                                     : "дробная часть через точку или запятую",
@@ -1137,7 +1137,7 @@ public final class ValueEditor {
             case Value.LOCATION, Value.VECTOR -> {
                 drawFieldRow(ctx, mouseX, mouseY, delta, rowOf("coords"));
                 if (has("world")) {
-                    boolean inGame = MinecraftClient.getInstance().player != null;
+                    boolean inGame = Minecraft.getInstance().player != null;
                     boolean set = v.x != 0 || v.y != 0 || v.z != 0 || v.yaw != 0 || v.pitch != 0;
                     Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, py("world"), full, BTN_H,
                             Draw.PIN, set ? "править в мире" : "выбрать в мире", Ui.PRIMARY, inGame);
@@ -1258,7 +1258,7 @@ public final class ValueEditor {
         }
     }
 
-    private void drawCells(DrawContext ctx, Value v, int mouseX, int mouseY) {
+    private void drawCells(GuiGraphics ctx, Value v, int mouseX, int mouseY) {
         boolean map = Value.MAP.equals(v.type);
         int top = py("cells"), full = inner();
         int count = cellCount(v), rows = cellRows(v);
@@ -1290,7 +1290,7 @@ public final class ValueEditor {
                 if (hov) Draw.round(ctx, x + PAD, ry, rw, ROW_H, Ui.R_SM, Draw.opaque(0x1C222D));
                 Draw.dot(ctx, x + PAD + 20, ry + 6, Draw.opaque(it.color()));
                 String note = it.note();
-                int noteW = note.isEmpty() ? 0 : tr.getWidth(note) + 8;
+                int noteW = note.isEmpty() ? 0 : tr.width(note) + 8;
                 Draw.textFit(ctx, tr, it.isBlank() ? "пусто" : Layout.display(it),
                         x + PAD + 28, ry + 5, rw - 34 - noteW,
                         it.isBlank() ? Theme.TEXT_FAINT : (hov ? Theme.TEXT : Theme.TEXT_DIM), false);
@@ -1309,7 +1309,7 @@ public final class ValueEditor {
                     Draw.PLUS, map ? "добавить пару" : "добавить значение", Ui.GHOST, true);
     }
 
-    private void cellChip(DrawContext ctx, Value v, int cx, int ry, int cw,
+    private void cellChip(GuiGraphics ctx, Value v, int cx, int ry, int cw,
                           int mouseX, int mouseY) {
         boolean hov = Ui.hit(mouseX, mouseY, cx, ry + 1, cw, ROW_H - 2);
         Draw.round(ctx, cx, ry + 1, cw, ROW_H - 2, Ui.R_SM - 1,
@@ -1323,7 +1323,7 @@ public final class ValueEditor {
         return i < map.items.size() ? map.items.get(i) : Value.blank();
     }
 
-    private void drawSlots(DrawContext ctx, Catalog.Slots s, int mouseX, int mouseY) {
+    private void drawSlots(GuiGraphics ctx, Catalog.Slots s, int mouseX, int mouseY) {
         int top = listY() + CAP;
         int filled = 0;
         for (Value it : values) if (!it.isBlank()) filled++;
@@ -1340,7 +1340,7 @@ public final class ValueEditor {
             Draw.round(ctx, cx, cy, SLOT, SLOT, Ui.R_SM,
                     Draw.opaque(i == sel ? 0x22405F : hov ? 0x2C3441 : Ui.WELL));
             boolean carried = i == dragSlot && slotMoved;
-            if (!it.isBlank() && !carried) ctx.drawItem(Stacks.preview(it), cx + 1, cy + 1);
+            if (!it.isBlank() && !carried) ctx.renderItem(Stacks.preview(it), cx + 1, cy + 1);
             if (i == sel || hov) Draw.roundOutline(ctx, cx, cy, SLOT, SLOT, Ui.R_SM,
                     Draw.opaque(i == sel ? Theme.ACCENT : Draw.shade(Theme.ACCENT, -0.35f)));
         }
@@ -1391,13 +1391,13 @@ public final class ValueEditor {
         return true;
     }
 
-    private void drawEntryCard(DrawContext ctx, String icon, String name, String category,
+    private void drawEntryCard(GuiGraphics ctx, String icon, String name, String category,
                                String description, String badge) {
         drawEntryCard(ctx, icon == null ? null : Catalog.stackOf(icon), name, category,
                 description, badge);
     }
 
-    private void drawEntryCard(DrawContext ctx, ItemStack picture, String name,
+    private void drawEntryCard(GuiGraphics ctx, ItemStack picture, String name,
                                String category, String description, String badge) {
         int cy = py("card"), full = inner(), ch = ph("card");
         Ui.well(ctx, x + PAD, cy, full, ch);
@@ -1409,7 +1409,7 @@ public final class ValueEditor {
         }
         List<String> title = nameLines(name);
         int top = cy + CARD_PAD;
-        ctx.drawItem(picture, x + PAD + 6,
+        ctx.renderItem(picture, x + PAD + 6,
                 description.isEmpty() ? cy + Math.max(4, (ch - 16) / 2) : top - 1);
         int tx = x + PAD + 27;
         int badgeW = badge.isEmpty() ? 0 : Draw.badgeWidth(tr, badge) + 8;
@@ -1433,7 +1433,7 @@ public final class ValueEditor {
         }
     }
 
-    private void drawItemCard(DrawContext ctx, Value v) {
+    private void drawItemCard(GuiGraphics ctx, Value v) {
         int cy = py("card"), full = inner(), ch = ph("card");
         Ui.well(ctx, x + PAD, cy, full, ch);
         ItemStack st = Stacks.preview(v);
@@ -1447,9 +1447,9 @@ public final class ValueEditor {
         int top = cy + CARD_PAD, tx = x + PAD + 27;
         String summary = Stacks.summary(v);
         int iconY = summary.isEmpty() ? cy + Math.max(4, (ch - 16) / 2) : top - 1;
-        ctx.drawItem(st, x + PAD + 6, iconY);
-        ctx.drawStackOverlay(tr, st, x + PAD + 6, iconY);
-        ctx.drawText(tr, McText.fit(tr, McText.runsOf(st.getName()), full - 35), tx, top,
+        ctx.renderItem(st, x + PAD + 6, iconY);
+        ctx.renderItemDecorations(tr, st, x + PAD + 6, iconY);
+        ctx.drawString(tr, McText.fit(tr, McText.runsOf(st.getHoverName()), full - 35), tx, top,
                 Draw.opaque(Theme.TEXT), false);
         Draw.textFit(ctx, tr, v.itemId, tx, top + 11, full - 35, Theme.TEXT_FAINT, false);
         if (!summary.isEmpty() && ch >= 40)
@@ -1458,19 +1458,19 @@ public final class ValueEditor {
     }
 
     private static ItemStack held() {
-        ClientPlayerEntity player = MinecraftClient.getInstance().player;
+        LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) return null;
-        ItemStack st = player.getMainHandStack();
+        ItemStack st = player.getMainHandItem();
         return st == null || st.isEmpty() ? null : st;
     }
 
-    private void drawChoose(DrawContext ctx, int mouseX, int mouseY, boolean chosen, String pick,
+    private void drawChoose(GuiGraphics ctx, int mouseX, int mouseY, boolean chosen, String pick,
                             String other) {
         Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, py("choose"), inner(), BTN_H,
                 Draw.SEARCH, chosen ? other : pick, Ui.GHOST, true);
     }
 
-    private void drawInput(DrawContext ctx, int mouseX, int mouseY, float delta, int i) {
+    private void drawInput(GuiGraphics ctx, int mouseX, int mouseY, float delta, int i) {
         Ui.input(ctx, x + PAD, py("input"), inner(), FIELD_H, fields.get(i).isFocused());
         fields.get(i).render(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, fields.get(i));
@@ -1478,14 +1478,14 @@ public final class ValueEditor {
 
     private static final String SUGG_LABEL = "уже есть:";
 
-    private void drawSuggestions(DrawContext ctx, int mouseX, int mouseY) {
+    private void drawSuggestions(GuiGraphics ctx, int mouseX, int mouseY) {
         if (!has("sugg")) return;
         int sy = py("sugg"), sh = ph("sugg"), at = x + PAD;
         int limit = x + PAD + inner();
         Draw.text(ctx, tr, SUGG_LABEL, at, sy + (sh - Ui.TEXT_H) / 2, Theme.TEXT_FAINT, false);
-        at += tr.getWidth(SUGG_LABEL) + 5;
+        at += tr.width(SUGG_LABEL) + 5;
         for (String name : suggestions) {
-            int cw = tr.getWidth(name) + 10;
+            int cw = tr.width(name) + 10;
             if (at + cw > limit) break;
             boolean hov = Ui.hit(mouseX, mouseY, at, sy, cw, sh);
             Draw.round(ctx, at, sy, cw, sh, 3, Draw.opaque(hov ? Ui.BTN_HOVER : Ui.BTN));
@@ -1495,17 +1495,17 @@ public final class ValueEditor {
         }
     }
 
-    private void drawPreview(DrawContext ctx, Value v) {
+    private void drawPreview(GuiGraphics ctx, Value v) {
         int pyy = py("preview"), full = inner(), ph = ph("preview");
         Ui.well(ctx, x + PAD, pyy, full, ph);
-        String raw = fields.get(0).getText();
+        String raw = fields.get(0).getValue();
         if (raw.isEmpty()) {
             Draw.text(ctx, tr, "как это увидит игрок", x + PAD + 8, pyy + (ph - Ui.TEXT_H) / 2,
                     Theme.TEXT_FAINT, false);
             return;
         }
         ctx.enableScissor(x + PAD + 1, pyy + 1, x + PAD + full - 1, pyy + ph - 1);
-        ctx.drawText(tr, McText.preview(raw, v.parsing), x + PAD + 8,
+        ctx.drawString(tr, McText.preview(raw, v.parsing), x + PAD + 8,
                 pyy + (ph - Ui.TEXT_H) / 2, Draw.opaque(Theme.TEXT), false);
         ctx.disableScissor();
     }
@@ -1516,9 +1516,9 @@ public final class ValueEditor {
     private int okX()      { return x + w - PAD - OK_W; }
     private int cancelX()  { return okX() - BTN_GAP - NO_W; }
 
-    private void drawFooter(DrawContext ctx, int mouseX, int mouseY, int accent) {
+    private void drawFooter(GuiGraphics ctx, int mouseX, int mouseY, int accent) {
         int fy = footBtnY();
-        ctx.drawItem(Catalog.stackOf(Values.kindItem(current().type)), x + PAD - 2, fy);
+        ctx.renderItem(Catalog.stackOf(Values.kindItem(current().type)), x + PAD - 2, fy);
         Draw.textFit(ctx, tr, Values.kindName(current().type), x + PAD + 16, fy + 4,
                 inner() - 16 - (OK_W + BTN_GAP + NO_W + 4), Draw.shade(accent, 0.25f), false);
         Ui.button(ctx, tr, mouseX, mouseY, okX(), fy, OK_W, FOOT_BTN_H, "Готово", Ui.ACCENT);
@@ -1580,8 +1580,8 @@ public final class ValueEditor {
         studio = new TextStudio(tr, screenW, screenH, v.text, v.parsing, (text, parsing) -> {
             v.text = text;
             v.parsing = parsing;
-            fields.get(0).setText(text);
-            fields.get(0).setCursorToStart(false);
+            fields.get(0).setValue(text);
+            fields.get(0).moveCursorToStart(false);
         });
     }
 
@@ -1690,7 +1690,7 @@ public final class ValueEditor {
                 });
     }
 
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
         if (nested != null) {
             nested.mouseClicked(click, doubled);
@@ -1834,7 +1834,7 @@ public final class ValueEditor {
 
     private String newElementText() {
         FieldRow r = rowOf("newelem");
-        return r == null ? "" : fields.get(r.from()).getText().trim();
+        return r == null ? "" : fields.get(r.from()).getValue().trim();
     }
 
     private boolean canAddElement(Value v) {
@@ -1857,7 +1857,7 @@ public final class ValueEditor {
         return chips == null ? -1 : chips.indexAt(mx, my, x + PAD, py(row));
     }
 
-    private boolean formClicked(Click click, boolean doubled, int mx, int my) {
+    private boolean formClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
         Value v = current();
         int full = inner();
         boolean shift = (click.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
@@ -1872,8 +1872,8 @@ public final class ValueEditor {
                         readForm();
                         v.text = McText.convert(v.text, v.parsing, p.id());
                         v.parsing = p.id();
-                        fields.get(0).setText(v.text);
-                        fields.get(0).setCursorToStart(false);
+                        fields.get(0).setValue(v.text);
+                        fields.get(0).moveCursorToStart(false);
                     }
                     return true;
                 }
@@ -1945,7 +1945,7 @@ public final class ValueEditor {
             case Value.LOCATION, Value.VECTOR -> {
                 if (rowFieldClicked(click, doubled, mx, my)) return true;
                 if (has("world") && Ui.hit(mx, my, x + PAD, py("world"), full, BTN_H)
-                        && MinecraftClient.getInstance().player != null) {
+                        && Minecraft.getInstance().player != null) {
                     commit();
                     pickInWorld = true;
                     closed = true;
@@ -2041,13 +2041,13 @@ public final class ValueEditor {
         return false;
     }
 
-    private boolean rowFieldClicked(Click click, boolean doubled, int mx, int my) {
+    private boolean rowFieldClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
         for (FieldRow r : fieldRows) {
             int cw = colW(r), ry = py(r.id());
             for (int i = 0; i < r.count(); i++) {
                 if (scrubbable(r) && Ui.hit(mx, my, colX(r, i), ry, cw, 9)) {
                     scrubField = r.from() + i;
-                    scrubFrom = parse(fields.get(scrubField).getText());
+                    scrubFrom = parse(fields.get(scrubField).getValue());
                     scrubX0 = click.x();
                     scrubbing = false;
                     focus(r.from() + i);
@@ -2060,15 +2060,15 @@ public final class ValueEditor {
         return false;
     }
 
-    private boolean takeFocus(Click click, boolean doubled, int i) {
+    private boolean takeFocus(MouseButtonEvent click, boolean doubled, int i) {
         if (i >= fields.size()) return false;
         focus(i);
-        TextFieldWidget f = fields.get(i);
+        EditBox f = fields.get(i);
         if (!f.mouseClicked(click, doubled)) f.onClick(click, doubled);
         return true;
     }
 
-    private boolean clickField(Click click, boolean doubled, int mx, int my, int i) {
+    private boolean clickField(MouseButtonEvent click, boolean doubled, int mx, int my, int i) {
         if (i >= fields.size()) return false;
         String id = has("input") ? "input" : has("material") ? "material" : null;
         if (id == null) return false;
@@ -2084,14 +2084,14 @@ public final class ValueEditor {
     private boolean suggestionClicked(int mx, int my) {
         if (!has("sugg")) return false;
         int sy = py("sugg"), sh = ph("sugg");
-        int at = x + PAD + tr.getWidth(SUGG_LABEL) + 5;
+        int at = x + PAD + tr.width(SUGG_LABEL) + 5;
         int limit = x + PAD + inner();
         for (String name : suggestions) {
-            int cw = tr.getWidth(name) + 10;
+            int cw = tr.width(name) + 10;
             if (at + cw > limit) break;
             if (Ui.hit(mx, my, at, sy, cw, sh)) {
-                fields.get(0).setText(name);
-                fields.get(0).setCursorToEnd(false);
+                fields.get(0).setValue(name);
+                fields.get(0).moveCursorToEnd(false);
                 current().name = name;
                 afterTyping();
                 return true;
@@ -2102,18 +2102,18 @@ public final class ValueEditor {
     }
 
     private void bump(double delta) {
-        TextFieldWidget f = fields.get(0);
+        EditBox f = fields.get(0);
         double now = 0;
         try {
-            String s = f.getText().trim().replace(',', '.');
+            String s = f.getValue().trim().replace(',', '.');
             if (!s.isEmpty()) now = Double.parseDouble(s);
         } catch (NumberFormatException ignored) { }
-        f.setText(Value.num(now + delta));
-        f.setCursorToEnd(false);
+        f.setValue(Value.num(now + delta));
+        f.moveCursorToEnd(false);
         focus(0);
     }
 
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (nested != null) return nested.mouseDragged(click, dx, dy);
         if (picker != null) return picker.mouseDragged(click, dx, dy);
         if (colors != null) return colors.mouseDragged(click, dx, dy);
@@ -2135,26 +2135,26 @@ public final class ValueEditor {
     }
 
     private static boolean held(int left, int right) {
-        var window = MinecraftClient.getInstance().getWindow();
-        return window != null && (net.minecraft.client.util.InputUtil.isKeyPressed(window, left)
-                || net.minecraft.client.util.InputUtil.isKeyPressed(window, right));
+        var window = Minecraft.getInstance().getWindow();
+        return window != null && (com.mojang.blaze3d.platform.InputConstants.isKeyDown(window, left)
+                || com.mojang.blaze3d.platform.InputConstants.isKeyDown(window, right));
     }
 
-    private boolean scrub(Click click) {
+    private boolean scrub(MouseButtonEvent click) {
         if (scrubField < 0 || scrubField >= fields.size()) return false;
         double dx = click.x() - scrubX0;
         if (!scrubbing && Math.abs(dx) < 3) return true;
         if (!scrubbing) {
             scrubbing = true;
-            fields.get(scrubField).setCursorToEnd(false);
+            fields.get(scrubField).moveCursorToEnd(false);
         }
         double step = held(GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_RIGHT_CONTROL) ? 1.0
                 : held(GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_RIGHT_SHIFT) ? 0.01 : 0.05;
         double v = scrubFrom + dx * step;
         v = Math.round(v * 1000.0) / 1000.0;
-        TextFieldWidget f = fields.get(scrubField);
-        f.setText(Value.num(v));
-        f.setCursorToEnd(false);
+        EditBox f = fields.get(scrubField);
+        f.setValue(Value.num(v));
+        f.moveCursorToEnd(false);
         return true;
     }
 
@@ -2219,7 +2219,7 @@ public final class ValueEditor {
         return contains(mx, my);
     }
 
-    public boolean keyPressed(KeyInput input) {
+    public boolean keyPressed(KeyEvent input) {
         if (nested != null) {
             nested.keyPressed(input);
             if (nested.isClosed()) closeNested();
@@ -2285,7 +2285,7 @@ public final class ValueEditor {
         return used;
     }
 
-    public boolean charTyped(CharInput input) {
+    public boolean charTyped(CharacterEvent input) {
         if (nested != null) return nested.charTyped(input);
         if (picker != null) return picker.charTyped(input);
         if (colors != null) return colors.charTyped(input);
@@ -2305,13 +2305,13 @@ public final class ValueEditor {
             boolean had = has("sugg");
             refreshSuggestions();
             if (had != !suggestions.isEmpty()) {
-                String text = fields.get(0).getText();
-                int cursor = fields.get(0).getCursor();
+                String text = fields.get(0).getValue();
+                int cursor = fields.get(0).getCursorPosition();
                 v.name = text.trim();
                 buildForm();
                 focus(0);
-                fields.get(0).setText(text);
-                fields.get(0).setCursor(cursor, false);
+                fields.get(0).setValue(text);
+                fields.get(0).moveCursorTo(cursor, false);
             }
         }
         syncComplete();
@@ -2339,42 +2339,42 @@ public final class ValueEditor {
         if (fields.isEmpty()) return;
         Value v = current();
         switch (v.type) {
-            case Value.TEXT -> v.text = fields.get(0).getText();
-            case Value.NUMBER -> v.number = parse(fields.get(0).getText());
-            case Value.VARIABLE, Value.PARAMETER -> v.name = fields.get(0).getText().trim();
+            case Value.TEXT -> v.text = fields.get(0).getValue();
+            case Value.NUMBER -> v.number = parse(fields.get(0).getValue());
+            case Value.VARIABLE, Value.PARAMETER -> v.name = fields.get(0).getValue().trim();
             case Value.LOCATION -> {
-                v.x = parse(fields.get(0).getText()); v.y = parse(fields.get(1).getText());
-                v.z = parse(fields.get(2).getText()); v.yaw = parse(fields.get(3).getText());
-                v.pitch = parse(fields.get(4).getText());
+                v.x = parse(fields.get(0).getValue()); v.y = parse(fields.get(1).getValue());
+                v.z = parse(fields.get(2).getValue()); v.yaw = parse(fields.get(3).getValue());
+                v.pitch = parse(fields.get(4).getValue());
             }
             case Value.VECTOR -> {
-                v.x = parse(fields.get(0).getText()); v.y = parse(fields.get(1).getText());
-                v.z = parse(fields.get(2).getText());
+                v.x = parse(fields.get(0).getValue()); v.y = parse(fields.get(1).getValue());
+                v.z = parse(fields.get(2).getValue());
             }
             case Value.SOUND -> {
-                v.volume = parse(fields.get(0).getText());
-                v.pitch2 = parse(fields.get(1).getText());
+                v.volume = parse(fields.get(0).getValue());
+                v.pitch2 = parse(fields.get(1).getValue());
             }
             case Value.PARTICLE -> {
-                v.count = Math.max(0, (int) parse(fields.get(0).getText()));
-                v.spread1 = parse(fields.get(1).getText());
-                v.spread2 = parse(fields.get(2).getText());
+                v.count = Math.max(0, (int) parse(fields.get(0).getValue()));
+                v.spread1 = parse(fields.get(1).getValue());
+                v.spread2 = parse(fields.get(2).getValue());
                 FieldRow m = rowOf("motion");
                 if (m != null) {
-                    v.mx = parse(fields.get(m.from()).getText());
-                    v.my = parse(fields.get(m.from() + 1).getText());
-                    v.mz = parse(fields.get(m.from() + 2).getText());
+                    v.mx = parse(fields.get(m.from()).getValue());
+                    v.my = parse(fields.get(m.from() + 1).getValue());
+                    v.mz = parse(fields.get(m.from() + 2).getValue());
                 }
                 FieldRow sz = rowOf("size");
-                if (sz != null) v.size = parse(fields.get(sz.from()).getText());
-                if (has("material")) v.material = fields.get(fields.size() - 1).getText().trim();
+                if (sz != null) v.size = parse(fields.get(sz.from()).getValue());
+                if (has("material")) v.material = fields.get(fields.size() - 1).getValue().trim();
             }
             case Value.POTION -> {
-                v.duration = (int) parse(fields.get(0).getText());
-                v.amplifier = Math.max(0, (int) parse(fields.get(1).getText()) - 1);
+                v.duration = (int) parse(fields.get(0).getValue());
+                v.amplifier = Math.max(0, (int) parse(fields.get(1).getValue()) - 1);
             }
             case Value.ITEM -> v.itemCount = Math.max(1, Math.min(99,
-                    (int) parse(fields.get(0).getText())));
+                    (int) parse(fields.get(0).getValue())));
             default -> { }
         }
     }

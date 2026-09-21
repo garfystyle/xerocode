@@ -5,9 +5,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.xerocode.ui.Ui;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.item.ItemStack;
-
 import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
@@ -21,6 +18,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.item.ItemStack;
 
 public final class Backpack {
     public static final int MAX = 300;
@@ -243,7 +242,7 @@ public final class Backpack {
     }
 
     private static Path file() {
-        return MinecraftClient.getInstance().runDirectory.toPath()
+        return Minecraft.getInstance().gameDirectory.toPath()
                 .resolve("xerocode/backpack.json");
     }
 

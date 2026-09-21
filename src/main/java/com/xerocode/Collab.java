@@ -4,8 +4,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import net.minecraft.client.MinecraftClient;
-
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.client.Minecraft;
 
 public final class Collab {
     public static final String HOST = "wss://109-120-178-103.sslip.io:8792/xerocode/collab";
@@ -107,7 +106,7 @@ public final class Collab {
         String chosen = Settings.get().collabName;
         if (chosen != null && !chosen.isBlank()) return chosen.trim();
         try {
-            String name = MinecraftClient.getInstance().getSession().getUsername();
+            String name = Minecraft.getInstance().getUser().getName();
             if (name != null && !name.isBlank()) return name;
         } catch (Throwable ignored) {
         }
@@ -364,7 +363,7 @@ public final class Collab {
     private static void backup(Script script) {
         try {
             if (script.roots.isEmpty()) return;
-            Path dir = MinecraftClient.getInstance().runDirectory.toPath().resolve("xerocode");
+            Path dir = Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode");
             Files.createDirectories(dir);
             String stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy-HH.mm.ss"));
             Files.writeString(dir.resolve("before-collab-" + stamp + ".json"),

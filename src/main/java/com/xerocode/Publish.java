@@ -2,9 +2,6 @@ package com.xerocode;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayNetworkHandler;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -24,6 +21,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientPacketListener;
 
 public final class Publish {
     private static final String KEY = "xc-0d0e58158f364a5719205d2b652b2651b9d5";
@@ -63,7 +62,7 @@ public final class Publish {
     }
 
     public static final class Job {
-        private final MinecraftClient client = MinecraftClient.getInstance();
+        private final Minecraft client = Minecraft.getInstance();
         private final String body;
         private final boolean replace;
         private final long startedAt = System.currentTimeMillis();
@@ -102,7 +101,7 @@ public final class Publish {
 
         public synchronized void tick() {
             if (dropped || state != State.UPLOADING || url.isEmpty()) return;
-            ClientPlayNetworkHandler net = client.getNetworkHandler();
+            ClientPacketListener net = client.getConnection();
             if (net == null) {
                 error = "нет соединения с сервером";
                 state = State.FAILED;
@@ -110,7 +109,7 @@ public final class Publish {
             }
             String command = "module loadUrl " + (replace ? "force " : "") + url;
             sentAt = System.currentTimeMillis();
-            net.sendChatCommand(command);
+            net.sendCommand(command);
             millis = sentAt - startedAt;
             state = State.SENT;
         }

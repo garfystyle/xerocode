@@ -1,20 +1,19 @@
 package com.xerocode;
 
-import net.minecraft.block.Block;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.item.BlockItem;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
 
 public final class Blocks {
     public record Entry(String id, String name, String category, ItemStack icon) {}
@@ -27,8 +26,8 @@ public final class Blocks {
     private static Object built;
 
     public static void refresh() {
-        ClientWorld world = MinecraftClient.getInstance().world;
-        Object token = world == null ? null : world.getRegistryManager();
+        ClientLevel world = Minecraft.getInstance().level;
+        Object token = world == null ? null : world.registryAccess();
         if (!ALL.isEmpty() && token == built) return;
 
         ALL.clear();
@@ -49,11 +48,11 @@ public final class Blocks {
 
         List<Integer> order = new ArrayList<>();
         try {
-            for (Block block : Registries.BLOCK) {
-                Identifier id = Registries.BLOCK.getId(block);
+            for (Block block : BuiltInRegistries.BLOCK) {
+                Identifier id = BuiltInRegistries.BLOCK.getKey(block);
                 if (id == null) continue;
                 Item item = block.asItem();
-                String itemId = item == Items.AIR ? "" : Registries.ITEM.getId(item).toString();
+                String itemId = item == Items.AIR ? "" : BuiltInRegistries.ITEM.getKey(item).toString();
                 ItemStack icon = itemId.isEmpty() ? Catalog.stackOf("minecraft:paper")
                         : new ItemStack(item);
                 String category = itemId.isEmpty() ? NO_ITEM : tabName.getOrDefault(itemId, OTHER);
@@ -117,7 +116,7 @@ public final class Blocks {
         try {
             Identifier ident = Identifier.tryParse(id);
             Block block = ident == null ? null
-                    : Registries.BLOCK.getOptionalValue(ident).orElse(null);
+                    : BuiltInRegistries.BLOCK.getOptional(ident).orElse(null);
             if (block != null) name = name(block, ident);
             else if (ident != null) name = pretty(ident.getPath());
         } catch (Throwable ignored) { }
@@ -129,7 +128,7 @@ public final class Blocks {
         if (id == null || id.isEmpty()) return false;
         try {
             Identifier ident = Identifier.tryParse(id);
-            return ident != null && Registries.BLOCK.getOptionalValue(ident).isPresent();
+            return ident != null && BuiltInRegistries.BLOCK.getOptional(ident).isPresent();
         } catch (Throwable e) {
             return false;
         }
@@ -142,7 +141,7 @@ public final class Blocks {
         try {
             Identifier ident = Identifier.tryParse(id);
             Block block = ident == null ? null
-                    : Registries.BLOCK.getOptionalValue(ident).orElse(null);
+                    : BuiltInRegistries.BLOCK.getOptional(ident).orElse(null);
             Item item = block == null ? Items.AIR : block.asItem();
             if (item != Items.AIR) return new ItemStack(item);
         } catch (Throwable ignored) { }
@@ -152,7 +151,7 @@ public final class Blocks {
     public static String of(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return null;
         if (!(stack.getItem() instanceof BlockItem item)) return null;
-        Identifier id = Registries.BLOCK.getId(item.getBlock());
+        Identifier id = BuiltInRegistries.BLOCK.getKey(item.getBlock());
         return id == null ? null : id.toString();
     }
 

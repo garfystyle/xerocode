@@ -1,17 +1,17 @@
 package com.xerocode.ui;
 
 import com.xerocode.XeroCode;
-import net.minecraft.client.MinecraftClient;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
 import java.nio.file.Path;
 import java.util.function.Consumer;
+import net.minecraft.client.Minecraft;
 
 final class FileDialog {
     static String hint() {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         return client.getWindow() != null && client.getWindow().isFullscreen()
                 ? "окно выбора файла открыто — сверни игру, оно позади"
                 : "выбери файл в окне проводника";
@@ -19,7 +19,7 @@ final class FileDialog {
 
     static void open(String title, String start, String[] masks, String kind,
                      Consumer<Path> done) {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         Thread thread = new Thread(() -> {
             String picked = ask(title, start, masks, kind);
             client.execute(() -> done.accept(

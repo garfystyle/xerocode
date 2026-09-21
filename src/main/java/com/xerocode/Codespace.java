@@ -4,19 +4,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayNetworkHandler;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.NbtComponent;
-import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.network.packet.c2s.play.PickItemFromBlockC2SPacket;
-import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3d;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.Writer;
@@ -32,6 +19,18 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.zip.Inflater;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.network.protocol.game.ServerboundPickItemFromBlockPacket;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.CustomData;
+import net.minecraft.world.phys.Vec3;
 
 public final class Codespace {
     public static final String DEV_DIMENSION = "creativeplus_editor";
@@ -57,23 +56,23 @@ public final class Codespace {
     private static final String SAID_LIMIT = "Подождите перед сохранением";
     private static final String SAID_SAVED = "Строка сохранена";
 
-    public static boolean inDev(ClientWorld world) {
+    public static boolean inDev(ClientLevel world) {
         return world != null
-                && world.getRegistryKey().getValue().toString().contains(DEV_DIMENSION);
+                && world.dimension().identifier().toString().contains(DEV_DIMENSION);
     }
 
-    public static String worldId(ClientWorld world) {
-        String path = world.getRegistryKey().getValue().getPath();
+    public static String worldId(ClientLevel world) {
+        String path = world.dimension().identifier().getPath();
         return path.length() >= 14 ? path.substring(6, 14) : "unknown";
     }
 
-    public static boolean chunksReady(ClientWorld world) {
+    public static boolean chunksReady(ClientLevel world) {
         for (int cz = FIRST_Z >> 4; cz <= LAST_Z >> 4; cz++)
-            if (!world.getChunkManager().isChunkLoaded(LINE_X >> 4, cz)) return false;
+            if (!world.getChunkSource().hasChunk(LINE_X >> 4, cz)) return false;
         return true;
     }
 
-    public static List<BlockPos> lines(ClientWorld world) {
+    public static List<BlockPos> lines(ClientLevel world) {
         List<BlockPos> out = new ArrayList<>();
         for (int y = FIRST_Y; y <= FLOORS * FLOOR_H - 2; y += FLOOR_H) {
             if (world.getBlockState(new BlockPos(LINE_X, y - 1, LINE_X)).isAir()) break;
@@ -88,10 +87,10 @@ public final class Codespace {
 
     public static String template(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return null;
-        NbtComponent data = stack.get(DataComponentTypes.CUSTOM_DATA);
+        CustomData data = stack.get(DataComponents.CUSTOM_DATA);
         if (data == null) return null;
-        NbtCompound nbt = data.copyNbt();
-        NbtCompound bukkit = nbt.getCompound("PublicBukkitValues").orElse(null);
+        CompoundTag nbt = data.copyTag();
+        CompoundTag bukkit = nbt.getCompound("PublicBukkitValues").orElse(null);
         if (bukkit == null) return null;
         return bukkit.getString("justmc:template").orElse(null);
     }
@@ -117,7 +116,7 @@ public final class Codespace {
     }
 
     public static Path savedDir() {
-        return MinecraftClient.getInstance().runDirectory.toPath().resolve("xerocode/saved");
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode/saved");
     }
 
     private static Path freeFile(String worldId) {
@@ -143,7 +142,7 @@ public final class Codespace {
         public JsonArray handlers = new JsonArray();
 
         public static Path file() {
-            return MinecraftClient.getInstance().runDirectory.toPath()
+            return Minecraft.getInstance().gameDirectory.toPath()
                     .resolve("xerocode/resume.json");
         }
 
@@ -209,12 +208,12 @@ public final class Codespace {
     }
 
     public static final class Scan {
-        private final MinecraftClient client = MinecraftClient.getInstance();
-        private final ClientWorld world;
+        private final Minecraft client = Minecraft.getInstance();
+        private final ClientLevel world;
         private final List<BlockPos> lines;
         private final JsonArray handlers = new JsonArray();
         private final ItemStack slotBefore;
-        private final Vec3d origin;
+        private final Vec3 origin;
         private final long startedAt = System.currentTimeMillis();
         private final Memo memo;
 
@@ -238,14 +237,14 @@ public final class Codespace {
         public Path file;
         public long millis;
 
-        Scan(ClientWorld world, List<BlockPos> lines, Memo memo) {
+        Scan(ClientLevel world, List<BlockPos> lines, Memo memo) {
             this.world = world;
             this.lines = lines;
             this.memo = memo == null ? Memo.fresh(worldId(world), null) : memo;
-            ClientPlayerEntity player = client.player;
+            LocalPlayer player = client.player;
             this.slotBefore = player == null
-                    ? ItemStack.EMPTY : player.getInventory().getStack(SLOT).copy();
-            this.origin = player == null ? Vec3d.ZERO : player.getEntityPos();
+                    ? ItemStack.EMPTY : player.getInventory().getItem(SLOT).copy();
+            this.origin = player == null ? Vec3.ZERO : player.position();
             if (this.memo.fits(lines.size())) {
                 index = this.memo.next;
                 for (JsonElement el : this.memo.handlers) handlers.add(el);
@@ -285,16 +284,16 @@ public final class Codespace {
         public void tick() {
             if (state != State.RUNNING) return;
             ticks++;
-            if (client.world == null || client.player == null) {
+            if (client.level == null || client.player == null) {
                 broke("связь с миром потеряна");
                 return;
             }
-            if (client.world != world) {
-                broke("мир сменился на " + client.world.getRegistryKey().getValue().getPath());
+            if (client.level != world) {
+                broke("мир сменился на " + client.level.dimension().identifier().getPath());
                 return;
             }
             if (picking) {
-                String raw = template(client.player.getInventory().getStack(SLOT));
+                String raw = template(client.player.getInventory().getItem(SLOT));
                 if (raw != null) {
                     if (attempt == 0 && ++clean >= 3) {
                         gap = Math.max(GAP_MIN, gap - GAP_DOWN);
@@ -342,10 +341,10 @@ public final class Codespace {
         }
 
         private double away() {
-            ClientPlayerEntity player = client.player;
+            LocalPlayer player = client.player;
             if (player == null) return -1;
             BlockPos pos = lines.get(index);
-            return Math.sqrt(player.squaredDistanceTo(
+            return Math.sqrt(player.distanceToSqr(
                     pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
         }
 
@@ -361,9 +360,9 @@ public final class Codespace {
         }
 
         private void teleport() {
-            ClientPlayNetworkHandler net = client.getNetworkHandler();
+            ClientPacketListener net = client.getConnection();
             BlockPos pos = lines.get(index);
-            if (net != null) net.sendChatCommand(String.format(Locale.ROOT,
+            if (net != null) net.sendCommand(String.format(Locale.ROOT,
                     "editor tp %.2f %d %.1f", 2.85, pos.getY(), pos.getZ() + 0.5));
             picking = false;
             attempt = 0;
@@ -373,17 +372,17 @@ public final class Codespace {
         }
 
         private void pick() {
-            ClientPlayNetworkHandler net = client.getNetworkHandler();
-            ClientPlayerEntity player = client.player;
+            ClientPacketListener net = client.getConnection();
+            LocalPlayer player = client.player;
             if (net == null || player == null) { broke("связь с миром потеряна"); return; }
-            player.getInventory().setStack(SLOT, ItemStack.EMPTY);
-            if (client.interactionManager != null)
-                client.interactionManager.clickCreativeStack(ItemStack.EMPTY, 36 + SLOT);
+            player.getInventory().setItem(SLOT, ItemStack.EMPTY);
+            if (client.gameMode != null)
+                client.gameMode.handleCreativeModeItemAdd(ItemStack.EMPTY, 36 + SLOT);
             player.getInventory().setSelectedSlot(SLOT);
-            player.setYaw(-90f);
-            player.setPitch(45f);
-            net.sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(-90f, 45f, true, true));
-            net.sendPacket(new PickItemFromBlockC2SPacket(lines.get(index), false));
+            player.setYRot(-90f);
+            player.setXRot(45f);
+            net.send(new ServerboundMovePlayerPacket.Rot(-90f, 45f, true, true));
+            net.send(new ServerboundPickItemFromBlockPacket(lines.get(index), false));
             picking = true;
             pickTick = ticks;
             timer = PICK_TICKS;
@@ -454,15 +453,15 @@ public final class Codespace {
         }
 
         private void restore() {
-            ClientPlayerEntity player = client.player;
+            LocalPlayer player = client.player;
             if (player != null) {
-                player.getInventory().setStack(SLOT, slotBefore);
-                if (client.interactionManager != null)
-                    client.interactionManager.clickCreativeStack(slotBefore, 36 + SLOT);
+                player.getInventory().setItem(SLOT, slotBefore);
+                if (client.gameMode != null)
+                    client.gameMode.handleCreativeModeItemAdd(slotBefore, 36 + SLOT);
             }
-            if (client.world != world) return;
-            ClientPlayNetworkHandler net = client.getNetworkHandler();
-            if (net != null) net.sendChatCommand(String.format(Locale.ROOT,
+            if (client.level != world) return;
+            ClientPacketListener net = client.getConnection();
+            if (net != null) net.sendCommand(String.format(Locale.ROOT,
                     "editor tp %.2f %.2f %.2f", origin.x, origin.y, origin.z));
         }
     }
@@ -479,12 +478,12 @@ public final class Codespace {
     public static void watch() {
         Scan scan = current;
         if (scan == null || scan.state != State.RUNNING) return;
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world == scan.world && client.player != null) return;
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == scan.world && client.player != null) return;
         scan.broke("сервер увёл клиента из мира");
     }
 
-    public static Scan start(ClientWorld world, List<BlockPos> lines, Memo memo) {
+    public static Scan start(ClientLevel world, List<BlockPos> lines, Memo memo) {
         if (current != null) current.cancel();
         current = new Scan(world, lines, memo);
         return current;

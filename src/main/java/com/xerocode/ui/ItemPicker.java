@@ -2,16 +2,16 @@ package com.xerocode.ui;
 
 import com.xerocode.Catalog;
 import com.xerocode.Stacks;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.item.ItemStack;
-import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
 
 public final class ItemPicker extends PickerPanel {
     public interface Done { void apply(ItemStack stack); }
@@ -31,7 +31,7 @@ public final class ItemPicker extends PickerPanel {
     private final Ui.Bar bar = new Ui.Bar();
     private int cols, rows;
 
-    public ItemPicker(TextRenderer tr, int screenW, int screenH, int accent,
+    public ItemPicker(Font tr, int screenW, int screenH, int accent,
                       ItemStack current, Done done) {
         super(tr, screenW, screenH, accent);
         this.done = done;
@@ -58,8 +58,8 @@ public final class ItemPicker extends PickerPanel {
     @Override
     protected void layout() {
         int panelW = Ui.fitW(screenW, 700);
-        int measured = tr.getWidth("Мой инвентарь") + 46;
-        for (Rail r : rails) measured = Math.max(measured, tr.getWidth(r.name()) + 46);
+        int measured = tr.width("Мой инвентарь") + 46;
+        for (Rail r : rails) measured = Math.max(measured, tr.width(r.name()) + 46);
         int rail = railW(panelW, measured);
         int det = Math.min(DET_W, panelW - rail - Math.min(GRID_MIN, panelW * 45 / 100));
         det = det < 130 ? 0 : det;
@@ -71,7 +71,7 @@ public final class ItemPicker extends PickerPanel {
     }
 
     private static boolean same(ItemStack a, ItemStack b) {
-        return a.getItem() == b.getItem() && a.getComponentChanges().equals(b.getComponentChanges());
+        return a.getItem() == b.getItem() && a.getComponentsPatch().equals(b.getComponentsPatch());
     }
 
     @Override
@@ -87,7 +87,7 @@ public final class ItemPicker extends PickerPanel {
 
     @Override
     protected void refresh(boolean resetScroll) {
-        String q = search == null ? "" : search.getText().trim();
+        String q = search == null ? "" : search.getValue().trim();
         shown = q.isEmpty() ? pool() : Stacks.search(pool(), q, 4000);
         if (resetScroll) scroll = 0;
         scroll = Math.max(0, Math.min(maxScroll(), scroll));
@@ -151,7 +151,7 @@ public final class ItemPicker extends PickerPanel {
     }
 
     @Override
-    protected void drawBody(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         int gx = gridX(), gy = gridY(), gw = cols * CELL, gh = rows * CELL;
         Draw.round(ctx, gx - 3, gy - 3, gw + 6, gh + 6, Ui.R_SM, Draw.opaque(Ui.WELL));
         int selectedIndex = indexOfSelected();
@@ -167,8 +167,8 @@ public final class ItemPicker extends PickerPanel {
                     Draw.round(ctx, cx, cy, CELL, CELL, 3, Draw.opaque(Ui.BTN_HOVER));
                 }
                 ItemStack st = shown.get(i).stack();
-                ctx.drawItem(st, cx + 1, cy + 1);
-                if (st.getCount() != 1) ctx.drawStackOverlay(tr, st, cx + 1, cy + 1);
+                ctx.renderItem(st, cx + 1, cy + 1);
+                if (st.getCount() != 1) ctx.renderItemDecorations(tr, st, cx + 1, cy + 1);
             }
         }
         if (shown.isEmpty())
@@ -181,7 +181,7 @@ public final class ItemPicker extends PickerPanel {
     }
 
     @Override
-    protected void drawDetails(DrawContext ctx) {
+    protected void drawDetails(GuiGraphics ctx) {
         if (!detailsFrame(ctx)) return;
         Stacks.Entry it = focused();
         if (it == null) {
@@ -192,13 +192,13 @@ public final class ItemPicker extends PickerPanel {
         int at = detailsHead(ctx, it.stack(), it.name(), it.id(), Theme.TEXT_FAINT);
 
         int bottom = detailsBottom();
-        List<Text> lines = Stacks.tooltip(it.stack());
+        List<Component> lines = Stacks.tooltip(it.stack());
         for (int i = 1; i < lines.size() && at + 10 <= bottom; i++) {
-            ctx.drawText(tr, McText.fit(tr, McText.runsOf(lines.get(i)), inner), tx, at,
+            ctx.drawString(tr, McText.fit(tr, McText.runsOf(lines.get(i)), inner), tx, at,
                     Draw.opaque(Theme.TEXT_DIM), false);
             at += 10;
         }
-        if (!it.stack().getComponentChanges().isEmpty() && at + 14 <= bottom) {
+        if (!it.stack().getComponentsPatch().isEmpty() && at + 14 <= bottom) {
             at += 4;
             Draw.textFit(ctx, tr, "со своими компонентами", tx, at, inner, Theme.TEXT_FAINT, false);
         }
@@ -231,7 +231,7 @@ public final class ItemPicker extends PickerPanel {
     }
 
     @Override
-    protected boolean bodyClicked(Click click, boolean doubled, int mx, int my) {
+    protected boolean bodyClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
         if (bar.grabbed(mx, my, CELL, maxScroll(), v -> scroll = v)) return true;
         int i = indexAt(mx, my);
         if (i < 0) return false;
@@ -246,7 +246,7 @@ public final class ItemPicker extends PickerPanel {
     }
 
     @Override
-    public boolean mouseDragged(Click click, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (bar.dragged(click.y(), CELL, maxScroll(), v -> scroll = v)) return true;
         return super.mouseDragged(click, dx, dy);
     }
@@ -255,7 +255,7 @@ public final class ItemPicker extends PickerPanel {
     public void mouseReleased() { bar.release(); }
 
     @Override
-    protected boolean bodyKey(KeyInput in) {
+    protected boolean bodyKey(KeyEvent in) {
         switch (in.key()) {
             case GLFW.GLFW_KEY_RIGHT -> { move(1); return true; }
             case GLFW.GLFW_KEY_LEFT -> { move(-1); return true; }

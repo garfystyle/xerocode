@@ -6,10 +6,10 @@ import com.xerocode.Settings;
 import com.xerocode.Stacks;
 import com.xerocode.Value;
 import com.xerocode.Values;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.ScreenRect;
-import net.minecraft.item.ItemStack;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.world.item.ItemStack;
 
 public final class BlockView {
     public interface Accepts { boolean test(Layout.Box box, Layout.Chip chip); }
@@ -30,12 +30,12 @@ public final class BlockView {
         return n.action.unavailable ? Draw.mix(base, 0x8A8A8A, 0.4f) : base;
     }
 
-    public static void shadow(DrawContext ctx, Layout.Box box) {
+    public static void shadow(GuiGraphics ctx, Layout.Box box) {
         Draw.shadow(ctx, box.x, box.y + box.hatH, box.w, box.headerH - box.hatH, 1);
         if (box.node.wraps()) Draw.shadow(ctx, box.x, box.armY(), box.w, Layout.ARM_H, 1);
     }
 
-    public static void ghost(DrawContext ctx, Layout.Box box, int argb) {
+    public static void ghost(GuiGraphics ctx, Layout.Box box, int argb) {
         boolean wraps = box.node.wraps();
         int headerBottom = box.y + box.headerH;
         if (wraps) {
@@ -47,8 +47,8 @@ public final class BlockView {
         Draw.rect(ctx, box.x, box.y, box.w, box.headerH, argb);
     }
 
-    public static void paint(DrawContext ctx, TextRenderer tr, Layout layout,
-                             ScreenRect area, Look look) {
+    public static void paint(GuiGraphics ctx, Font tr, Layout layout,
+                             ScreenRectangle area, Look look) {
         Draw.batch(Batch.open(ctx, area, area, 256));
         for (Layout.Box b : layout.boxes) shadow(ctx, b);
         Draw.batch(null);
@@ -71,7 +71,7 @@ public final class BlockView {
         return Draw.mixArgb(top, bottom, Math.max(0f, Math.min(1f, t)));
     }
 
-    public static void block(DrawContext ctx, TextRenderer tr, Layout.Box box, Look look) {
+    public static void block(GuiGraphics ctx, Font tr, Layout.Box box, Look look) {
         if (Audit.on()) Audit.role("block");
         Script.Node n = box.node;
         boolean hovered = look.hover == box && look.chip == null && !look.dragging;
@@ -121,7 +121,7 @@ public final class BlockView {
             if (Audit.on()) Audit.clearRole();
             return;
         }
-        ctx.drawItem(n.action.icon(), box.x + Layout.PAD - 1, iconY);
+        ctx.renderItem(n.action.icon(), box.x + Layout.PAD - 1, iconY);
         Draw.text(ctx, tr, box.title, box.x + Layout.PAD + 20, iconY + 4, ink, !lightHead);
         if (box.target != null)
             Draw.text(ctx, tr, box.target, box.targetX, iconY + 4,
@@ -134,7 +134,7 @@ public final class BlockView {
         if (Audit.on()) Audit.clearRole();
     }
 
-    private static void chip(DrawContext ctx, TextRenderer tr, Layout.Box box, Layout.Chip chip,
+    private static void chip(GuiGraphics ctx, Font tr, Layout.Box box, Layout.Chip chip,
                              Look look) {
         if (chip.isPlus()) plusChip(ctx, tr, chip);
         else if (chip.isCondition()) conditionChip(ctx, tr, box, chip);
@@ -154,7 +154,7 @@ public final class BlockView {
                 Layout.CHIP_H / 2, Draw.argb(0xAA, 0xFFFFFF));
     }
 
-    private static void card(DrawContext ctx, TextRenderer tr, Layout.Box box, Look look,
+    private static void card(GuiGraphics ctx, Font tr, Layout.Box box, Look look,
                              int ink, boolean lightHead, int head) {
         Layout.Card c = box.card;
         int mute = Draw.mix(ink, head, 0.42f);
@@ -198,7 +198,7 @@ public final class BlockView {
         }
     }
 
-    private static void plusChip(DrawContext ctx, TextRenderer tr, Layout.Chip chip) {
+    private static void plusChip(GuiGraphics ctx, Font tr, Layout.Chip chip) {
         Draw.pill(ctx, chip.x, chip.y, chip.w, Layout.CHIP_H, chip.border);
         Draw.pillGrad(ctx, chip.x + 1, chip.y + 1, chip.w - 2, Layout.CHIP_H - 2,
                 chip.top, chip.bottom);
@@ -206,7 +206,7 @@ public final class BlockView {
         Draw.text(ctx, tr, chip.fitted, chip.x + 16, chip.y + 4, chip.ink, false);
     }
 
-    private static void argChip(DrawContext ctx, TextRenderer tr, Layout.Chip chip) {
+    private static void argChip(GuiGraphics ctx, Font tr, Layout.Chip chip) {
         Draw.pill(ctx, chip.x, chip.y, chip.w, Layout.CHIP_H, chip.border);
         Draw.pillGrad(ctx, chip.x + 1, chip.y + 1, chip.w - 2, Layout.CHIP_H - 2,
                 chip.top, chip.bottom);
@@ -228,12 +228,12 @@ public final class BlockView {
                 chip.y + 4, chip.ink, false);
     }
 
-    public static void badge(DrawContext ctx, int x, int y, ItemStack icon, int dot) {
+    public static void badge(GuiGraphics ctx, int x, int y, ItemStack icon, int dot) {
         if (icon == null || icon.isEmpty()) Draw.dot(ctx, x + 5, y + 5, dot);
         else Draw.item(ctx, icon, x + 2, y + 2, 11);
     }
 
-    private static void chipBadge(DrawContext ctx, Layout.Chip chip, ItemStack icon, int dot) {
+    private static void chipBadge(GuiGraphics ctx, Layout.Chip chip, ItemStack icon, int dot) {
         badge(ctx, chip.x, chip.y, icon, dot);
     }
 
@@ -241,7 +241,7 @@ public final class BlockView {
         return v.hasIcon() ? Stacks.preview(v) : ItemStack.EMPTY;
     }
 
-    public static int pill(DrawContext ctx, int x, int y, int w, int face,
+    public static int pill(GuiGraphics ctx, int x, int y, int w, int face,
                            boolean tinted, int alpha) {
         boolean grad = Settings.gradient();
         int top = tinted ? Draw.shade(face, grad ? 0.12f : 0.02f) : Theme.MARKER_TOP;
@@ -254,11 +254,11 @@ public final class BlockView {
         return top;
     }
 
-    private static int chipPill(DrawContext ctx, Layout.Chip chip, int face, boolean tinted) {
+    private static int chipPill(GuiGraphics ctx, Layout.Chip chip, int face, boolean tinted) {
         return pill(ctx, chip.x, chip.y, chip.w, face, tinted, 0xFF);
     }
 
-    private static void conditionChip(DrawContext ctx, TextRenderer tr, Layout.Box box,
+    private static void conditionChip(GuiGraphics ctx, Font tr, Layout.Box box,
                                       Layout.Chip chip) {
         Script.Node cond = box.node.cond;
         boolean set = cond != null;
@@ -271,7 +271,7 @@ public final class BlockView {
         Draw.text(ctx, tr, chip.fitted, chip.x + 15, chip.y + 4, ink, false);
     }
 
-    private static void markerChip(DrawContext ctx, TextRenderer tr, Layout.Box box,
+    private static void markerChip(GuiGraphics ctx, Font tr, Layout.Box box,
                                    Layout.Chip chip) {
         boolean bound = Layout.markerBound(Layout.chipNode(box.node), chip.settingIndex);
         int face = bound ? Values.color(Value.VARIABLE) : Theme.MARKER_TOP;

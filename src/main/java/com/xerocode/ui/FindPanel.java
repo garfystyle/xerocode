@@ -9,7 +9,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.input.CharacterEvent;
@@ -151,7 +151,7 @@ public final class FindPanel {
         select(next, true);
     }
 
-    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         Draw.hgrad(ctx, x - 5, y, 5, h, Draw.argb(0, 0x000000), Theme.SHADOW);
         Draw.rect(ctx, x, y, w, h, Draw.opaque(Ui.PANEL));
         Draw.rect(ctx, x, y, 1, h, Draw.opaque(Theme.LINE));
@@ -168,7 +168,7 @@ public final class FindPanel {
         Ui.input(ctx, x + PAD, iy, w - PAD * 2, INPUT_H, field.isFocused());
         Draw.glyph(ctx, Draw.SEARCH, x + PAD + 6, iy + (INPUT_H - Draw.glyphH(Draw.SEARCH)) / 2,
                 query.isEmpty() ? Theme.TEXT_FAINT : Theme.ACCENT);
-        field.render(ctx, mouseX, mouseY, delta);
+        field.extractRenderState(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, field);
         if (!query.isEmpty()) {
             boolean hov = Ui.hit(mouseX, mouseY, clearX(), iy, 14, INPUT_H);
@@ -186,7 +186,7 @@ public final class FindPanel {
 
     private int stepX(int i) { return x + w - PAD - STEP_W * (2 - i) - (i == 0 ? 3 : 0); }
 
-    private void drawStatus(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawStatus(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int sy = y + HEAD_H + 5 + INPUT_H + 5;
         String note = outline
                 ? Ui.plural(hits.size(), "строка", "строки", "строк") + " кода"
@@ -209,7 +209,7 @@ public final class FindPanel {
         Ui.hairline(ctx, x + 1, sy + STAT_H, w - 1);
     }
 
-    private void drawList(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawList(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int top = y + listTop(), bottom = y + listBottom();
         pane.fit(listTop(), listBottom(), listTop() + hits.size() * ROW_H);
         hover = indexAt(mouseX, mouseY);
@@ -230,7 +230,7 @@ public final class FindPanel {
         pane.drawBar(ctx, bar, x + w - 5, y, mouseX, mouseY);
     }
 
-    private void drawEmpty(GuiGraphics ctx, int top, int bottom) {
+    private void drawEmpty(GuiGraphicsExtractor ctx, int top, int bottom) {
         String[] lines = outline
                 ? new String[]{"полотно пусто", "перетащи блок из палитры слева"}
                 : new String[]{"ничего не нашлось", "ищется имя, текст, переменная,",
@@ -241,7 +241,7 @@ public final class FindPanel {
                     i == 0 ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
     }
 
-    private void drawRow(GuiGraphics ctx, Finder.Hit hit, int ry, boolean hov, boolean cur) {
+    private void drawRow(GuiGraphicsExtractor ctx, Finder.Hit hit, int ry, boolean hov, boolean cur) {
         int rx = x + 4, rw = w - 9;
         if (cur) Draw.round(ctx, rx, ry + 1, rw, ROW_H - 2, Ui.R_SM,
                 Draw.opaque(Draw.mix(Ui.PANEL, Theme.ACCENT, 0.24f)));
@@ -286,7 +286,7 @@ public final class FindPanel {
         return node.action.icon();
     }
 
-    private void drawFoot(GuiGraphics ctx) {
+    private void drawFoot(GuiGraphicsExtractor ctx) {
         int fy = y + h - FOOT_H;
         Ui.hairline(ctx, x + 1, fy, w - 1);
         if (hits.isEmpty()) return;

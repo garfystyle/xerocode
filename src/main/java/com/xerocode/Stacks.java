@@ -203,12 +203,16 @@ public final class Stacks {
             if (zeros) return null;
             CompoundTag nbt = NbtIo.readCompressed(
                     new ByteArrayInputStream(raw), NbtAccounter.unlimitedHeap());
+            int seen = nbt.getIntOr(SharedConstants.DATA_VERSION_TAG, 0);
+            if (seen > 0) serverDataVersion = seen;
             RegistryOps<Tag> ops = RegistryOps.create(NbtOps.INSTANCE, world.registryAccess());
             return ItemStack.CODEC.parse(ops, nbt).result().orElse(null);
         } catch (Exception e) {
             return null;
         }
     }
+
+    private static volatile int serverDataVersion;
 
     public static Value valueFromServer(String encoded) {
         try {
@@ -235,8 +239,9 @@ public final class Stacks {
             if (ops == null) return null;
             Tag encoded = ItemStack.CODEC.encodeStart(ops, stack).result().orElse(null);
             if (!(encoded instanceof CompoundTag nbt)) return null;
+            int mine = SharedConstants.getCurrentVersion().dataVersion().version();
             nbt.putInt(SharedConstants.DATA_VERSION_TAG,
-                    SharedConstants.getCurrentVersion().dataVersion().version());
+                    serverDataVersion > 0 ? Math.min(mine, serverDataVersion) : mine);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             NbtIo.writeCompressed(nbt, out);
             return Base64.getEncoder().encodeToString(out.toByteArray());
@@ -351,8 +356,10 @@ public final class Stacks {
 
     @SuppressWarnings("unchecked")
     private static <T> Optional<T> got(DataComponentPatch changes, DataComponentType<? extends T> type) {
-        Optional<? extends T> value = changes.get(type);
-        return value == null ? Optional.empty() : (Optional<T>) value;
+        for (java.util.Map.Entry<DataComponentType<?>, Optional<?>> e : changes.entrySet()) {
+            if (e.getKey() == type) return (Optional<T>) e.getValue();
+        }
+        return Optional.empty();
     }
 
     private static void apply(Value v, DataComponentPatch changes) {

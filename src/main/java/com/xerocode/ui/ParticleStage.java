@@ -6,7 +6,7 @@ import com.xerocode.Value;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.resources.Identifier;
@@ -47,12 +47,12 @@ public final class ParticleStage implements CatalogPicker.Extra {
         debt = 0;
     }
 
-    public void render(GuiGraphics ctx, int x, int y, int w, int h, int mouseX, int mouseY) {
+    public void render(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int mouseX, int mouseY) {
         render(ctx, x, y, w, h, mouseX, mouseY, false);
     }
 
     @Override
-    public void render(GuiGraphics ctx, int x, int y, int w, int h, int mouseX, int mouseY,
+    public void render(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int mouseX, int mouseY,
                        boolean flush) {
         if (flush) Draw.rect(ctx, x, y, w, h, Draw.opaque(Ui.WELL));
         else Ui.well(ctx, x, y, w, h);
@@ -205,7 +205,7 @@ public final class ParticleStage implements CatalogPicker.Extra {
         p.y += p.vy * dt;
     }
 
-    private void draw(GuiGraphics ctx, int x, int y, int w, int h, List<Identifier> textures,
+    private void draw(GuiGraphicsExtractor ctx, int x, int y, int w, int h, List<Identifier> textures,
                       ItemStack stack, ParticleLook.Motion motion) {
         Pickers.Entry entry = Pickers.particle(id);
         boolean tinted = entry != null && entry.has(Pickers.COLOR);
@@ -239,7 +239,7 @@ public final class ParticleStage implements CatalogPicker.Extra {
                 m.pushMatrix();
                 m.translate(px, py);
                 m.scale(side / 16f, side / 16f);
-                ctx.renderItem(stack, 0, 0);
+                ctx.item(stack, 0, 0);
                 m.popMatrix();
             }
         }

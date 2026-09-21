@@ -7,14 +7,13 @@
 	"authors": ["GarfyYT"],
 	"icon": "assets/xerocode/icon.png",
 	"environment": "client",
-	"accessWidener": "xerocode.accesswidener",
 	"entrypoints": {
 		"client": ["com.xerocode.XeroCode"]
 	},
 	"depends": {
 		"fabricloader": ">=0.16.0",
-		"minecraft": "~1.21.11",
-		"java": ">=21",
+		"minecraft": "~26.2",
+		"java": ">=25",
 		"fabric-lifecycle-events-v1": "*",
 		"fabric-rendering-v1": "*",
 		"fabric-screen-api-v1": "*",

@@ -5,7 +5,7 @@ import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
@@ -97,12 +97,12 @@ public final class LocationForm extends Screen {
     public boolean isPauseScreen() { return false; }
 
     @Override
-    public void renderBackground(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void extractBackground(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
     }
 
     @Override
-    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
-        super.render(ctx, mouseX, mouseY, delta);
+    public void extractRenderState(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
+        super.extractRenderState(ctx, mouseX, mouseY, delta);
         SmoothText.clip(null);
         Draw.batch(null);
         Ui.panel(ctx, x, y, W, h);
@@ -121,7 +121,7 @@ public final class LocationForm extends Screen {
             Ui.input(ctx, fx, fy + 9, cw, FIELD_H, i == focus);
             Draw.roundRect(ctx, fx + 1, fy + 10, 3, FIELD_H - 2,
                     Ui.R_SM - 1, 0, 0, Ui.R_SM - 1, Draw.opaque(INK[i]));
-            fields.get(i).render(ctx, mouseX, mouseY, delta);
+            fields.get(i).extractRenderState(ctx, mouseX, mouseY, delta);
             Ui.placeholder(ctx, font, fields.get(i));
         }
 
@@ -229,6 +229,6 @@ public final class LocationForm extends Screen {
     public void onClose() {
         Minecraft client = Minecraft.getInstance();
         LocationPick.formClosed();
-        client.setScreen(null);
+        client.gui.setScreen(null);
     }
 }

@@ -23,7 +23,7 @@ import java.util.Map;
 import java.util.function.Function;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
@@ -738,13 +738,13 @@ public final class ValueEditor {
         buildForm();
     }
 
-    private void drawDraggedSlot(GuiGraphics ctx) {
+    private void drawDraggedSlot(GuiGraphicsExtractor ctx) {
         Catalog.Slots grid = slots();
         if (dragSlot < 0 || !slotMoved || grid == null || dragSlot >= values.size()) return;
         Value it = values.get(dragSlot);
         if (it.isBlank()) return;
         ctx.nextStratum();
-        ctx.renderItem(Stacks.preview(it), lastMx - 8, lastMy - 8);
+        ctx.item(Stacks.preview(it), lastMx - 8, lastMy - 8);
     }
 
     private boolean clearSlot(double mx, double my) {
@@ -844,7 +844,7 @@ public final class ValueEditor {
         };
     }
 
-    private void drawFieldRow(GuiGraphics ctx, int mouseX, int mouseY, float delta, FieldRow r) {
+    private void drawFieldRow(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, FieldRow r) {
         if (r == null) return;
         boolean axes = "coords".equals(r.id());
         boolean drag = scrubbable(r);
@@ -861,7 +861,7 @@ public final class ValueEditor {
             if (axes && i < AXIS_INK.length)
                 Draw.roundRect(ctx, cx + 1, ry + 10, 3, FIELD_H - 2,
                         Ui.R_SM - 1, 0, 0, Ui.R_SM - 1, Draw.opaque(ink));
-            fields.get(r.from() + i).render(ctx, mouseX, mouseY, delta);
+            fields.get(r.from() + i).extractRenderState(ctx, mouseX, mouseY, delta);
             Ui.placeholder(ctx, tr, fields.get(r.from() + i));
         }
     }
@@ -874,7 +874,7 @@ public final class ValueEditor {
         fields.get(focus).moveCursorToStart(false);
     }
 
-    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         lastMx = mouseX;
         lastMy = mouseY;
         if (nested != null) { nested.render(ctx, mouseX, mouseY, delta); return; }
@@ -915,7 +915,7 @@ public final class ValueEditor {
         drawDraggedSlot(ctx);
     }
 
-    private void drawHeader(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawHeader(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int tc = Catalog.TYPE_COLORS.getOrDefault(arg.type, 0xAAAAAA);
         int closeX0 = x + w - PAD - 14;
         boolean grab = dragging || (Ui.hit(mouseX, mouseY, x, y, w, HEAD_H)
@@ -960,7 +960,7 @@ public final class ValueEditor {
         return l.id().isEmpty() ? "по умолчанию" : l.id();
     }
 
-    private void drawLangs(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawLangs(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         Ui.caption(ctx, tr, "ЯЗЫКИ", x + PAD, railY() - CAP, inner());
         int rw = inner();
         int labelW = 0;
@@ -992,7 +992,7 @@ public final class ValueEditor {
                 rw - 4, Theme.TEXT_FAINT, false);
     }
 
-    private void drawList(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawList(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         Catalog.Slots grid = slots();
         if (grid != null) { drawSlots(ctx, grid, mouseX, mouseY); return; }
         Ui.caption(ctx, tr, "ЗНАЧЕНИЯ", x + PAD, listY(), inner(),
@@ -1031,7 +1031,7 @@ public final class ValueEditor {
         }
     }
 
-    private void drawRail(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawRail(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (localizedField() != null) { drawLangs(ctx, mouseX, mouseY); return; }
         Ui.caption(ctx, tr, "ТИП ЗНАЧЕНИЯ", x + PAD, railY() - CAP, inner());
         Ui.Grid g = grid();
@@ -1061,13 +1061,13 @@ public final class ValueEditor {
         }
     }
 
-    private void drawCaptions(GuiGraphics ctx) {
+    private void drawCaptions(GuiGraphicsExtractor ctx) {
         for (Part p : parts)
             if (p.caption() != null)
                 Ui.caption(ctx, tr, p.caption(), x + PAD, formY() + p.dy(), inner());
     }
 
-    private void drawForm(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    private void drawForm(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         Value v = current();
         int full = inner();
         switch (v.type) {
@@ -1087,7 +1087,7 @@ public final class ValueEditor {
                         FIELD_H, Draw.PLUS, Ui.GHOST, true);
                 Ui.input(ctx, x + PAD + FIELD_H + 4, py("input"), full - 2 * (FIELD_H + 4), FIELD_H,
                         fields.get(0).isFocused());
-                fields.get(0).render(ctx, mouseX, mouseY, delta);
+                fields.get(0).extractRenderState(ctx, mouseX, mouseY, delta);
                 Ui.placeholder(ctx, tr, fields.get(0));
                 if (has("note")) {
                     String text = fields.get(0).getValue().trim();
@@ -1176,7 +1176,7 @@ public final class ValueEditor {
                 if (has("material")) {
                     Ui.input(ctx, x + PAD, py("material"), full, FIELD_H,
                             fields.get(fields.size() - 1).isFocused());
-                    fields.get(fields.size() - 1).render(ctx, mouseX, mouseY, delta);
+                    fields.get(fields.size() - 1).extractRenderState(ctx, mouseX, mouseY, delta);
                     Ui.placeholder(ctx, tr, fields.get(fields.size() - 1));
                 }
                 if (has("color")) {
@@ -1258,7 +1258,7 @@ public final class ValueEditor {
         }
     }
 
-    private void drawCells(GuiGraphics ctx, Value v, int mouseX, int mouseY) {
+    private void drawCells(GuiGraphicsExtractor ctx, Value v, int mouseX, int mouseY) {
         boolean map = Value.MAP.equals(v.type);
         int top = py("cells"), full = inner();
         int count = cellCount(v), rows = cellRows(v);
@@ -1309,7 +1309,7 @@ public final class ValueEditor {
                     Draw.PLUS, map ? "добавить пару" : "добавить значение", Ui.GHOST, true);
     }
 
-    private void cellChip(GuiGraphics ctx, Value v, int cx, int ry, int cw,
+    private void cellChip(GuiGraphicsExtractor ctx, Value v, int cx, int ry, int cw,
                           int mouseX, int mouseY) {
         boolean hov = Ui.hit(mouseX, mouseY, cx, ry + 1, cw, ROW_H - 2);
         Draw.round(ctx, cx, ry + 1, cw, ROW_H - 2, Ui.R_SM - 1,
@@ -1323,7 +1323,7 @@ public final class ValueEditor {
         return i < map.items.size() ? map.items.get(i) : Value.blank();
     }
 
-    private void drawSlots(GuiGraphics ctx, Catalog.Slots s, int mouseX, int mouseY) {
+    private void drawSlots(GuiGraphicsExtractor ctx, Catalog.Slots s, int mouseX, int mouseY) {
         int top = listY() + CAP;
         int filled = 0;
         for (Value it : values) if (!it.isBlank()) filled++;
@@ -1340,7 +1340,7 @@ public final class ValueEditor {
             Draw.round(ctx, cx, cy, SLOT, SLOT, Ui.R_SM,
                     Draw.opaque(i == sel ? 0x22405F : hov ? 0x2C3441 : Ui.WELL));
             boolean carried = i == dragSlot && slotMoved;
-            if (!it.isBlank() && !carried) ctx.renderItem(Stacks.preview(it), cx + 1, cy + 1);
+            if (!it.isBlank() && !carried) ctx.item(Stacks.preview(it), cx + 1, cy + 1);
             if (i == sel || hov) Draw.roundOutline(ctx, cx, cy, SLOT, SLOT, Ui.R_SM,
                     Draw.opaque(i == sel ? Theme.ACCENT : Draw.shade(Theme.ACCENT, -0.35f)));
         }
@@ -1391,13 +1391,13 @@ public final class ValueEditor {
         return true;
     }
 
-    private void drawEntryCard(GuiGraphics ctx, String icon, String name, String category,
+    private void drawEntryCard(GuiGraphicsExtractor ctx, String icon, String name, String category,
                                String description, String badge) {
         drawEntryCard(ctx, icon == null ? null : Catalog.stackOf(icon), name, category,
                 description, badge);
     }
 
-    private void drawEntryCard(GuiGraphics ctx, ItemStack picture, String name,
+    private void drawEntryCard(GuiGraphicsExtractor ctx, ItemStack picture, String name,
                                String category, String description, String badge) {
         int cy = py("card"), full = inner(), ch = ph("card");
         Ui.well(ctx, x + PAD, cy, full, ch);
@@ -1409,7 +1409,7 @@ public final class ValueEditor {
         }
         List<String> title = nameLines(name);
         int top = cy + CARD_PAD;
-        ctx.renderItem(picture, x + PAD + 6,
+        ctx.item(picture, x + PAD + 6,
                 description.isEmpty() ? cy + Math.max(4, (ch - 16) / 2) : top - 1);
         int tx = x + PAD + 27;
         int badgeW = badge.isEmpty() ? 0 : Draw.badgeWidth(tr, badge) + 8;
@@ -1433,7 +1433,7 @@ public final class ValueEditor {
         }
     }
 
-    private void drawItemCard(GuiGraphics ctx, Value v) {
+    private void drawItemCard(GuiGraphicsExtractor ctx, Value v) {
         int cy = py("card"), full = inner(), ch = ph("card");
         Ui.well(ctx, x + PAD, cy, full, ch);
         ItemStack st = Stacks.preview(v);
@@ -1447,9 +1447,9 @@ public final class ValueEditor {
         int top = cy + CARD_PAD, tx = x + PAD + 27;
         String summary = Stacks.summary(v);
         int iconY = summary.isEmpty() ? cy + Math.max(4, (ch - 16) / 2) : top - 1;
-        ctx.renderItem(st, x + PAD + 6, iconY);
-        ctx.renderItemDecorations(tr, st, x + PAD + 6, iconY);
-        ctx.drawString(tr, McText.fit(tr, McText.runsOf(st.getHoverName()), full - 35), tx, top,
+        ctx.item(st, x + PAD + 6, iconY);
+        ctx.itemDecorations(tr, st, x + PAD + 6, iconY);
+        ctx.text(tr, McText.fit(tr, McText.runsOf(st.getHoverName()), full - 35), tx, top,
                 Draw.opaque(Theme.TEXT), false);
         Draw.textFit(ctx, tr, v.itemId, tx, top + 11, full - 35, Theme.TEXT_FAINT, false);
         if (!summary.isEmpty() && ch >= 40)
@@ -1464,21 +1464,21 @@ public final class ValueEditor {
         return st == null || st.isEmpty() ? null : st;
     }
 
-    private void drawChoose(GuiGraphics ctx, int mouseX, int mouseY, boolean chosen, String pick,
+    private void drawChoose(GuiGraphicsExtractor ctx, int mouseX, int mouseY, boolean chosen, String pick,
                             String other) {
         Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, py("choose"), inner(), BTN_H,
                 Draw.SEARCH, chosen ? other : pick, Ui.GHOST, true);
     }
 
-    private void drawInput(GuiGraphics ctx, int mouseX, int mouseY, float delta, int i) {
+    private void drawInput(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, int i) {
         Ui.input(ctx, x + PAD, py("input"), inner(), FIELD_H, fields.get(i).isFocused());
-        fields.get(i).render(ctx, mouseX, mouseY, delta);
+        fields.get(i).extractRenderState(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, fields.get(i));
     }
 
     private static final String SUGG_LABEL = "уже есть:";
 
-    private void drawSuggestions(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawSuggestions(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (!has("sugg")) return;
         int sy = py("sugg"), sh = ph("sugg"), at = x + PAD;
         int limit = x + PAD + inner();
@@ -1495,7 +1495,7 @@ public final class ValueEditor {
         }
     }
 
-    private void drawPreview(GuiGraphics ctx, Value v) {
+    private void drawPreview(GuiGraphicsExtractor ctx, Value v) {
         int pyy = py("preview"), full = inner(), ph = ph("preview");
         Ui.well(ctx, x + PAD, pyy, full, ph);
         String raw = fields.get(0).getValue();
@@ -1505,7 +1505,7 @@ public final class ValueEditor {
             return;
         }
         ctx.enableScissor(x + PAD + 1, pyy + 1, x + PAD + full - 1, pyy + ph - 1);
-        ctx.drawString(tr, McText.preview(raw, v.parsing), x + PAD + 8,
+        ctx.text(tr, McText.preview(raw, v.parsing), x + PAD + 8,
                 pyy + (ph - Ui.TEXT_H) / 2, Draw.opaque(Theme.TEXT), false);
         ctx.disableScissor();
     }
@@ -1516,9 +1516,9 @@ public final class ValueEditor {
     private int okX()      { return x + w - PAD - OK_W; }
     private int cancelX()  { return okX() - BTN_GAP - NO_W; }
 
-    private void drawFooter(GuiGraphics ctx, int mouseX, int mouseY, int accent) {
+    private void drawFooter(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int accent) {
         int fy = footBtnY();
-        ctx.renderItem(Catalog.stackOf(Values.kindItem(current().type)), x + PAD - 2, fy);
+        ctx.item(Catalog.stackOf(Values.kindItem(current().type)), x + PAD - 2, fy);
         Draw.textFit(ctx, tr, Values.kindName(current().type), x + PAD + 16, fy + 4,
                 inner() - 16 - (OK_W + BTN_GAP + NO_W + 4), Draw.shade(accent, 0.25f), false);
         Ui.button(ctx, tr, mouseX, mouseY, okX(), fy, OK_W, FOOT_BTN_H, "Готово", Ui.ACCENT);

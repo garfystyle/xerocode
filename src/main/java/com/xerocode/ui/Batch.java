@@ -2,10 +2,10 @@ package com.xerocode.ui;
 
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.render.TextureSetup;
-import net.minecraft.client.gui.render.state.GuiElementRenderState;
+import net.minecraft.client.renderer.state.gui.GuiElementRenderState;
 import net.minecraft.client.renderer.RenderPipelines;
 import org.joml.Matrix3x2f;
 import org.joml.Matrix3x2fc;
@@ -26,9 +26,9 @@ public final class Batch implements GuiElementRenderState {
         this.data = new int[capacity * STRIDE];
     }
 
-    public static Batch open(GuiGraphics ctx, ScreenRectangle scissor, ScreenRectangle bounds, int capacity) {
+    public static Batch open(GuiGraphicsExtractor ctx, ScreenRectangle scissor, ScreenRectangle bounds, int capacity) {
         Batch batch = new Batch(ctx.pose(), scissor, bounds, capacity);
-        ctx.guiRenderState.submitGuiElement(batch);
+        ctx.guiRenderState.addGuiElement(batch);
         return batch;
     }
 

@@ -36,7 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
@@ -182,7 +182,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return Math.abs(mx - Theme.PALETTE_W) <= 3;
     }
 
-    private void drawSplitter(GuiGraphics ctx, int mouseX) {
+    private void drawSplitter(GuiGraphicsExtractor ctx, int mouseX) {
         if (!resizingPalette && !overSplitter(mouseX)) return;
         Draw.rect(ctx, Theme.PALETTE_W - 2, 0, 2, height, Draw.opaque(Theme.ACCENT));
         for (int i = -1; i <= 1; i++)
@@ -342,7 +342,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return (int) (255 * (1 - age / 1800.0));
     }
 
-    private void drawFound(GuiGraphics ctx, double vx0, double vy0, double vx1, double vy1) {
+    private void drawFound(GuiGraphicsExtractor ctx, double vx0, double vy0, double vx1, double vy1) {
         int ink = focusInk();
         if (found.isEmpty() && (focusNode == null || ink == 0)) return;
         ScreenRectangle area = new ScreenRectangle(canvasLeft(), Theme.TOPBAR_H,
@@ -368,7 +368,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return moving && coveredCache.contains(box.node);
     }
 
-    private void drawMoving(GuiGraphics ctx, ScreenRectangle area,
+    private void drawMoving(GuiGraphicsExtractor ctx, ScreenRectangle area,
                             double vx0, double vy0, double vx1, double vy1) {
         if (!moving) return;
         int dx = (int) Math.round(moveDX), dy = (int) Math.round(moveDY);
@@ -390,7 +390,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         m.popMatrix();
     }
 
-    private void edges(GuiGraphics ctx, List<int[]> segments, double dx, double dy, int argb,
+    private void edges(GuiGraphicsExtractor ctx, List<int[]> segments, double dx, double dy, int argb,
                        double vx0, double vy0, double vx1, double vy1) {
         for (int[] s : segments) {
             double a = s[0] + dx, b = s[1] + dy, c = s[2] + dx, d = s[3] + dy;
@@ -401,7 +401,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
     }
 
-    private void drawOutlines(GuiGraphics ctx, List<Piece> list, double dx, double dy,
+    private void drawOutlines(GuiGraphicsExtractor ctx, List<Piece> list, double dx, double dy,
                               ScreenRectangle area, double vx0, double vy0, double vx1, double vy1) {
         List<Piece> shown = null;
         int cap = 0;
@@ -422,7 +422,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Draw.batch(null);
     }
 
-    private void drawBand(GuiGraphics ctx) {
+    private void drawBand(GuiGraphicsExtractor ctx) {
         if (!banding) return;
         ScreenRectangle area = new ScreenRectangle(canvasLeft(), Theme.TOPBAR_H,
                 width - canvasLeft(), height - Theme.TOPBAR_H);
@@ -436,7 +436,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Draw.batch(null);
     }
 
-    private void drawMap(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawMap(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (!Settings.minimap() || drag != null || script.roots.isEmpty()) { map.hide(); return; }
         map.frame(layout, layoutStamp, canvasLeft(), Theme.TOPBAR_H, canvasRight(), height);
         if (!map.shown()) return;
@@ -531,7 +531,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     @Override
-    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void extractRenderState(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         Draw.batch(null);
         SmoothText.clip(null);
         if (settings != null && settings.consumeChanged()) {
@@ -636,7 +636,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         drawMap(ctx, mouseX, mouseY);
         if (finder != null) finder.render(ctx, mouseX, mouseY, delta);
         palette.render(ctx, font, mouseX, mouseY, height);
-        search.render(ctx, mouseX, mouseY, delta);
+        search.extractRenderState(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, font, search);
         top.draw(ctx, mouseX, mouseY);
         drawSplitter(ctx, mouseX);
@@ -689,7 +689,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
     }
 
-    private void drawGrid(GuiGraphics ctx) {
+    private void drawGrid(GuiGraphicsExtractor ctx) {
         int style = Settings.gridStyle();
         if (style == Settings.GRID_NONE) return;
         double step = 26 * zoom;
@@ -719,7 +719,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
     }
 
-    private void drawGridDots(GuiGraphics ctx, double step, double ox, double oy,
+    private void drawGridDots(GuiGraphicsExtractor ctx, double step, double ox, double oy,
                               int faint, int strong) {
         ScreenRectangle area = new ScreenRectangle(canvasLeft(), Theme.TOPBAR_H,
                 width - canvasLeft(), height - Theme.TOPBAR_H);
@@ -743,7 +743,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Draw.batch(null);
     }
 
-    private void drawEmptyHint(GuiGraphics ctx) {
+    private void drawEmptyHint(GuiGraphicsExtractor ctx) {
         int w = 250, h = 62;
         int x = canvasLeft() + (width - canvasLeft() - w) / 2, y = (height - h) / 2;
         Draw.round(ctx, x, y, w, h, 8, Draw.argb(0x50, Ui.PANEL));
@@ -755,7 +755,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 Theme.TEXT_FAINT, false);
     }
 
-    private void drawDragged(GuiGraphics ctx) {
+    private void drawDragged(GuiGraphicsExtractor ctx) {
         int px = (int) Math.round(mouseCanvasX - dragOffX);
         int py = (int) Math.round(mouseCanvasY - dragOffY);
         Layout l = Layout.ofChain(drag, px, py, font);
@@ -763,7 +763,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         for (Layout.Box b : l.boxes) BlockView.block(ctx, font, b, look);
     }
 
-    private void drawSnapMark(GuiGraphics ctx) {
+    private void drawSnapMark(GuiGraphicsExtractor ctx) {
         int mx = ghost != null ? ghost.x : snap.x;
         int my = ghost != null ? ghost.y : snap.y;
         Layout mark = Layout.ofChain(drag, mx, my, font);
@@ -786,7 +786,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         FileDialog.open("Загрузить json", dir.toAbsolutePath() + File.separator,
                 new String[]{"*.json"}, "код JustMC (*.json)", file -> {
                     choosingFile = false;
-                    if (file == null || (minecraft != null && minecraft.screen != this)) return;
+                    if (file == null || (minecraft != null && minecraft.gui.screen() != this)) return;
                     loadJson(file);
                 });
     }
@@ -951,10 +951,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         saveScript();
         Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         XeroCode.canvasClosed();
-        mc.setScreen(null);
-        mc.gui.setTimes(3, 50, 10);
-        mc.gui.setTitle(Component.literal("3D-кодинг"));
-        mc.gui.setSubtitle(Component.literal(
+        mc.gui.setScreen(null);
+        mc.gui.hud.setTimes(3, 50, 10);
+        mc.gui.hud.setTitle(Component.literal("3D-кодинг"));
+        mc.gui.hud.setSubtitle(Component.literal(
                 "код — блоками в мире · " + s.label(Settings.Hot.OPEN)
                         + " — вернуться в 2D"));
     }
@@ -972,7 +972,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         exitPrompt = true;
     }
 
-    private void drawExitPrompt(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawExitPrompt(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         Ui.dim(ctx, width, height);
         int x = exitX(), y = exitY();
         Ui.panel(ctx, x, y, exitW(), EXIT_H);
@@ -1041,10 +1041,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         rememberView();
         saveScript();
         Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
-        mc.setScreen(new ExportScreen(script, this, exitCommand));
+        mc.gui.setScreen(new ExportScreen(script, this, exitCommand));
     }
 
-    private void drawToast(GuiGraphics ctx) {
+    private void drawToast(GuiGraphicsExtractor ctx) {
         if (status.isEmpty()) return;
         long age = System.currentTimeMillis() - statusAt;
         if (age > 2600) { status = ""; return; }
@@ -1055,10 +1055,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         int y = height - 34 - (barShown() ? BAR_H + 6 : 0);
         Draw.round(ctx, x, y, w, 20, 6, Draw.argb(a * 0xE0 / 255, Ui.HEAD));
         Draw.roundOutline(ctx, x, y, w, 20, 6, Draw.argb(a * 0x80 / 255, Ui.BORDER));
-        ctx.drawString(font, status, x + 12, y + 6, Draw.argb(a, Theme.TEXT), false);
+        ctx.text(font, status, x + 12, y + 6, Draw.argb(a, Theme.TEXT), false);
     }
 
-    private void drawTooltips(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawTooltips(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (editor != null && editor.contains(mouseX, mouseY)) return;
 
         if (mouseY < Theme.TOPBAR_H && mouseX >= canvasLeft()) {
@@ -1082,7 +1082,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             actionTooltip(ctx, hoverBox.node.action, hoverBox.node, mouseX, mouseY);
     }
 
-    private void chipTooltip(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void chipTooltip(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         List<Component> lines = new ArrayList<>();
         if (hoverChip.isPlus()) {
             lines.add(Component.literal("Добавить параметр"));
@@ -1183,11 +1183,11 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return out;
     }
 
-    private void actionTooltip(GuiGraphics ctx, Catalog.Action a, int mouseX, int mouseY) {
+    private void actionTooltip(GuiGraphicsExtractor ctx, Catalog.Action a, int mouseX, int mouseY) {
         actionTooltip(ctx, a, null, mouseX, mouseY);
     }
 
-    private void actionTooltip(GuiGraphics ctx, Catalog.Action a, Script.Node node,
+    private void actionTooltip(GuiGraphicsExtractor ctx, Catalog.Action a, Script.Node node,
                                int mouseX, int mouseY) {
         List<Component> lines = new ArrayList<>();
         lines.add(Component.literal(a.name));
@@ -1913,7 +1913,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         rememberView();
         saveScript();
         XeroCode.canvasClosed();
-        minecraft.setScreen(new MarketScreen(script, this));
+        minecraft.gui.setScreen(new MarketScreen(script, this));
     }
 
     private void openBackpack() {
@@ -2342,7 +2342,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         saveScript();
         XeroCode.canvasClosed();
         Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
-        mc.setScreen(back);
+        mc.gui.setScreen(back);
     }
 
     private int barStamp = Integer.MIN_VALUE, barWidth;
@@ -2415,7 +2415,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return right - barBtnW(i);
     }
 
-    private void drawBar(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawBar(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (!barShown()) return;
         int bw = barW(), bx = barX(), by = barY(), by2 = by + (BAR_H - 16) / 2;
         boolean module = modulePick(), small = barCompact();
@@ -2477,7 +2477,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return drag != null && Ui.hit(mx, my, pocketX(), pocketY(), pocketW(), POCKET_H);
     }
 
-    private void drawPocket(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawPocket(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (drag == null) return;
         int px = pocketX(), py = pocketY(), pw = pocketW();
         boolean hot = overPocket(mouseX, mouseY);
@@ -2789,7 +2789,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private static final int CARRY_MAX = 4;
     private static final int CARRY_MAX_W = 190, CARRY_GAP = 2, CARRY_MORE_H = 11;
 
-    private void drawCarry(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawCarry(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (carry == null) return;
         ctx.nextStratum();
         int shown = Math.min(carry.size(), CARRY_MAX);
@@ -2820,7 +2820,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (!carryHeld) carryBadge(ctx, x - 8, y - 8);
     }
 
-    private void carryPill(GuiGraphics ctx, Value v, int x, int y, int w) {
+    private void carryPill(GuiGraphicsExtractor ctx, Value v, int x, int y, int w) {
         int tc = v.color();
         int ink = Draw.isLight(tc) ? 0x141821 : 0xFFFFFF;
 
@@ -2844,7 +2844,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Draw.textFit(ctx, font, v.label(), textX, y + 4, right - textX, ink, false);
     }
 
-    private void carryBadge(GuiGraphics ctx, int x, int y) {
+    private void carryBadge(GuiGraphicsExtractor ctx, int x, int y) {
         Draw.round(ctx, x, y, 11, 11, 3, Draw.opaque(Theme.ACCENT));
         Draw.roundOutline(ctx, x, y, 11, 11, 3, Draw.opaque(Draw.shade(Theme.ACCENT, -0.45f)));
         Draw.glyph(ctx, Draw.PLUS, x + 3, y + 3, Theme.ON_ACCENT);

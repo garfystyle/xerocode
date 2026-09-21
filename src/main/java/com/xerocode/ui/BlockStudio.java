@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.world.item.ItemStack;
@@ -167,7 +167,7 @@ public final class BlockStudio extends PickerPanel {
     }
 
     @Override
-    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    protected void drawBody(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         int gx = gridX(), gy = gridY(), gw = cols * CELL, gh = rows * CELL;
         Draw.round(ctx, gx - 3, gy - 3, gw + 6, gh + 6, Ui.R_SM, Draw.opaque(Ui.WELL));
         int chosen = indexOfSelected();
@@ -182,7 +182,7 @@ public final class BlockStudio extends PickerPanel {
                 } else if (i == hovered) {
                     Draw.round(ctx, cx, cy, CELL, CELL, 3, Draw.opaque(Ui.BTN_HOVER));
                 }
-                ctx.renderItem(shown.get(i).icon(), cx + 1, cy + 1);
+                ctx.item(shown.get(i).icon(), cx + 1, cy + 1);
             }
         }
         if (shown.isEmpty())
@@ -195,7 +195,7 @@ public final class BlockStudio extends PickerPanel {
     }
 
     @Override
-    protected void drawDetails(GuiGraphics ctx) {
+    protected void drawDetails(GuiGraphicsExtractor ctx) {
         if (!detailsFrame(ctx)) return;
         Blocks.Entry it = focused();
         if (it == null) {
@@ -227,7 +227,7 @@ public final class BlockStudio extends PickerPanel {
     }
 
     @Override
-    protected void drawFooterLeft(GuiGraphics ctx, int mouseX, int mouseY, int room) {
+    protected void drawFooterLeft(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int room) {
         int fw = handW();
         if (fw + 8 > room) {
             super.drawFooterLeft(ctx, mouseX, mouseY, room);

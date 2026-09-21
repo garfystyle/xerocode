@@ -6,8 +6,8 @@ import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.PlayerFaceRenderer;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.PlayerFaceExtractor;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -82,7 +82,7 @@ public final class MarketArt {
         return skin == null || skin.body() == null ? null : skin.body().texturePath();
     }
 
-    private static boolean picture(GuiGraphics ctx, String ref, int x, int y, int w, int h,
+    private static boolean picture(GuiGraphicsExtractor ctx, String ref, int x, int y, int w, int h,
                                   boolean crop) {
         MarketImage.Shot shot = MarketImage.get(ref);
         if (shot == null || shot.w <= 0 || shot.h <= 0) return false;
@@ -124,7 +124,7 @@ public final class MarketArt {
                 Math.max(0, Math.min(PATTERNS - 1, pattern)));
     }
 
-    public static void banner(GuiGraphics ctx, String ref, int x, int y, int w, int h,
+    public static void banner(GuiGraphicsExtractor ctx, String ref, int x, int y, int w, int h,
                               int fallback, int tl, int tr, int br, int bl, int around) {
         if (w <= 0 || h <= 0) return;
         if (!picture(ctx, ref, x, y, w, h, true)) {
@@ -134,7 +134,7 @@ public final class MarketArt {
         if (around != 0) Draw.notch(ctx, x, y, w, h, tl, tr, br, bl, around);
     }
 
-    private static void paint(GuiGraphics ctx, int x, int y, int w, int h,
+    private static void paint(GuiGraphicsExtractor ctx, int x, int y, int w, int h,
                               int from, int to, int pattern) {
         switch (pattern) {
             case 0 -> Draw.rect(ctx, x, y, w, h, Draw.opaque(from));
@@ -163,12 +163,12 @@ public final class MarketArt {
         }
     }
 
-    public static void avatar(GuiGraphics ctx, String ref, int x, int y, int size,
+    public static void avatar(GuiGraphicsExtractor ctx, String ref, int x, int y, int size,
                               int fallback, String initials, Font tr) {
         avatar(ctx, ref, "", x, y, size, fallback, initials, tr);
     }
 
-    public static void avatar(GuiGraphics ctx, String ref, String nick, int x, int y, int size,
+    public static void avatar(GuiGraphicsExtractor ctx, String ref, String nick, int x, int y, int size,
                               int fallback, String initials, Font tr) {
         int r = Math.max(2, size / 4);
         int rim = Draw.shade(fallback, -0.55f);
@@ -180,7 +180,7 @@ public final class MarketArt {
             if (live != null) {
                 Draw.round(ctx, x + 1, y + 1, size - 2, size - 2, in,
                         Draw.opaque(Draw.shade(fallback, -0.35f)));
-                PlayerFaceRenderer.draw(ctx, live, x + 1, y + 1, size - 2, true, false, -1);
+                PlayerFaceExtractor.extractRenderState(ctx, live, x + 1, y + 1, size - 2, true, false, -1);
                 shown = true;
             }
         }
@@ -207,7 +207,7 @@ public final class MarketArt {
                 Draw.readable(fallback), false);
     }
 
-    public static void moduleIcon(GuiGraphics ctx, Market.Module module, int x, int y, int size,
+    public static void moduleIcon(GuiGraphicsExtractor ctx, Market.Module module, int x, int y, int size,
                                   Font tr) {
         avatar(ctx, module.icon, x, y, size, catColor(module.cat), module.name, tr);
     }
@@ -220,7 +220,7 @@ public final class MarketArt {
         return when.isEmpty() ? facts : when + " · " + facts;
     }
 
-    public static void card(GuiGraphics ctx, Font tr, Market.Module m,
+    public static void card(GuiGraphicsExtractor ctx, Font tr, Market.Module m,
                             int x, int y, int w, boolean hot, boolean stats) {
         int face = hot ? Ui.BTN_HOVER : Ui.PANEL;
         Draw.card(ctx, x, y, w, CARD_H, Ui.R, Draw.opaque(face),
@@ -269,7 +269,7 @@ public final class MarketArt {
         stat(ctx, tr, right - 6, by, Draw.GRAB, m.downloads, Theme.TEXT_FAINT);
     }
 
-    public static int stat(GuiGraphics ctx, Font tr, int right, int y,
+    public static int stat(GuiGraphicsExtractor ctx, Font tr, int right, int y,
                            String[] icon, int value, int ink) {
         String text = String.valueOf(value);
         int tw = tr.width(text);
@@ -279,7 +279,7 @@ public final class MarketArt {
         return gx;
     }
 
-    public static void skeleton(GuiGraphics ctx, int x, int y, int w, int seed) {
+    public static void skeleton(GuiGraphicsExtractor ctx, int x, int y, int w, int seed) {
         Draw.card(ctx, x, y, w, CARD_H, Ui.R, Draw.opaque(Ui.PANEL), Draw.opaque(Ui.LINE));
         Draw.round(ctx, x + 1, y + 1, w - 2, CARD_BANNER, Ui.R - 1,
                 Draw.opaque(Draw.mix(Ui.PANEL, Ui.LINE, 0.7f)));
@@ -294,13 +294,13 @@ public final class MarketArt {
         Draw.round(ctx, x + 8, y + CARD_H - 13, 34, 6, 2, faint);
     }
 
-    public static int author(GuiGraphics ctx, Font tr, String nick, String icon,
+    public static int author(GuiGraphicsExtractor ctx, Font tr, String nick, String icon,
                              int x, int y, int size) {
         avatar(ctx, icon, nick, x, y, size, 0x6E7C93, nick, tr);
         return size + 4;
     }
 
-    public static int tick(GuiGraphics ctx, int x, int y, boolean on) {
+    public static int tick(GuiGraphicsExtractor ctx, int x, int y, boolean on) {
         if (!on) return 0;
         Draw.glyph(ctx, Draw.CHECK, x, y, Theme.OK);
         return Draw.glyphW(Draw.CHECK) + 3;

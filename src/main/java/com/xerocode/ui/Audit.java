@@ -74,10 +74,7 @@ public final class Audit {
 
     private static String screenName() {
         try {
-            Minecraft client = Minecraft.getInstance();
-            java.lang.reflect.Field f = Minecraft.class.getDeclaredField("field_1755");
-            f.setAccessible(true);
-            Object screen = f.get(client);
+            Object screen = Minecraft.getInstance().gui.screen();
             return screen == null ? "мир" : screen.getClass().getSimpleName();
         } catch (Throwable e) {
             return "экран";

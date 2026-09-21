@@ -4,7 +4,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
@@ -78,7 +78,7 @@ abstract class PickerPanel {
 
     protected abstract int bodyH();
 
-    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         Ui.dim(ctx, screenW, screenH);
         Ui.panel(ctx, x, y, w, h);
 
@@ -90,7 +90,7 @@ abstract class PickerPanel {
         if (searchShown()) {
             Ui.input(ctx, searchX(), y + 6, searchW(), 16, search.isFocused());
             Draw.glyph(ctx, Draw.SEARCH, searchX() + 6, y + 10, Theme.TEXT_FAINT);
-            search.render(ctx, mouseX, mouseY, delta);
+            search.extractRenderState(ctx, mouseX, mouseY, delta);
             Ui.placeholder(ctx, tr, search);
         }
         Ui.closeButton(ctx, mouseX, mouseY, x + w - PAD - 16, y + 6, 16);
@@ -111,9 +111,9 @@ abstract class PickerPanel {
 
     protected boolean searchShown() { return true; }
 
-    protected abstract void drawBody(GuiGraphics ctx, int mouseX, int mouseY, float delta);
+    protected abstract void drawBody(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta);
 
-    protected abstract void drawDetails(GuiGraphics ctx);
+    protected abstract void drawDetails(GuiGraphicsExtractor ctx);
 
     protected record RailRow(ItemStack icon, String label, int count) {}
 
@@ -125,7 +125,7 @@ abstract class PickerPanel {
 
     protected abstract void railChosen(int index);
 
-    private void drawRail(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawRail(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int by = bodyY(), bh = bodyH(), rowH = railRowH();
         Draw.rect(ctx, railX(), by, railW, bh, Draw.opaque(Ui.RAIL));
         Ui.vline(ctx, railX() + railW, by, bh);
@@ -144,7 +144,7 @@ abstract class PickerPanel {
                 Draw.round(ctx, railX() + 3, ry, railW - 6, rowH - 1, 3, Draw.opaque(Ui.BTN_HOVER));
             }
             boolean icon = row.icon() != null;
-            if (icon) ctx.renderItem(row.icon(), railX() + 7, ry + 1);
+            if (icon) ctx.item(row.icon(), railX() + 7, ry + 1);
             String n = String.valueOf(row.count());
             int ty = ry + (icon ? 5 : 4);
             Draw.textFit(ctx, tr, row.label(), railX() + (icon ? 26 : 9), ty,
@@ -166,7 +166,7 @@ abstract class PickerPanel {
         return -1;
     }
 
-    protected boolean detailsFrame(GuiGraphics ctx) {
+    protected boolean detailsFrame(GuiGraphicsExtractor ctx) {
         if (detW == 0) return false;
         Draw.rect(ctx, detX(), bodyY(), detW, bodyH(), Draw.opaque(Ui.RAIL));
         Ui.vline(ctx, detX(), bodyY(), bodyH());
@@ -176,7 +176,7 @@ abstract class PickerPanel {
     protected int detailsInner() { return detW - 16; }
     protected int detailsX()     { return detX() + 8; }
 
-    protected void detailsEmpty(GuiGraphics ctx, String message) {
+    protected void detailsEmpty(GuiGraphicsExtractor ctx, String message) {
         int at = bodyY() + 8;
         for (String line : Ui.wrap(tr, message, detailsInner(), 4)) {
             Draw.text(ctx, tr, line, detailsX(), at, Theme.TEXT_FAINT, false);
@@ -184,10 +184,10 @@ abstract class PickerPanel {
         }
     }
 
-    protected int detailsHead(GuiGraphics ctx, ItemStack icon, String name,
+    protected int detailsHead(GuiGraphicsExtractor ctx, ItemStack icon, String name,
                               String subtitle, int subtitleColor) {
         int inner = detailsInner(), tx = detailsX(), at = bodyY() + 8;
-        ctx.renderItem(icon, tx, at);
+        ctx.item(icon, tx, at);
         List<String> lines = Ui.wrap(tr, name, inner - 22, 3);
         for (int i = 0; i < lines.size(); i++)
             Draw.text(ctx, tr, lines.get(i), tx + 22, at + 1 + i * 10, Theme.TEXT, false);
@@ -206,11 +206,11 @@ abstract class PickerPanel {
 
     protected int footY2() { return footY() + (FOOT_H - 16) / 2; }
 
-    protected void drawFooterLeft(GuiGraphics ctx, int mouseX, int mouseY, int room) {
+    protected void drawFooterLeft(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int room) {
         Draw.textFit(ctx, tr, footerHint(), x + PAD, footY2() + 4, room, Theme.TEXT_FAINT, false);
     }
 
-    private void drawFooter(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawFooter(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int fy = footY2(), fw = finishW();
         drawFooterLeft(ctx, mouseX, mouseY, w - 2 * PAD - fw - 74);
         Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - fw, fy, fw, 16, finishLabel(), Ui.ACCENT,

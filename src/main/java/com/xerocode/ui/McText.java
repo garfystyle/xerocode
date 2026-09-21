@@ -29,8 +29,8 @@ public final class McText {
     static {
         for (char c : "0123456789abcdef".toCharArray()) {
             ChatFormatting f = ChatFormatting.getByCode(c);
-            if (f == null || f.getColor() == null) continue;
-            COLOURS.add(new Colour(c, f.getName(), f.getColor(), f));
+            if (f == null || rgb(f) == null) continue;
+            COLOURS.add(new Colour(c, f.name().toLowerCase(java.util.Locale.ROOT), rgb(f), f));
         }
     }
 
@@ -209,9 +209,14 @@ public final class McText {
         buf.setLength(0);
     }
 
+    public static Integer rgb(ChatFormatting f) {
+        TextColor t = TextColor.fromLegacyFormat(f);
+        return t == null ? null : t.getValue();
+    }
+
     private static Style applyLegacy(Style style, ChatFormatting f) {
         if (f == ChatFormatting.RESET) return Style.EMPTY;
-        if (f.isColor()) return Style.EMPTY.withColor(f);
+        if (rgb(f) != null) return Style.EMPTY.withColor(f);
         return style.applyFormat(f);
     }
 

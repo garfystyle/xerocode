@@ -13,7 +13,7 @@ import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
@@ -176,7 +176,7 @@ public final class SettingsPanel {
     private final Ui.Bar bar = new Ui.Bar();
     private int lastMx, lastMy;
 
-    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         lastMx = mouseX;
         lastMy = mouseY;
         Ui.dim(ctx, screenW, screenH);
@@ -213,7 +213,7 @@ public final class SettingsPanel {
                 "Готово", Ui.ACCENT);
     }
 
-    private void drawKeys(GuiGraphics ctx, int mouseX, int mouseY, int top) {
+    private void drawKeys(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int top) {
         Hot[] all = Hot.values();
         for (int i = 0; i < all.length; i++) {
             Hot hot = all[i];
@@ -232,7 +232,7 @@ public final class SettingsPanel {
                 x + PAD, hintY, W - PAD * 2, Theme.TEXT_FAINT, false);
     }
 
-    private void drawLook(GuiGraphics ctx, int mouseX, int mouseY, int top) {
+    private void drawLook(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int top) {
         drawPreview(ctx, x + PAD, top, W - PAD * 2, PREVIEW_H, mouseX, mouseY);
         int rowsTop = top + PREVIEW_H + 10;
         for (Row r : rows) {
@@ -247,7 +247,7 @@ public final class SettingsPanel {
         }
     }
 
-    private void drawPreview(GuiGraphics ctx, int px, int py, int pw, int ph, int mouseX, int mouseY) {
+    private void drawPreview(GuiGraphicsExtractor ctx, int px, int py, int pw, int ph, int mouseX, int mouseY) {
         Ui.well(ctx, px, py, pw, ph);
         ctx.enableScissor(px + 1, py + 1, px + pw - 1, py + ph - 1);
         drawPreviewGrid(ctx, px + 1, py + 1, pw - 2, ph - 2);
@@ -266,7 +266,7 @@ public final class SettingsPanel {
         ctx.disableScissor();
     }
 
-    private void drawPreviewGrid(GuiGraphics ctx, int gx, int gy, int gw, int gh) {
+    private void drawPreviewGrid(GuiGraphicsExtractor ctx, int gx, int gy, int gw, int gh) {
         if (s.grid == Settings.GRID_NONE) return;
         int step = 13;
         for (int i = 0; gx + i * step < gx + gw; i++) {
@@ -286,7 +286,7 @@ public final class SettingsPanel {
         }
     }
 
-    private void drawPreviewBlock(GuiGraphics ctx, int bx, int by) {
+    private void drawPreviewBlock(GuiGraphicsExtractor ctx, int bx, int by) {
         Catalog.Category cat = Catalog.category("Событие игрока");
         int base = cat == null ? 0x44EBF1 : cat.color;
         boolean grad = s.gradient;
@@ -308,7 +308,7 @@ public final class SettingsPanel {
         Draw.pillGrad(ctx, bx + 8, by + 20, 58, 9, chipTop, chipBottom);
     }
 
-    private int collab(GuiGraphics ctx, int mouseX, int mouseY, int top,
+    private int collab(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int top,
                        MouseButtonEvent click, boolean doubled, double cx, double cy) {
         boolean act = click != null;
         int inner = W - PAD * 2;
@@ -404,7 +404,7 @@ public final class SettingsPanel {
                 Ui.button(ctx, tr, mouseX, mouseY, lx + fieldW + 6, rowY, goW, ROW_H, "Войти",
                         Ui.GHOST, full);
                 if (codeField != null) {
-                    codeField.render(ctx, mouseX, mouseY, 0);
+                    codeField.extractRenderState(ctx, mouseX, mouseY, 0);
                     Ui.placeholder(ctx, tr, codeField);
                 }
                 Draw.textFit(ctx, tr, "полотно заменится кодом комнаты, копия — в файле",
@@ -425,7 +425,7 @@ public final class SettingsPanel {
                 nameField.setX(lx + 7);
                 nameField.setY(nameY + (ROW_H - Ui.TEXT_H) / 2);
                 Ui.width(nameField, inner - 12);
-                nameField.render(ctx, mouseX, mouseY, 0);
+                nameField.extractRenderState(ctx, mouseX, mouseY, 0);
                 Ui.placeholder(ctx, tr, nameField);
             }
         } else if (act && Ui.hit(cx, cy, lx, nameY, inner, ROW_H)) {
@@ -480,7 +480,7 @@ public final class SettingsPanel {
 
     private int pickerH() { return SV_H + HUE_H + 12 + ROW_H + 8; }
 
-    private void drawColors(GuiGraphics ctx, int mouseX, int mouseY, float delta, int top) {
+    private void drawColors(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, int top) {
         int resetW = Ui.buttonW(tr, "Сбросить всё");
         int presetW = Ui.buttonW(tr, "Классические");
         Ui.button(ctx, tr, mouseX, mouseY, x + PAD, top, resetW, BTN_H, "Сбросить всё", Ui.GHOST,
@@ -513,7 +513,7 @@ public final class SettingsPanel {
         }
     }
 
-    private void drawPicker(GuiGraphics ctx, int mouseX, int mouseY, float delta, int py,
+    private void drawPicker(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, int py,
                             Catalog.Category cat) {
         int lx = x + PAD;
         Ui.svSquare(ctx, lx, py, SV_W, SV_H, pickH, pickS, pickV, 3);
@@ -528,7 +528,7 @@ public final class SettingsPanel {
             hexField.setX(rx + 13);
             hexField.setY(py + 26 + (ROW_H - Ui.TEXT_H) / 2);
             Ui.width(hexField, rw - 19);
-            hexField.render(ctx, mouseX, mouseY, delta);
+            hexField.extractRenderState(ctx, mouseX, mouseY, delta);
             Ui.placeholder(ctx, tr, hexField);
         }
         Ui.button(ctx, tr, mouseX, mouseY, rx, py + 26 + ROW_H + 4, rw, ROW_H, "Вернуть",
@@ -677,9 +677,8 @@ public final class SettingsPanel {
     }
 
     private void openHexField(int rgb) {
-        hexField = Ui.field(tr, 0, 0, 40, 10, "RRGGBB");
+        hexField = Ui.hexField(tr, 0, 0, 40, 10, "RRGGBB");
         hexField.setMaxLength(6);
-        hexField.setFilter(t -> t.chars().allMatch(c -> Character.digit(c, 16) >= 0));
         hexField.setValue(String.format("%06X", rgb));
         hexField.setResponder(t -> {
             if (syncing || t.length() != 6 || openColor < 0) return;

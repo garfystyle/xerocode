@@ -6,7 +6,7 @@ import com.xerocode.Settings;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 
 public final class Peers {
@@ -100,7 +100,7 @@ public final class Peers {
         return POOL.get(shown++);
     }
 
-    public static void render(GuiGraphics ctx, Font tr, Script script, Layout layout,
+    public static void render(GuiGraphicsExtractor ctx, Font tr, Script script, Layout layout,
                               ScreenRectangle area, int left, int top, double panX, double panY,
                               double zoom, int width, int height) {
         if (Collab.peerCount() == 0 || !Collab.live() || !Settings.get().collabCursors) return;
@@ -156,7 +156,7 @@ public final class Peers {
         }
     }
 
-    private static void held(GuiGraphics ctx, Script script, Layout layout, Collab.Peer peer,
+    private static void held(GuiGraphicsExtractor ctx, Script script, Layout layout, Collab.Peer peer,
                              int left, int top, double panX, double panY, double zoom) {
         if (peer.holding.isEmpty() || script == null || layout == null) return;
         Script.Root root = script.rootById(peer.holding);
@@ -172,7 +172,7 @@ public final class Peers {
         Draw.roundOutline(ctx, x0, y0, x1 - x0, y1 - y0, 4, Draw.argb(0xCC, peer.ink));
     }
 
-    private static void arrow(GuiGraphics ctx, int x, int y, int ink) {
+    private static void arrow(GuiGraphicsExtractor ctx, int x, int y, int ink) {
         int edge = Draw.argb(0xC8, 0x000000);
         for (int i = 0; i < EDGE.length; i += 3)
             Draw.rect(ctx, x + EDGE[i], y + EDGE[i + 1], EDGE[i + 2], 1, edge);

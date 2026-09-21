@@ -1,16 +1,33 @@
 # xerocode
 
-Клиентский Fabric-мод для Minecraft 1.21.11 — визуальный редактор кода JustMC Creative+.
+Клиентский Fabric-мод для Minecraft 26.2 (имена Mojang, без маппингов) — визуальный редактор кода JustMC Creative+.
 Блоки кода рисуются на 2D-полотне, читаются из мира (`/dev`) и отправляются обратно на сервер.
 
 ## Сборка
 
+macOS:
+
 ```
-JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew build
+JAVA_HOME=/opt/homebrew/opt/openjdk@25 ./gradlew build
 ```
 
-Java не в PATH — `JAVA_HOME` задавать обязательно. Jar появляется в `build/libs/`.
-Версия мода — `mod_version` в `gradle.properties`.
+Windows (Git Bash):
+
+```
+./gradlew build --offline -q
+```
+
+Java не в PATH ни там, ни там, но добираются до неё по-разному: на маке `JAVA_HOME` задаётся
+обязательно, на винде JDK 25 (`C:\Program Files\Eclipse Adoptium\jdk-25.0.2.10-hotspot`) gradle
+находит сам через toolchain. `--offline` нужен, когда сети нет: все зависимости уже в кеше.
+Первый запуск обёртки качает сам gradle 9.6.1 — один раз и с сетью.
+
+Сборка идёт **без единого предупреждения** (`-Xlint:deprecation` включён в `build.gradle`);
+появилось предупреждение — это регресс, а не фон.
+
+Jar появляется в `build/libs/`, версия мода — `mod_version` в `gradle.properties`. Собрал —
+сразу копируй в папку `mods/` инстанса Fabric, под настоящим именем; старый jar убирать
+**только при закрытом клиенте** (два jar с одним id — «Duplicate mod ID»).
 
 ## Стиль кода
 

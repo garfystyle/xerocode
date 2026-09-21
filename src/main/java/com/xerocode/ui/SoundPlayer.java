@@ -3,7 +3,7 @@ package com.xerocode.ui;
 import com.xerocode.Audio;
 import com.xerocode.Value;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.KeyEvent;
 import org.lwjgl.glfw.GLFW;
 
@@ -56,12 +56,12 @@ public final class SoundPlayer implements CatalogPicker.Extra {
         return new Bar(row, left, left + BTN + 3, loopX, barX, barW, y + h / 2 - 2, clockRight);
     }
 
-    public void render(GuiGraphics ctx, int x, int y, int w, int h, int mouseX, int mouseY) {
+    public void render(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int mouseX, int mouseY) {
         render(ctx, x, y, w, h, mouseX, mouseY, false);
     }
 
     @Override
-    public void render(GuiGraphics ctx, int x, int y, int w, int h, int mouseX, int mouseY,
+    public void render(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int mouseX, int mouseY,
                        boolean flush) {
         hint = null;
         Audio.want(bound);
@@ -97,7 +97,7 @@ public final class SoundPlayer implements CatalogPicker.Extra {
         }
     }
 
-    private void drawTrack(GuiGraphics ctx, Bar b, int mouseX, int mouseY, int accent, int textY) {
+    private void drawTrack(GuiGraphicsExtractor ctx, Bar b, int mouseX, int mouseY, int accent, int textY) {
         double duration = Audio.duration();
         double position = Audio.position();
         boolean hot = dragging || Ui.hit(mouseX, mouseY, b.barX() - 3, b.barY() - 6,

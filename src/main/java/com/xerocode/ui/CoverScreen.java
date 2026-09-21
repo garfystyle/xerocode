@@ -1,6 +1,6 @@
 package com.xerocode.ui;
 
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -42,7 +42,7 @@ public final class CoverScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void extractRenderState(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         frames++;
         Draw.rect(ctx, 0, 0, width, height, Draw.opaque(Theme.CANVAS));
         int y = height / 2 - 4;

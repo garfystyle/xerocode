@@ -6,7 +6,7 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.world.item.ItemStack;
 
@@ -146,7 +146,7 @@ public final class BlockMenu {
         r.act.run();
     }
 
-    public void render(GuiGraphics ctx, int mouseX, int mouseY) {
+    public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (mouseX != lastMx || mouseY != lastMy) {
             lastMx = mouseX;
             lastMy = mouseY;
@@ -163,7 +163,7 @@ public final class BlockMenu {
 
         int textX = x + ICON_X;
         if (!stack.isEmpty()) {
-            ctx.renderItem(stack, x + ICON_X - 1, y + (HEAD_H - 16) / 2);
+            ctx.item(stack, x + ICON_X - 1, y + (HEAD_H - 16) / 2);
             textX = x + ICON_X + 16 + 6;
         }
         int room = x + w - EDGE - textX;

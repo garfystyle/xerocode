@@ -7,7 +7,7 @@ import com.xerocode.Market;
 import com.xerocode.Script;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -95,7 +95,7 @@ public final class MarketForm extends MarketPanel {
     }
 
     @Override
-    public void draw(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void draw(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         Draw.rect(ctx, x, y, w, h, Draw.opaque(Ui.WELL));
         hits.clear();
         int col = columnW();
@@ -162,7 +162,7 @@ public final class MarketForm extends MarketPanel {
         return m;
     }
 
-    private void drawShowcase(GuiGraphics ctx, int sx, int sy, int sw) {
+    private void drawShowcase(GuiGraphicsExtractor ctx, int sx, int sy, int sw) {
         int pad = 14;
         int cardW = Math.max(150, Math.min(MarketArt.CARD_MIN + 40, sw - pad * 2));
         int cx = sx + (sw - cardW) / 2;
@@ -177,18 +177,18 @@ public final class MarketForm extends MarketPanel {
         return used > max - 12 ? (max - used) + "" : "";
     }
 
-    private int drawDescr(GuiGraphics ctx, int at, int mouseX, int mouseY, float delta) {
+    private int drawDescr(GuiGraphicsExtractor ctx, int at, int mouseX, int mouseY, float delta) {
         int room = fieldW();
         caption(ctx, "Описание", at, descr.getValue().length() + "/" + DESC_MAX);
         at += LABEL;
         Ui.input(ctx, fieldX(), at, room, 66, descr.isFocused());
         descr.setPosition(fieldX() + 5, at + 3);
-        descr.render(ctx, mouseX, mouseY, delta);
+        descr.extractRenderState(ctx, mouseX, mouseY, delta);
         hits.add(new Hit("descr", fieldX(), at, room, 66));
         return at + 66 + GAP;
     }
 
-    private int drawCats(GuiGraphics ctx, int at, int mouseX, int mouseY) {
+    private int drawCats(GuiGraphicsExtractor ctx, int at, int mouseX, int mouseY) {
         List<String> all = Market.categories();
         if (all.isEmpty()) return at;
         if (cat.isEmpty() || !all.contains(cat)) cat = firstCat();
@@ -202,7 +202,7 @@ public final class MarketForm extends MarketPanel {
         return at + chips.height() + GAP;
     }
 
-    private int drawSource(GuiGraphics ctx, int at, int mouseX, int mouseY) {
+    private int drawSource(GuiGraphicsExtractor ctx, int at, int mouseX, int mouseY) {
         List<String> modes = new ArrayList<>();
         if (editing != null) modes.add("Не менять");
         modes.add("С холста");
@@ -262,7 +262,7 @@ public final class MarketForm extends MarketPanel {
         };
     }
 
-    private int drawIcon(GuiGraphics ctx, int at, int mouseX, int mouseY) {
+    private int drawIcon(GuiGraphicsExtractor ctx, int at, int mouseX, int mouseY) {
         caption(ctx, "Значок", at, null);
         at += LABEL;
         MarketArt.avatar(ctx, icon, fieldX(), at, 34, MarketArt.catColor(cat),
@@ -274,7 +274,7 @@ public final class MarketForm extends MarketPanel {
         return at + 34 + GAP;
     }
 
-    private int drawBanner(GuiGraphics ctx, int at, int mouseX, int mouseY) {
+    private int drawBanner(GuiGraphicsExtractor ctx, int at, int mouseX, int mouseY) {
         caption(ctx, "Полоса", at, null);
         at += LABEL;
         int bw = Math.min(inner(), 300), bh = 44;

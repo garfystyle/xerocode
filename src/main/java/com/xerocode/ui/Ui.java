@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntConsumer;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
@@ -69,11 +69,11 @@ public final class Ui {
                 scroll - (int) Math.round(amount * 18)));
     }
 
-    public static void dim(GuiGraphics ctx, int screenW, int screenH) {
+    public static void dim(GuiGraphicsExtractor ctx, int screenW, int screenH) {
         Draw.rect(ctx, 0, 0, screenW, screenH, Theme.SCRIM);
     }
 
-    public static void panel(GuiGraphics ctx, int x, int y, int w, int h) {
+    public static void panel(GuiGraphicsExtractor ctx, int x, int y, int w, int h) {
         Draw.shadow(ctx, x, y, w, h, R);
         Draw.card(ctx, x, y, w, h, R, Draw.opaque(PANEL), Draw.opaque(BORDER));
         Draw.rect(ctx, x + 1 + R - 1, y + 1, w - 2 * R, 1, sheen());
@@ -83,29 +83,29 @@ public final class Ui {
         return Theme.LIGHT ? Draw.argb(0x14, 0xFFFFFF) : Draw.argb(0x22, 0xFFFFFF);
     }
 
-    public static void headerStrip(GuiGraphics ctx, int x, int y, int w, int h, int accent) {
+    public static void headerStrip(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int accent) {
         Draw.roundRectGrad(ctx, x + 1, y + 1, w - 2, h - 1, R - 1, R - 1, 0, 0,
                 Draw.opaque(Draw.mix(HEAD, accent, 0.10f)), Draw.opaque(HEAD));
         Draw.rect(ctx, x + 1 + R - 1, y + 1, w - 2 * R, 1, sheen());
     }
 
-    public static void well(GuiGraphics ctx, int x, int y, int w, int h) {
+    public static void well(GuiGraphicsExtractor ctx, int x, int y, int w, int h) {
         Draw.card(ctx, x, y, w, h, R_SM, Draw.opaque(WELL), Draw.opaque(LINE_IN));
     }
 
-    public static void hairline(GuiGraphics ctx, int x, int y, int w) {
+    public static void hairline(GuiGraphicsExtractor ctx, int x, int y, int w) {
         Draw.rect(ctx, x, y, w, 1, Draw.opaque(LINE));
     }
 
-    public static void vline(GuiGraphics ctx, int x, int y, int h) {
+    public static void vline(GuiGraphicsExtractor ctx, int x, int y, int h) {
         Draw.rect(ctx, x, y, 1, h, Draw.opaque(LINE));
     }
 
-    public static void caption(GuiGraphics ctx, Font tr, String s, int x, int y, int w) {
+    public static void caption(GuiGraphicsExtractor ctx, Font tr, String s, int x, int y, int w) {
         Draw.textFit(ctx, tr, s, x, y, w, Theme.TEXT_FAINT, false);
     }
 
-    public static void caption(GuiGraphics ctx, Font tr, String s, int x, int y,
+    public static void caption(GuiGraphicsExtractor ctx, Font tr, String s, int x, int y,
                                int w, String note) {
         Draw.textFit(ctx, tr, s, x, y, w - tr.width(note) - 6, Theme.TEXT_FAINT, false);
         if (!note.isEmpty()) Draw.textRight(ctx, tr, note, x + w, y, Theme.TEXT_FAINT, false);
@@ -113,6 +113,23 @@ public final class Ui {
 
     public static EditBox field(Font tr, int x, int y, int w, int h, String hint) {
         EditBox f = new EditBox(tr, x, y, w, h, Component.literal(hint));
+        f.setBordered(false);
+        f.setTextShadow(false);
+        f.setTextColor(Draw.opaque(Theme.TEXT));
+        return f;
+    }
+
+    public static EditBox hexField(Font tr, int x, int y, int w, int h, String hint) {
+        EditBox f = new EditBox(tr, x, y, w, h, Component.literal(hint)) {
+            @Override
+            public void insertText(String text) {
+                StringBuilder kept = new StringBuilder();
+                for (int i = 0; i < text.length(); i++) {
+                    if (Character.digit(text.charAt(i), 16) >= 0) kept.append(text.charAt(i));
+                }
+                super.insertText(kept.toString());
+            }
+        };
         f.setBordered(false);
         f.setTextShadow(false);
         f.setTextColor(Draw.opaque(Theme.TEXT));
@@ -133,14 +150,14 @@ public final class Ui {
         f.moveCursorTo(f.getCursorPosition(), false);
     }
 
-    public static void placeholder(GuiGraphics ctx, Font tr, EditBox f) {
+    public static void placeholder(GuiGraphicsExtractor ctx, Font tr, EditBox f) {
         if (f == null || !f.getValue().isEmpty() || f.isFocused()) return;
         String hint = f.getMessage().getString();
         if (hint.isEmpty()) return;
         Draw.textFit(ctx, tr, hint, f.getX(), f.getY(), f.getWidth() - 2, Theme.TEXT_FAINT, false);
     }
 
-    public static void input(GuiGraphics ctx, int x, int y, int w, int h, boolean focused) {
+    public static void input(GuiGraphicsExtractor ctx, int x, int y, int w, int h, boolean focused) {
         Audit.role("input");
         Draw.card(ctx, x, y, w, h, R_SM, Draw.opaque(INPUT),
                 Draw.opaque(focused ? Theme.ACCENT : LINE_IN));
@@ -166,7 +183,7 @@ public final class Ui {
         };
     }
 
-    private static void controlFace(GuiGraphics ctx, int x, int y, int w, int h,
+    private static void controlFace(GuiGraphicsExtractor ctx, int x, int y, int w, int h,
                                     int fill, boolean hov, boolean strong) {
         int r = Settings.radius(h);
         if (!Settings.outlined()) {
@@ -178,7 +195,7 @@ public final class Ui {
                 Draw.opaque(Draw.shade(fill, strong || hov ? 0.62f : 0.42f)));
     }
 
-    public static boolean button(GuiGraphics ctx, Font tr, int mx, int my,
+    public static boolean button(GuiGraphicsExtractor ctx, Font tr, int mx, int my,
                                  int x, int y, int w, int h, String label, int kind,
                                  boolean enabled) {
         boolean hov = enabled && hit(mx, my, x, y, w, h);
@@ -190,12 +207,12 @@ public final class Ui {
         return hov;
     }
 
-    public static boolean button(GuiGraphics ctx, Font tr, int mx, int my,
+    public static boolean button(GuiGraphicsExtractor ctx, Font tr, int mx, int my,
                                  int x, int y, int w, int h, String label, int kind) {
         return button(ctx, tr, mx, my, x, y, w, h, label, kind, true);
     }
 
-    public static boolean glyphButton(GuiGraphics ctx, Font tr, int mx, int my,
+    public static boolean glyphButton(GuiGraphicsExtractor ctx, Font tr, int mx, int my,
                                       int x, int y, int w, int h, String[] glyph, String label,
                                       int kind, boolean enabled) {
         boolean hov = enabled && hit(mx, my, x, y, w, h);
@@ -212,7 +229,7 @@ public final class Ui {
         return hov;
     }
 
-    public static boolean iconButton(GuiGraphics ctx, int mx, int my, int x, int y, int size,
+    public static boolean iconButton(GuiGraphicsExtractor ctx, int mx, int my, int x, int y, int size,
                                      String[] glyph, int kind, boolean enabled) {
         boolean hov = enabled && hit(mx, my, x, y, size, size);
         Audit.role("icon");
@@ -223,7 +240,7 @@ public final class Ui {
         return hov;
     }
 
-    public static boolean closeButton(GuiGraphics ctx, int mx, int my, int x, int y, int size) {
+    public static boolean closeButton(GuiGraphicsExtractor ctx, int mx, int my, int x, int y, int size) {
         boolean hov = hit(mx, my, x, y, size, size);
         Audit.role("icon");
         controlFace(ctx, x, y, size, size, hov ? DANGER_BG : Theme.SURFACE, hov, hov);
@@ -233,7 +250,7 @@ public final class Ui {
         return hov;
     }
 
-    public static void chip(GuiGraphics ctx, Font tr, int x, int y, int w, int h,
+    public static void chip(GuiGraphicsExtractor ctx, Font tr, int x, int y, int w, int h,
                             String label, boolean on, boolean hov, int accent) {
         Audit.role("chip");
         controlFace(ctx, x, y, w, h,
@@ -245,7 +262,7 @@ public final class Ui {
         Audit.clearRole();
     }
 
-    public static int segmented(GuiGraphics ctx, Font tr, int mx, int my,
+    public static int segmented(GuiGraphicsExtractor ctx, Font tr, int mx, int my,
                                 int x, int y, int w, int h, List<String> labels, int active,
                                 int accent) {
         Draw.round(ctx, x, y, w, h, Settings.radius(h), Draw.opaque(WELL));
@@ -281,7 +298,7 @@ public final class Ui {
         return n - 1;
     }
 
-    public static boolean toggle(GuiGraphics ctx, Font tr, int mx, int my,
+    public static boolean toggle(GuiGraphicsExtractor ctx, Font tr, int mx, int my,
                                  int x, int y, int w, int h, String label, boolean on) {
         boolean hov = hit(mx, my, x, y, w, h);
         controlFace(ctx, x, y, w, h, hov ? BTN_HOVER : BTN, hov, false);
@@ -322,7 +339,7 @@ public final class Ui {
             scroll = scrolled(scroll, contentH, bottom, amount);
         }
 
-        public void drawBar(GuiGraphics ctx, Bar bar, int barX, int panelY, double mx, double my) {
+        public void drawBar(GuiGraphicsExtractor ctx, Bar bar, int barX, int panelY, double mx, double my) {
             bar.draw(ctx, barX, panelY + top + 2, viewH() - 4, contentH - top,
                     viewH() - 4, scroll, mx, my);
         }
@@ -351,7 +368,7 @@ public final class Ui {
         private boolean dragging;
         private int grab;
 
-        public void draw(GuiGraphics ctx, int x, int y, int trackH,
+        public void draw(GuiGraphicsExtractor ctx, int x, int y, int trackH,
                          int contentH, int viewH, int scroll, double mx, double my) {
             this.x = x;
             this.y = y;
@@ -406,7 +423,7 @@ public final class Ui {
         public void release() { dragging = false; }
     }
 
-    public static void svSquare(GuiGraphics ctx, int x, int y, int w, int h,
+    public static void svSquare(GuiGraphicsExtractor ctx, int x, int y, int w, int h,
                                 float hue, float s, float v, int ring) {
         for (int i = 0; i < w; i++)
             ctx.fillGradient(x + i, y, x + i + 1, y + h,
@@ -420,7 +437,7 @@ public final class Ui {
                 Draw.opaque(0xFFFFFF));
     }
 
-    public static void hueBar(GuiGraphics ctx, int x, int y, int w, int h, float hue) {
+    public static void hueBar(GuiGraphicsExtractor ctx, int x, int y, int w, int h, float hue) {
         for (int i = 0; i < w; i++)
             Draw.rect(ctx, x + i, y, 1, h,
                     Draw.opaque(McText.hsvRgb(i / (float) (w - 1), 1f, 1f)));
@@ -432,7 +449,7 @@ public final class Ui {
 
     public static final int SL_HUE = 0, SL_SAT = 1, SL_VAL = 2;
 
-    public static void hsvSlider(GuiGraphics ctx, int x, int y, int w, int h, int kind,
+    public static void hsvSlider(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int kind,
                                  float hue, float s, float v, boolean hot) {
         if (w <= 1 || h <= 0) return;
         for (int i = 0; i < w; i++) {
@@ -451,7 +468,7 @@ public final class Ui {
         Draw.rect(ctx, kx - 1, y - 1, 3, h + 2, Draw.opaque(hot ? Theme.ACCENT : 0xFFFFFF));
     }
 
-    public static void swatch(GuiGraphics ctx, int x, int y, int w, int h, int rgb,
+    public static void swatch(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int rgb,
                              boolean enabled, boolean hov) {
         Draw.round(ctx, x, y, w, h, 3, Draw.opaque(Draw.shade(rgb, -0.55f)));
         Draw.round(ctx, x + 1, y + 1, w - 2, h - 2, 2,
@@ -562,7 +579,7 @@ public final class Ui {
             return -1;
         }
 
-        public void render(GuiGraphics ctx, Font tr, int mx, int my, int ox, int oy,
+        public void render(GuiGraphicsExtractor ctx, Font tr, int mx, int my, int ox, int oy,
                            int active, int accent) {
             for (Cell c : cells) {
                 int cx = ox + c.dx(), cy = oy + c.dy();
@@ -571,7 +588,7 @@ public final class Ui {
             }
         }
 
-        public void render(GuiGraphics ctx, Font tr, int mx, int my, int ox, int oy,
+        public void render(GuiGraphicsExtractor ctx, Font tr, int mx, int my, int ox, int oy,
                            boolean[] active, int accent) {
             for (Cell c : cells) {
                 int cx = ox + c.dx(), cy = oy + c.dy();

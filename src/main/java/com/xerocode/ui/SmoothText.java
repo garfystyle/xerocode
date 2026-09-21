@@ -3,11 +3,11 @@ package com.xerocode.ui;
 import com.xerocode.Settings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.font.TextRenderable;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.render.TextureSetup;
-import net.minecraft.client.gui.render.state.GuiElementRenderState;
+import net.minecraft.client.renderer.state.gui.GuiElementRenderState;
 import net.minecraft.util.FormattedCharSequence;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -27,7 +27,7 @@ public final class SmoothText {
 
     public static void clip(ScreenRectangle area) { clip = area; }
 
-    public static boolean draw(GuiGraphics ctx, Font tr, FormattedCharSequence text,
+    public static boolean draw(GuiGraphicsExtractor ctx, Font tr, FormattedCharSequence text,
                                int x, int y, int argb, boolean shadow) {
         if (!smoothing(ctx)) return false;
         try {
@@ -38,7 +38,7 @@ public final class SmoothText {
         }
     }
 
-    public static boolean draw(GuiGraphics ctx, Font tr, String text,
+    public static boolean draw(GuiGraphicsExtractor ctx, Font tr, String text,
                                int x, int y, int argb, boolean shadow) {
         if (!smoothing(ctx)) return false;
         try {
@@ -49,7 +49,7 @@ public final class SmoothText {
         }
     }
 
-    private static boolean smoothing(GuiGraphics ctx) {
+    private static boolean smoothing(GuiGraphicsExtractor ctx) {
         if (broken || clip == null || !Settings.smoothText()) return false;
         var m = ctx.pose();
         float sx = (float) Math.sqrt(m.m00() * m.m00() + m.m01() * m.m01());
@@ -58,7 +58,7 @@ public final class SmoothText {
         return sx * gs < 0.999f;
     }
 
-    private static boolean submit(GuiGraphics ctx, Font.PreparedText prepared) {
+    private static boolean submit(GuiGraphicsExtractor ctx, Font.PreparedText prepared) {
         Matrix3x2f pose = new Matrix3x2f(ctx.pose());
         ScreenRectangle scissor = clip;
         prepared.visit(new Font.GlyphVisitor() {
@@ -69,7 +69,7 @@ public final class SmoothText {
             public void acceptEffect(TextRenderable rect) { add(rect); }
 
             private void add(TextRenderable drawable) {
-                ctx.guiRenderState.submitGlyphToCurrentLayer(new Glyph(pose, drawable, scissor));
+                ctx.guiRenderState.addGlyphToCurrentLayer(new Glyph(pose, drawable, scissor));
             }
         });
         return true;

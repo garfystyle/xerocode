@@ -7,7 +7,7 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 
@@ -75,7 +75,7 @@ public final class MarketPage implements MarketScreen.Panel {
     }
 
     @Override
-    public void draw(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void draw(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         Draw.rect(ctx, x, y, w, h, Draw.opaque(Ui.WELL));
         drawTop(ctx, mouseX, mouseY);
         int by = y + topH(), bh = h - topH();
@@ -91,7 +91,7 @@ public final class MarketPage implements MarketScreen.Panel {
         drawPreview(ctx, q[0], q[1], q[2], q[3], mouseX, mouseY);
     }
 
-    private void drawTop(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawTop(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         MarketArt.banner(ctx, module.banner, x, y, w, BANNER_H,
                 MarketArt.catColor(module.cat), 0, 0, 0, 0, 0);
         Draw.rect(ctx, x, y + BANNER_H - 34, w, 34, Draw.argb(0x88, 0x000000));
@@ -137,7 +137,7 @@ public final class MarketPage implements MarketScreen.Panel {
 
     private int likeX() { return x + w - PAD - likeW(); }
 
-    private void drawLike(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawLike(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int lx = likeX(), ly = y + BANNER_H - 26, lw = likeW();
         boolean hot = Ui.hit(mouseX, mouseY, lx, ly, lw, LIKE_H);
         Draw.round(ctx, lx, ly, lw, LIKE_H, 6, Draw.argb(hot ? 0xCC : 0x88, 0x000000));
@@ -167,7 +167,7 @@ public final class MarketPage implements MarketScreen.Panel {
         return n * 11 + 46 + (module.tags.isEmpty() ? 0 : 20);
     }
 
-    private void drawInfo(GuiGraphics ctx, int ix, int iy, int iw, int ih,
+    private void drawInfo(GuiGraphicsExtractor ctx, int ix, int iy, int iw, int ih,
                           int mouseX, int mouseY) {
         int room = iw - PAD * 2 - 6;
         if (room < 40 || ih < 30) return;
@@ -212,7 +212,7 @@ public final class MarketPage implements MarketScreen.Panel {
 
     private int retryW() { return Ui.buttonW(tr, "Ещё раз"); }
 
-    private void drawPreview(GuiGraphics ctx, int qx, int qy, int qw, int qh,
+    private void drawPreview(GuiGraphicsExtractor ctx, int qx, int qy, int qw, int qh,
                              int mouseX, int mouseY) {
         int stageH = qh - FOOTER;
         stage.place(qx, qy, qw, stageH);
@@ -262,7 +262,7 @@ public final class MarketPage implements MarketScreen.Panel {
 
     private int lookW() { return Ui.buttonW(tr, "Осмотр"); }
 
-    private void drawButtons(GuiGraphics ctx, int bx, int by, int bw, int mouseX, int mouseY) {
+    private void drawButtons(GuiGraphicsExtractor ctx, int bx, int by, int bw, int mouseX, int mouseY) {
         Ui.hairline(ctx, bx, by, bw);
         int cy = by + 5;
         int pw = packW(), lw = lookW();

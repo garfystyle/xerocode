@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.ItemStack;
@@ -177,7 +177,7 @@ public final class Menu {
     private int confirmX() { return x + 6 + ALL_W + 5; }
     private int confirmW() { return x + w - 6 - confirmX(); }
 
-    private static void tickBox(GuiGraphics ctx, int x, int y, boolean on, boolean hov) {
+    private static void tickBox(GuiGraphicsExtractor ctx, int x, int y, boolean on, boolean hov) {
         Draw.round(ctx, x, y, TICK, TICK, 2, Draw.opaque(on ? Theme.ACCENT : Ui.WELL));
         Draw.roundOutline(ctx, x, y, TICK, TICK, 2,
                 Draw.opaque(on ? Draw.shade(Theme.ACCENT, -0.30f) : hov ? Ui.BORDER : Ui.LINE_IN));
@@ -190,7 +190,7 @@ public final class Menu {
     public boolean isClosed() { return closed; }
     public void close() { closed = true; }
 
-    public void render(GuiGraphics ctx, Font tr, int mouseX, int mouseY) {
+    public void render(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY) {
         lastMx = mouseX;
         lastMy = mouseY;
         Draw.shadow(ctx, x, y, w, h, 5);
@@ -226,7 +226,7 @@ public final class Menu {
                 if (i > 0) Draw.rect(ctx, x + 6, iy - 1, w - 12, 1, Draw.opaque(Ui.LINE));
                 if (multi()) tickBox(ctx, x + 7, iy + (rh - TICK) / 2, ticked[i], i == hovered);
                 if (it.stack != null && !it.stack.isEmpty())
-                    ctx.renderItem(it.stack, x + (multi() ? 6 + TICK_W : 6), iy + (rh - 16) / 2);
+                    ctx.item(it.stack, x + (multi() ? 6 + TICK_W : 6), iy + (rh - 16) / 2);
                 int right = x + w - 8;
                 if (i == checked) {
                     Draw.glyph(ctx, Draw.CHECK, right - Draw.glyphW(Draw.CHECK), nameY + 1,
@@ -269,7 +269,7 @@ public final class Menu {
         if (multi()) drawFoot(ctx, tr, mouseX, mouseY, ticks);
     }
 
-    private void drawFoot(GuiGraphics ctx, Font tr, int mouseX, int mouseY, int ticks) {
+    private void drawFoot(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY, int ticks) {
         Draw.rect(ctx, x + 6, y + h - FOOT_H, w - 12, 1, Draw.opaque(Ui.LINE));
         String confirm = multi.confirm();
         Ui.button(ctx, tr, mouseX, mouseY, x + 6, footY(), ALL_W, footBtnH(),

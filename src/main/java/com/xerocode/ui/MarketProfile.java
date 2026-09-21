@@ -8,7 +8,7 @@ import com.xerocode.MarketId;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.MouseButtonEvent;
 
@@ -43,7 +43,7 @@ public final class MarketProfile extends MarketPanel {
     protected void placed() { Ui.width(bio, fieldW() - 10); }
 
     @Override
-    public void draw(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void draw(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         seed();
         Draw.rect(ctx, x, y, w, h, Draw.opaque(Ui.WELL));
         hits.clear();
@@ -72,7 +72,7 @@ public final class MarketProfile extends MarketPanel {
         }
     }
 
-    private void drawJoin(GuiGraphics ctx, int at, int mouseX, int mouseY) {
+    private void drawJoin(GuiGraphicsExtractor ctx, int at, int mouseX, int mouseY) {
         Draw.textFit(ctx, tr, Market.joining() ? "завожу аккаунт…" : "аккаунта пока нет",
                 fieldX(), at, inner(), Theme.TEXT_DIM, false);
         at += 16;
@@ -90,7 +90,7 @@ public final class MarketProfile extends MarketPanel {
         content = at + ROW + PAD + scroll - y;
     }
 
-    private void drawSide(GuiGraphics ctx, int sx, int sy, int sw, Market.Me me) {
+    private void drawSide(GuiGraphicsExtractor ctx, int sx, int sy, int sw, Market.Me me) {
         int pad = 14, room = sw - pad * 2;
         if (room < 80) return;
         int at = sy + pad;
@@ -113,14 +113,14 @@ public final class MarketProfile extends MarketPanel {
         drawQuotas(ctx, at + 8, me, sx + pad, room);
     }
 
-    private void who(GuiGraphics ctx, Market.Me me, int tx, int at, int room) {
+    private void who(GuiGraphicsExtractor ctx, Market.Me me, int tx, int at, int room) {
         Draw.textFit(ctx, tr, me.name, tx, at + 6, room, Theme.TEXT, false);
         if (!me.verified) return;
         int nw = Math.min(room, tr.width(me.name));
         Draw.glyph(ctx, Draw.CHECK, tx + nw + 5, at + 6, Theme.OK);
     }
 
-    private int drawHead(GuiGraphics ctx, int at, Market.Me me) {
+    private int drawHead(GuiGraphicsExtractor ctx, int at, Market.Me me) {
         MarketArt.avatar(ctx, me.icon, me.name, fieldX(), at, 44, Theme.ACCENT, me.name, tr);
         int tx = fieldX() + 54, room = inner() - 60;
         who(ctx, me, tx, at, room);
@@ -133,7 +133,7 @@ public final class MarketProfile extends MarketPanel {
         return at + 44 + GAP;
     }
 
-    private int drawQuotas(GuiGraphics ctx, int at, Market.Me me, int qx, int qw) {
+    private int drawQuotas(GuiGraphicsExtractor ctx, int at, Market.Me me, int qx, int qw) {
         Ui.caption(ctx, tr, "СЕГОДНЯ", qx, at, qw);
         at += LABEL;
         at = meter(ctx, at, qx, qw, "Публикации", me.spent("publish"), me.limit("publish_day"));
@@ -148,7 +148,7 @@ public final class MarketProfile extends MarketPanel {
         return at + 12 + GAP;
     }
 
-    private int meter(GuiGraphics ctx, int at, int qx, int qw, String label, int used, int cap) {
+    private int meter(GuiGraphicsExtractor ctx, int at, int qx, int qw, String label, int used, int cap) {
         String num = used + " / " + cap;
         int nw = tr.width(num);
         Draw.textFit(ctx, tr, label, qx, at, qw - nw - 8, Theme.TEXT_DIM, false);
@@ -162,7 +162,7 @@ public final class MarketProfile extends MarketPanel {
         return at + 12;
     }
 
-    private int drawStanding(GuiGraphics ctx, int at, Market.Me me) {
+    private int drawStanding(GuiGraphicsExtractor ctx, int at, Market.Me me) {
         Ui.caption(ctx, tr, "ИМЯ", fieldX(), at, fieldW());
         at += LABEL;
         Draw.textFit(ctx, tr, me.name, fieldX(), at, fieldW(), Theme.TEXT, false);
@@ -177,7 +177,7 @@ public final class MarketProfile extends MarketPanel {
         return at + GAP;
     }
 
-    private int drawIcon(GuiGraphics ctx, int at, int mouseX, int mouseY) {
+    private int drawIcon(GuiGraphicsExtractor ctx, int at, int mouseX, int mouseY) {
         Ui.caption(ctx, tr, "ЗНАЧОК", fieldX(), at, fieldW());
         at += LABEL;
         Market.Me who = Market.me();
@@ -190,7 +190,7 @@ public final class MarketProfile extends MarketPanel {
         return at + 30 + GAP;
     }
 
-    private int drawFacts(GuiGraphics ctx, int at, Market.Me me, int mouseX, int mouseY) {
+    private int drawFacts(GuiGraphicsExtractor ctx, int at, Market.Me me, int mouseX, int mouseY) {
         Ui.hairline(ctx, fieldX(), at, inner());
         at += 8;
         if (me.admin) {

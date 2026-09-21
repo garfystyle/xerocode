@@ -8,7 +8,7 @@ import com.xerocode.Script;
 import java.nio.file.Path;
 import java.util.List;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.core.BlockPos;
 
 public final class ImportScreen extends DialogScreen {
@@ -87,7 +87,7 @@ public final class ImportScreen extends DialogScreen {
     }
 
     @Override
-    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
+    protected void drawBody(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
         switch (phase) {
             case ASK -> drawAsk(ctx, mouseX, mouseY, x, y, w);
             case RUNNING -> drawRunning(ctx, mouseX, mouseY, x, y, w);
@@ -95,7 +95,7 @@ public final class ImportScreen extends DialogScreen {
         }
     }
 
-    private void drawAsk(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
+    private void drawAsk(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
         if (resumable) {
             Draw.textFit(ctx, font,
                     "Прошлое чтение оборвалось на строке " + (memo.next) + ".", x, y, w,
@@ -133,7 +133,7 @@ public final class ImportScreen extends DialogScreen {
         return paragraphRows(askWhat(), bodyW()) * ROW + GAP + ROW;
     }
 
-    private void drawDivergedAsk(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
+    private void drawDivergedAsk(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
         int at = y + paragraph(ctx, askWhat(), x, y, w, Theme.TEXT) * ROW + GAP;
         Draw.textFit(ctx, font,
                 "в мире " + lines.size() + "   ·   на полотне " + script.roots.size(),
@@ -142,7 +142,7 @@ public final class ImportScreen extends DialogScreen {
         else rowButtons(ctx, mouseX, mouseY, x, w, Ui.ACCENT, KEEP, BESIDE, RELOAD);
     }
 
-    private void drawRunning(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
+    private void drawRunning(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
         int done = scan == null ? 0 : scan.index();
         int total = scan == null ? lines.size() : scan.total();
         float progress = scan == null ? 0 : scan.progress();
@@ -164,7 +164,7 @@ public final class ImportScreen extends DialogScreen {
         buttons(ctx, mouseX, mouseY, x, w, null, CANCEL);
     }
 
-    private void drawDone(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
+    private void drawDone(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
         int blocks = result == null ? 0 : result.blocks;
         int roots = result == null ? 0 : result.lines;
         Draw.textFit(ctx, font,
@@ -320,6 +320,6 @@ public final class ImportScreen extends DialogScreen {
     public void onClose() {
         if (scan != null && scan.state == Codespace.State.RUNNING) scan.cancel();
         Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
-        mc.setScreen(new EditorScreen(script));
+        mc.gui.setScreen(new EditorScreen(script));
     }
 }

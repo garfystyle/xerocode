@@ -5,7 +5,7 @@ import com.xerocode.Settings;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 
 public final class Palette {
@@ -184,7 +184,7 @@ public final class Palette {
         scroll = Math.abs(d) < 0.6 ? scrollTarget : scroll + d * 0.4;
     }
 
-    public void render(GuiGraphics ctx, Font tr, int mouseX, int mouseY, int screenH) {
+    public void render(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY, int screenH) {
         if (dirty) rebuild();
         animate(screenH);
 
@@ -218,7 +218,7 @@ public final class Palette {
                     (int) (contentH - max), (int) Math.round(scroll), mouseX, mouseY);
     }
 
-    private void drawSearchBox(GuiGraphics ctx, Font tr, int mouseX, int mouseY) {
+    private void drawSearchBox(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY) {
         int w = Theme.PALETTE_W;
         boolean hasText = !query.isBlank();
         Draw.card(ctx, 8, SEARCH_Y, w - 16, Theme.SEARCH_H, 5,
@@ -241,7 +241,7 @@ public final class Palette {
         return mx >= cx - 4 && mx < cx + 9 && my >= SEARCH_Y && my < SEARCH_Y + Theme.SEARCH_H;
     }
 
-    private void drawCrumb(GuiGraphics ctx, Font tr, int mouseX, int mouseY) {
+    private void drawCrumb(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY) {
         int w = Theme.PALETTE_W;
         boolean hov = mouseY >= HEADER_H && mouseY < HEADER_H + CRUMB_H && mouseX < w - 1;
         Draw.rect(ctx, 0, HEADER_H, w - 1, CRUMB_H, Draw.opaque(hov ? Theme.PANEL_RAISED : Theme.PANEL));
@@ -258,7 +258,7 @@ public final class Palette {
         Draw.textFit(ctx, tr, label, 20, HEADER_H + 7, w - 34, hov ? Theme.TEXT : color, false);
     }
 
-    private void drawCaption(GuiGraphics ctx, Font tr, Entry e, int y, boolean hover) {
+    private void drawCaption(GuiGraphicsExtractor ctx, Font tr, Entry e, int y, boolean hover) {
         boolean head = e.isSection();
         if (head) drawFoldMark(ctx, e, y, hover);
         int textX = head ? SECTION_X : CAPTION_X;
@@ -272,7 +272,7 @@ public final class Palette {
                     hover ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
     }
 
-    private void drawFoldMark(GuiGraphics ctx, Entry e, int y, boolean hover) {
+    private void drawFoldMark(GuiGraphicsExtractor ctx, Entry e, int y, boolean hover) {
         if (hover)
             Draw.round(ctx, 7, y + 2, Theme.PALETTE_W - 14, e.h - 4, 4,
                     Draw.opaque(Theme.SURFACE_HOVER));
@@ -293,14 +293,14 @@ public final class Palette {
         e.labelFor = Theme.PALETTE_W;
     }
 
-    private void drawCategory(GuiGraphics ctx, Font tr, Entry e, int y, boolean hover) {
+    private void drawCategory(GuiGraphicsExtractor ctx, Font tr, Entry e, int y, boolean hover) {
         Catalog.Category c = e.category;
         int w = Theme.PALETTE_W - 14;
         int fill = Draw.mix(Theme.SURFACE, c.color, hover ? 0.34f : 0.15f);
         Draw.card(ctx, 7, y, w, e.h, 5, Draw.opaque(fill),
                 Draw.opaque(Draw.mix(Theme.LINE, c.color, hover ? 0.55f : 0.25f)));
         Draw.roundRect(ctx, 8, y + 1, 3, e.h - 2, 2, 0, 0, 2, Draw.opaque(c.color));
-        ctx.renderItem(c.icon(), 15, y + (e.h - 16) / 2);
+        ctx.item(c.icon(), 15, y + (e.h - 16) / 2);
 
         if (e.labelFor != Theme.PALETTE_W) {
             int n = c.count();
@@ -317,7 +317,7 @@ public final class Palette {
                     hover ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
     }
 
-    private void drawAction(GuiGraphics ctx, Font tr, Entry e, int y, boolean hover) {
+    private void drawAction(GuiGraphicsExtractor ctx, Font tr, Entry e, int y, boolean hover) {
         Catalog.Action a = e.action;
         int color = a.category == null ? 0x777777 : a.category.color;
         int w = Theme.PALETTE_W - 14;
@@ -325,7 +325,7 @@ public final class Palette {
         Draw.card(ctx, 7, y, w, e.h, 4, Draw.opaque(fill),
                 Draw.opaque(hover ? Draw.mix(Theme.LINE, color, 0.6f) : Theme.LINE));
         Draw.roundRect(ctx, 8, y + 1, 3, e.h - 2, 2, 0, 0, 2, Draw.opaque(color));
-        ctx.renderItem(a.icon(), 14, y + (e.h - 16) / 2);
+        ctx.item(a.icon(), 14, y + (e.h - 16) / 2);
 
         int right = Theme.PALETTE_W - 12;
         int ty = y + (e.h - 8) / 2;

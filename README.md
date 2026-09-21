@@ -3,7 +3,7 @@
   <h1>xerocode</h1>
   <p><b>Визуальный редактор кода JustMC Creative+</b></p>
   <p>
-    <img src="https://img.shields.io/badge/Minecraft-1.21.11-6366F1" alt="Minecraft 1.21.11">
+    <img src="https://img.shields.io/badge/Minecraft-26.2-6366F1" alt="Minecraft 26.2">
     <img src="https://img.shields.io/badge/Fabric-0.16%2B-6366F1" alt="Fabric Loader 0.16+">
     <img src="https://img.shields.io/badge/сторона-клиент-64748B" alt="только клиент">
   </p>
@@ -25,7 +25,7 @@
 
 ## Установка
 
-1. Fabric Loader 0.16+, Fabric API для Minecraft 1.21.11, Java 21.
+1. Fabric Loader 0.19+, Fabric API для Minecraft 26.2, Java 25.
 2. Положить jar в папку `mods/`.
 
 Сборка из исходников: `./gradlew build`, готовый jar появится в `build/libs/`.

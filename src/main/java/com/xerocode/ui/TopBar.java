@@ -6,7 +6,7 @@ import com.xerocode.Settings;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.network.chat.Component;
 
@@ -241,7 +241,7 @@ final class TopBar {
                 i -> { if (i >= 0 && i < acts.size()) pick.accept(acts.get(i).id); });
     }
 
-    boolean tooltip(GuiGraphics ctx, int mouseX, int mouseY) {
+    boolean tooltip(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         for (Btn b : buttons()) {
             if (!over(b, mouseX, mouseY)) continue;
             List<Component> tip = new ArrayList<>();
@@ -254,7 +254,7 @@ final class TopBar {
         return false;
     }
 
-    void draw(GuiGraphics ctx, int mouseX, int mouseY) {
+    void draw(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int left = host.left(), room = host.width() - left;
         ScreenRectangle area = new ScreenRectangle(left, 0, room, Theme.TOPBAR_H);
         Draw.batch(Batch.open(ctx, null, area, 512));
@@ -282,7 +282,7 @@ final class TopBar {
             Draw.textRight(ctx, tr, infoText(), host.width() - 12, 11, Theme.TEXT_FAINT, false);
     }
 
-    private void drawButton(GuiGraphics ctx, Btn b, int mouseX, int mouseY,
+    private void drawButton(GuiGraphicsExtractor ctx, Btn b, int mouseX, int mouseY,
                             boolean outlined, int r) {
         boolean hover = b.enabled && over(b, mouseX, mouseY);
         boolean joined = b.joinLeft || b.joinRight;

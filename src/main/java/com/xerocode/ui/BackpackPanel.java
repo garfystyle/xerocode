@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.input.CharacterEvent;
@@ -187,7 +187,7 @@ public final class BackpackPanel extends PickerPanel {
     }
 
     @Override
-    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    protected void drawBody(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         int lx = listX(), ly = bodyY(), lw = listW(), lh = bodyH();
         Draw.rect(ctx, lx, ly, lw, lh, Draw.opaque(Ui.WELL));
         if (hits.isEmpty()) { drawEmpty(ctx, lx, ly, lw, lh); return; }
@@ -203,7 +203,7 @@ public final class BackpackPanel extends PickerPanel {
                 lastMx, lastMy);
     }
 
-    private void drawRow(GuiGraphics ctx, Backpack.Item it, int i, int lx, int ry, int lw) {
+    private void drawRow(GuiGraphicsExtractor ctx, Backpack.Item it, int i, int lx, int ry, int lw) {
         boolean on = it.id.equals(selected);
         if (on) {
             Draw.rect(ctx, lx, ry, lw, ROW_H, Draw.opaque(Ui.BTN_ON));
@@ -214,7 +214,7 @@ public final class BackpackPanel extends PickerPanel {
             Draw.rect(ctx, lx, ry, lw, ROW_H, Draw.opaque(Ui.WELL));
         }
         Draw.rect(ctx, lx + 4, ry + 4, 2, ROW_H - 8, Draw.opaque(Draw.shade(it.color(), -0.1f)));
-        ctx.renderItem(it.icon(), lx + 10, ry + 4);
+        ctx.item(it.icon(), lx + 10, ry + 4);
 
         if (it.id.equals(renameId) && nameField != null) {
             int fx = lx + 30, fw = lw - 36;
@@ -222,7 +222,7 @@ public final class BackpackPanel extends PickerPanel {
             Ui.width(nameField, fw - 12);
             nameField.setX(fx + 6);
             nameField.setY(ry + 9);
-            nameField.render(ctx, lastMx, lastMy, 0);
+            nameField.extractRenderState(ctx, lastMx, lastMy, 0);
             Ui.placeholder(ctx, tr, nameField);
             return;
         }
@@ -237,7 +237,7 @@ public final class BackpackPanel extends PickerPanel {
             Draw.textRight(ctx, tr, when, lx + lw - 8, ry + 4, Theme.TEXT_FAINT, false);
     }
 
-    private void drawEmpty(GuiGraphics ctx, int lx, int ly, int lw, int lh) {
+    private void drawEmpty(GuiGraphicsExtractor ctx, int lx, int ly, int lw, int lh) {
         boolean searching = !Backpack.all().isEmpty();
         int cy = ly + Math.max(10, lh / 2 - 26);
         Draw.glyph(ctx, Draw.PACK, lx + (lw - Draw.glyphW(Draw.PACK)) / 2, cy, Theme.LINE);
@@ -253,7 +253,7 @@ public final class BackpackPanel extends PickerPanel {
     }
 
     @Override
-    protected void drawDetails(GuiGraphics ctx) {
+    protected void drawDetails(GuiGraphicsExtractor ctx) {
         if (viewing) { drawViewer(ctx); return; }
         thumbW = 0;
         if (!detailsFrame(ctx)) return;
@@ -301,7 +301,7 @@ public final class BackpackPanel extends PickerPanel {
         return preview;
     }
 
-    private void drawPreview(GuiGraphics ctx, Backpack.Item it, int px, int py, int pw, int ph) {
+    private void drawPreview(GuiGraphicsExtractor ctx, Backpack.Item it, int px, int py, int pw, int ph) {
         if (pw < 30 || ph < 24) return;
         Layout l = previewOf(it);
         if (l.boxes.isEmpty()) return;
@@ -378,7 +378,7 @@ public final class BackpackPanel extends PickerPanel {
 
     private int backW() { return Ui.buttonW(tr, Draw.CHEVRON_LEFT, "Назад"); }
 
-    private void drawViewer(GuiGraphics ctx) {
+    private void drawViewer(GuiGraphicsExtractor ctx) {
         Backpack.Item it = chosen();
         if (it == null) { closeViewer(); return; }
         int vx = viewX(), vy = viewY(), vw = viewW();
@@ -507,7 +507,7 @@ public final class BackpackPanel extends PickerPanel {
     }
 
     @Override
-    protected void drawFooterLeft(GuiGraphics ctx, int mouseX, int mouseY, int room) {
+    protected void drawFooterLeft(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int room) {
         int fy = footY2();
         if (!inspectButton()) { super.drawFooterLeft(ctx, mouseX, mouseY, room); return; }
         Ui.iconButton(ctx, mouseX, mouseY, x + PAD, fy, ICON, Draw.SEARCH, Ui.GHOST, true);

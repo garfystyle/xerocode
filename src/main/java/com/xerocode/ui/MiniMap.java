@@ -1,7 +1,7 @@
 package com.xerocode.ui;
 
 import java.util.List;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 
 public final class MiniMap {
@@ -90,7 +90,7 @@ public final class MiniMap {
         return shown && mx >= x && mx < x + w && my >= y && my < y + h;
     }
 
-    public void draw(GuiGraphics ctx, double vx0, double vy0, double vx1, double vy1,
+    public void draw(GuiGraphicsExtractor ctx, double vx0, double vy0, double vx1, double vy1,
                      boolean hover) {
         if (!shown) return;
         int r = radius();
@@ -123,7 +123,7 @@ public final class MiniMap {
         Draw.roundOutline(ctx, x, y, w, h, r, border);
     }
 
-    public void marks(GuiGraphics ctx, List<Layout.Box> boxes, int rgb) {
+    public void marks(GuiGraphicsExtractor ctx, List<Layout.Box> boxes, int rgb) {
         if (!shown || boxes.isEmpty()) return;
         ScreenRectangle area = new ScreenRectangle(x + 1, y + 1, w - 2, h - 2);
         ctx.enableScissor(x + 1, y + 1, x + w - 1, y + h - 1);

@@ -4,7 +4,7 @@ import com.google.gson.JsonObject;
 import com.xerocode.Market;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import org.lwjgl.glfw.GLFW;
@@ -43,7 +43,7 @@ public final class MarketLook implements MarketScreen.Panel {
     }
 
     @Override
-    public void draw(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void draw(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         mx = mouseX;
         my = mouseY;
         Draw.rect(ctx, x, y, w, h, Draw.opaque(Theme.CANVAS));
@@ -70,7 +70,7 @@ public final class MarketLook implements MarketScreen.Panel {
 
     private int packX() { return btnX(0) - zoomW() - 8 - packW(); }
 
-    private void drawHead(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawHead(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         Draw.rect(ctx, x, y, w, HEAD, Draw.opaque(Ui.RAIL));
         Ui.hairline(ctx, x, y + HEAD, w);
         int ty = y + (HEAD - Ui.TEXT_H) / 2;

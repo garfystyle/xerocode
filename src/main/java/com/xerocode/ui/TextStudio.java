@@ -13,7 +13,7 @@ import java.util.List;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
@@ -272,7 +272,7 @@ public final class TextStudio {
                     ChatFormatting f = ChatFormatting.getByCode(next);
                     if (f != null) {
                         len = 2;
-                        ink = f.getColor() != null ? f.getColor() : tagInk;
+                        ink = McText.rgb(f) != null ? McText.rgb(f) : tagInk;
                     }
                 }
             } else if (McText.MINI.equals(parsing) && c == '<') {
@@ -387,7 +387,7 @@ public final class TextStudio {
 
     private void clampGrid() { gridScroll = Math.max(0, Math.min(gridMax(), gridScroll)); }
 
-    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         syncPreview();
         syncSymbols();
         Ui.dim(ctx, screenW, screenH);
@@ -410,7 +410,7 @@ public final class TextStudio {
                     MODES.indexOf(parsing), accent());
 
         Ui.input(ctx, x + PAD, absY(inputY), inner(), INPUT_H, input.isFocused());
-        input.render(ctx, mouseX, mouseY, delta);
+        input.extractRenderState(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, input);
 
         drawTools(ctx, mouseX, mouseY);
@@ -437,7 +437,7 @@ public final class TextStudio {
         }
     }
 
-    private void drawTools(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawTools(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int lx = leftX(), ty = absY(toolY);
         boolean on = McText.formattable(parsing);
         for (int i = 0; i < McText.DECOS.size(); i++) {
@@ -465,7 +465,7 @@ public final class TextStudio {
                 case 'n' -> s.withUnderlined(true);
                 default -> s;
             });
-            ctx.drawString(tr, label, cx + (DECO_W - tr.width(d.label())) / 2,
+            ctx.text(tr, label, cx + (DECO_W - tr.width(d.label())) / 2,
                     ty + (TOOL_H - Ui.TEXT_H) / 2, Draw.opaque(ink), false);
         }
 
@@ -533,7 +533,7 @@ public final class TextStudio {
 
     private int swatchW() { return (lw - 15) / 16; }
 
-    private void drawColour(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    private void drawColour(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         int lx = leftX();
         boolean on = McText.formattable(parsing);
 
@@ -563,7 +563,7 @@ public final class TextStudio {
         }
 
         Ui.input(ctx, lx, absY(hexY), HEX_W, ROW, hex.isFocused());
-        hex.render(ctx, mouseX, mouseY, delta);
+        hex.extractRenderState(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, hex);
         Ui.swatch(ctx, lx + HEX_W + 4, absY(hexY), 24, ROW, pickRgb(), true, false);
         Ui.button(ctx, tr, mouseX, mouseY, lx + HEX_W + 32, absY(hexY), lw - HEX_W - 32, ROW,
@@ -580,12 +580,12 @@ public final class TextStudio {
                     Ui.hit(mouseX, mouseY, lx + i * 14, absY(recentY), 13, 11));
     }
 
-    private void drawSymbols(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    private void drawSymbols(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         int lx = leftX();
         Ui.input(ctx, lx, absY(searchY), lw, SEARCH_H, search.isFocused());
         Draw.glyph(ctx, Draw.SEARCH, lx + lw - 14, absY(searchY) + 5,
                 search.isFocused() ? Theme.TEXT_DIM : Theme.TEXT_FAINT);
-        search.render(ctx, mouseX, mouseY, delta);
+        search.extractRenderState(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, search);
 
         boolean searching = !search.getValue().trim().isEmpty();
@@ -604,7 +604,7 @@ public final class TextStudio {
             String g = shown.get(i).glyph();
             int ink = !shown.get(i).drawable() ? Theme.TEXT_FAINT
                     : hov ? Theme.TEXT : Theme.TEXT_DIM;
-            ctx.drawString(tr, g, cx + (cw - 1 - tr.width(g)) / 2, cy + 4,
+            ctx.text(tr, g, cx + (cw - 1 - tr.width(g)) / 2, cy + 4,
                     Draw.opaque(ink), false);
             if (Symbols.favourite(g))
                 Draw.rect(ctx, cx + 2, cy + CELL - 4, cw - 5, 1, Draw.opaque(accent()));
@@ -636,7 +636,7 @@ public final class TextStudio {
         return lead + width + trail;
     }
 
-    private void drawRight(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawRight(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int px = rightX();
         Ui.caption(ctx, tr, "ПРЕДПРОСМОТР", px, absY(prevY) - CAP, rw);
         int col = column(WHERE, 5, 8);
@@ -649,7 +649,7 @@ public final class TextStudio {
             int right = px + rw - (i == 1 ? 42 : 4);
             if (right > tx) {
                 ctx.enableScissor(tx, ry, right, ry + PREV_ROW - 1);
-                ctx.drawString(tr, preview, tx, ry + 5, Draw.opaque(Theme.TEXT), i != 1);
+                ctx.text(tr, preview, tx, ry + 5, Draw.opaque(Theme.TEXT), i != 1);
                 ctx.disableScissor();
             }
             if (i != 1) continue;
@@ -674,7 +674,7 @@ public final class TextStudio {
         }
     }
 
-    private void drawFooter(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawFooter(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int fy = y + footY + (FOOT_H - ROW) / 2;
         Draw.textFit(ctx, tr, "Enter — сохранить · Esc — отменить · Ctrl+Z — вернуть",
                 x + PAD, fy + 4, inner() - 126, Theme.TEXT_FAINT, false);

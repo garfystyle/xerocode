@@ -1,7 +1,7 @@
 package com.xerocode.ui;
 
 import java.util.List;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -44,7 +44,7 @@ abstract class DialogScreen extends Screen {
     protected int buttonY() { return panelY() + panelH() - PAD - BTN_H; }
 
     @Override
-    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void extractRenderState(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         Draw.rect(ctx, 0, 0, width, height, Draw.opaque(Theme.CANVAS));
         Ui.dim(ctx, width, height);
         ctx.nextStratum();
@@ -59,13 +59,13 @@ abstract class DialogScreen extends Screen {
         drawBody(ctx, mouseX, mouseY, bodyX(), bodyY(), bodyW());
     }
 
-    protected abstract void drawBody(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w);
+    protected abstract void drawBody(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w);
 
-    protected void barTrack(GuiGraphics ctx, int x, int y, int w) {
+    protected void barTrack(GuiGraphicsExtractor ctx, int x, int y, int w) {
         Draw.round(ctx, x, y, w, BAR_H, BAR_H / 2, Draw.opaque(Ui.WELL));
     }
 
-    protected void barFill(GuiGraphics ctx, int x, int y, int from, int to) {
+    protected void barFill(GuiGraphicsExtractor ctx, int x, int y, int from, int to) {
         if (to <= from) return;
         Draw.pillGrad(ctx, x + 1 + from, y + 1, to - from, BAR_H - 2,
                 Draw.opaque(Draw.shade(Theme.ACCENT, 0.15f)), Draw.opaque(Theme.ACCENT));
@@ -75,7 +75,7 @@ abstract class DialogScreen extends Screen {
 
     protected int ghostW(String label) { return Math.max(70, Ui.buttonW(font, label)); }
 
-    protected void buttons(GuiGraphics ctx, int mouseX, int mouseY, int x, int w,
+    protected void buttons(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int w,
                            String primary, String ghost) {
         int y = buttonY();
         if (ghost != null) {
@@ -95,7 +95,7 @@ abstract class DialogScreen extends Screen {
         return primary == null ? x + w - gw : x + w - gw - 6 - primaryW(primary);
     }
 
-    protected int paragraph(GuiGraphics ctx, String text, int x, int y, int w, int rgb) {
+    protected int paragraph(GuiGraphicsExtractor ctx, String text, int x, int y, int w, int rgb) {
         List<FormattedCharSequence> lines = font.split(Component.literal(text), w);
         for (int i = 0; i < lines.size(); i++)
             Draw.text(ctx, font, lines.get(i), x, y + ROW * i, rgb, false);
@@ -117,7 +117,7 @@ abstract class DialogScreen extends Screen {
         return at;
     }
 
-    protected void rowButtons(GuiGraphics ctx, int mouseX, int mouseY, int x, int w,
+    protected void rowButtons(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int w,
                               int mainKind, String... labels) {
         int[] kinds = new int[labels.length];
         for (int i = 0; i < kinds.length; i++) kinds[i] = Ui.GHOST;
@@ -125,7 +125,7 @@ abstract class DialogScreen extends Screen {
         rowButtons(ctx, mouseX, mouseY, x, w, kinds, labels);
     }
 
-    protected void rowButtons(GuiGraphics ctx, int mouseX, int mouseY, int x, int w,
+    protected void rowButtons(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int w,
                               int[] kinds, String... labels) {
         int[] at = rowX(x, w, labels);
         int y = buttonY();

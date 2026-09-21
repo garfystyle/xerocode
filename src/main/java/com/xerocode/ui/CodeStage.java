@@ -1,7 +1,7 @@
 package com.xerocode.ui;
 
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 
 public final class CodeStage {
@@ -93,7 +93,7 @@ public final class CodeStage {
         return layout.at((mx - panX) / zoom, (my - panY) / zoom);
     }
 
-    public void draw(GuiGraphics ctx, Font tr, Layout layout, BlockView.Look look) {
+    public void draw(GuiGraphicsExtractor ctx, Font tr, Layout layout, BlockView.Look look) {
         if (layout == null) return;
         ScreenRectangle area = new ScreenRectangle(x, y, w, h);
         ctx.enableScissor(x, y, x + w, y + h);

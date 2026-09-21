@@ -3,20 +3,19 @@ package com.xerocode.ui;
 import com.xerocode.XeroCode;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.xerocode.Script;
 import com.xerocode.Value;
-import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.Marker;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
@@ -154,8 +153,8 @@ public final class LocationPick {
 
         XeroCode.canvasClosed();
         XeroCode.cover("Выбор местоположения…", null);
-        hudWas = client.options.hideGui;
-        client.options.hideGui = true;
+        hudWas = client.gui.hud.isHidden();
+        if (!hudWas) client.gui.hud.toggle();
         client.gameRenderer.setRenderBlockOutline(false);
         attach(client);
 
@@ -185,7 +184,7 @@ public final class LocationPick {
         else placeUnderAim(client, false);
         try {
             if (cam != null) client.setCameraEntity(player);
-            cam = new Marker(EntityType.MARKER, client.level);
+            cam = new Marker(EntityTypes.MARKER, client.level);
             place(true);
             client.setCameraEntity(cam);
         } catch (Throwable e) {
@@ -322,7 +321,7 @@ public final class LocationPick {
         restore(redo.pop());
     }
 
-    public static void render(GuiGraphics ctx) {
+    public static void render(GuiGraphicsExtractor ctx) {
         if (!active) return;
         try {
             renderFrame(ctx);
@@ -332,7 +331,7 @@ public final class LocationPick {
         }
     }
 
-    private static void renderFrame(GuiGraphics ctx) {
+    private static void renderFrame(GuiGraphicsExtractor ctx) {
         Minecraft client = Minecraft.getInstance();
         LocalPlayer player = client.player;
         if (player == null) return;
@@ -340,7 +339,7 @@ public final class LocationPick {
         readKeys(client);
         double[] d = cursorDelta(client);
         float yaw = player.getYRot(), pitch = player.getXRot();
-        if (client.screen != null) { d[0] = 0; d[1] = 0; }
+        if (client.gui.screen() != null) { d[0] = 0; d[1] = 0; }
 
         if (op == Op.MOVE) {
             mdx += d[0];
@@ -372,7 +371,7 @@ public final class LocationPick {
 
         keyActions(client);
 
-        if (client.screen instanceof LocationForm) return;
+        if (client.gui.screen() instanceof LocationForm) return;
         SmoothText.clip(null);
         Draw.batch(null);
         hud(ctx, client);
@@ -514,7 +513,7 @@ public final class LocationPick {
     private static void openForm(Minecraft client) {
         formBefore = snapshot();
         push();
-        client.setScreen(new LocationForm());
+        client.gui.setScreen(new LocationForm());
     }
 
     public static double[] values() { return snapshot(); }
@@ -613,7 +612,7 @@ public final class LocationPick {
     private static boolean released(int slot) { return !keyNow[slot] && keyWas[slot]; }
 
     private static void keyActions(Minecraft client) {
-        if (client.screen != null) return;
+        if (client.gui.screen() != null) return;
         boolean ctrl = down(GLFW.GLFW_KEY_LEFT_CONTROL) || down(GLFW.GLFW_KEY_RIGHT_CONTROL);
         boolean shift = down(GLFW.GLFW_KEY_LEFT_SHIFT) || down(GLFW.GLFW_KEY_RIGHT_SHIFT);
         boolean alt = down(GLFW.GLFW_KEY_LEFT_ALT) || down(GLFW.GLFW_KEY_RIGHT_ALT);
@@ -734,14 +733,14 @@ public final class LocationPick {
         if (player == null || client.level == null) return;
         if (cam == null || cam.level() != client.level) { attach(client); return; }
 
-        if (client.screen instanceof net.minecraft.client.gui.screens.PauseScreen) {
-            client.setScreen(null);
+        if (client.gui.screen() instanceof net.minecraft.client.gui.screens.PauseScreen) {
+            client.gui.setScreen(null);
             if (op != Op.NONE) { cancelOp(); return; }
             finish(client, false);
             return;
         }
-        if (client.screen instanceof net.minecraft.client.gui.screens.ChatScreen)
-            client.setScreen(null);
+        if (client.gui.screen() instanceof net.minecraft.client.gui.screens.ChatScreen)
+            client.gui.setScreen(null);
 
         player.setDeltaMovement(Vec3.ZERO);
         player.setPos(frozen.x, frozen.y, frozen.z);
@@ -755,7 +754,7 @@ public final class LocationPick {
 
         if (client.gameMode != null) client.gameMode.stopDestroyBlock();
 
-        boolean typing = client.screen != null;
+        boolean typing = client.gui.screen() != null;
         Options o = client.options;
         boolean fast = !typing && o.keySprint.isDown();
         if (!typing) {
@@ -790,7 +789,7 @@ public final class LocationPick {
 
     private static Vec3 walk(Minecraft client) {
         Options o = client.options;
-        if (client.screen != null) return null;
+        if (client.gui.screen() != null) return null;
         Vec3 dir = forward();
         Vec3 s = side(dir);
         Vec3 move = Vec3.ZERO;
@@ -846,7 +845,7 @@ public final class LocationPick {
             client.player.setYRot(camYaw);
             client.player.setXRot(camPitch);
         }
-        client.options.hideGui = hudWas;
+        if (client.gui.hud.isHidden() != hudWas) client.gui.hud.toggle();
         client.gameRenderer.setRenderBlockOutline(true);
         active = false;
         op = Op.NONE;
@@ -855,11 +854,12 @@ public final class LocationPick {
 
     private static Vec3 origin = Vec3.ZERO;
     private static double ghostScale = 1, baseScale = 1;
-    private static PoseStack.Pose entry;
-    private static VertexConsumer buffer;
+    private record Seg(float ax, float ay, float az, float bx, float by, float bz, Vector3f dir, int argb, float width) {}
+
+    private static final java.util.ArrayList<Seg> SEGMENTS = new java.util.ArrayList<>();
     private static float hair = 1, thick = 2;
 
-    public static void renderWorld(WorldRenderContext ctx) {
+    public static void renderWorld(LevelRenderContext ctx) {
         if (!active) return;
         try {
             worldFrame(ctx);
@@ -869,15 +869,31 @@ public final class LocationPick {
         }
     }
 
-    private static void worldFrame(WorldRenderContext ctx) {
+    private static void worldFrame(LevelRenderContext ctx) {
         Minecraft client = Minecraft.getInstance();
-        PoseStack matrices = ctx.matrices();
+        PoseStack matrices = ctx.poseStack();
         if (matrices == null || client.level == null || client.player == null) {
             return;
         }
-        origin = client.gameRenderer.getMainCamera().position();
-        buffer = ctx.consumers().getBuffer(RenderTypes.LINES);
-        entry = matrices.last();
+        origin = client.gameRenderer.mainCamera().position();
+        SEGMENTS.clear();
+        try {
+            collect(client);
+        } finally {
+            ghostScale = 1;
+        }
+        if (SEGMENTS.isEmpty()) return;
+        Seg[] lines = SEGMENTS.toArray(new Seg[0]);
+        SEGMENTS.clear();
+        ctx.submitNodeCollector().submitCustomGeometry(matrices, RenderTypes.LINES, (pose, vc) -> {
+            for (Seg l : lines) {
+                vc.addVertex(pose, l.ax, l.ay, l.az).setColor(l.argb).setNormal(pose, l.dir).setLineWidth(l.width);
+                vc.addVertex(pose, l.bx, l.by, l.bz).setColor(l.argb).setNormal(pose, l.dir).setLineWidth(l.width);
+            }
+        });
+    }
+
+    private static void collect(Minecraft client) {
         thick = Math.max(2f, client.getWindow().getAppropriateLineWidth() * 2f);
         hair = Math.max(1f, client.getWindow().getAppropriateLineWidth());
 
@@ -1043,17 +1059,15 @@ public final class LocationPick {
         Vector3f dir = new Vector3f((float) (bx - ax), (float) (by - ay), (float) (bz - az));
         if (dir.lengthSquared() < 1.0E-10f) return;
         dir.normalize();
-        buffer.addVertex(entry, (float) ax, (float) ay, (float) az)
-                .setColor(argb).setNormal(entry, dir).setLineWidth(width);
-        buffer.addVertex(entry, (float) bx, (float) by, (float) bz)
-                .setColor(argb).setNormal(entry, dir).setLineWidth(width);
+        SEGMENTS.add(new Seg((float) ax, (float) ay, (float) az, (float) bx, (float) by, (float) bz,
+                dir, argb, width));
     }
 
     private static String f3(double d) { return String.format("%.3f", d); }
     private static String f1(double d) { return String.format("%.1f", d); }
     private static String sign(double d) { return (d >= 0 ? "+" : "") + f3(d); }
 
-    private static void hud(GuiGraphics ctx, Minecraft client) {
+    private static void hud(GuiGraphicsExtractor ctx, Minecraft client) {
         var tr = client.font;
         int sw = ctx.guiWidth(), sh = ctx.guiHeight();
         crosshair(ctx, sw, sh);
@@ -1108,7 +1122,7 @@ public final class LocationPick {
         else if (hover >= 0) hoverHint(ctx, tr, sw, sh);
     }
 
-    private static void field(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
+    private static void field(GuiGraphicsExtractor ctx, net.minecraft.client.gui.Font tr,
                               int x, int y, int w, String cap, String value, int color,
                               boolean lit, boolean typing) {
         int border = lit || typing ? color : Ui.LINE_IN;
@@ -1121,7 +1135,7 @@ public final class LocationPick {
         Draw.textRight(ctx, tr, s, x + w - 4, y + 4, typing ? Theme.ACCENT : Theme.TEXT, false);
     }
 
-    private static void pill(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
+    private static void pill(GuiGraphicsExtractor ctx, net.minecraft.client.gui.Font tr,
                              int x, int y, int w, String label, boolean on) {
         int accent = Theme.ACCENT;
         Draw.pill(ctx, x, y, w, 15, Draw.opaque(on ? Draw.shade(accent, -0.30f) : Ui.LINE_IN));
@@ -1132,7 +1146,7 @@ public final class LocationPick {
                 on ? Theme.ON_ACCENT : Theme.TEXT_DIM, false);
     }
 
-    private static void keyStrip(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
+    private static void keyStrip(GuiGraphicsExtractor ctx, net.minecraft.client.gui.Font tr,
                                  int sw, int sh) {
         String[][] items = op == Op.MOVE ? (byHandle ? new String[][]{
                 {"мышь", "тянуть по оси"}, {"Ctrl", "прилипание"}, {"цифры", "точно"},
@@ -1174,7 +1188,7 @@ public final class LocationPick {
         }
     }
 
-    private static void opReadout(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
+    private static void opReadout(GuiGraphicsExtractor ctx, net.minecraft.client.gui.Font tr,
                                   int sw, int sh) {
         String s;
         if (op == Op.MOVE) {
@@ -1191,12 +1205,12 @@ public final class LocationPick {
         centerLabel(ctx, tr, sw, sh, s, Theme.ACCENT);
     }
 
-    private static void hoverHint(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
+    private static void hoverHint(GuiGraphicsExtractor ctx, net.minecraft.client.gui.Font tr,
                                   int sw, int sh) {
         centerLabel(ctx, tr, sw, sh, "ПКМ — тянуть по " + "XYZ".charAt(hover), axisColor(hover));
     }
 
-    private static void centerLabel(GuiGraphics ctx, net.minecraft.client.gui.Font tr,
+    private static void centerLabel(GuiGraphicsExtractor ctx, net.minecraft.client.gui.Font tr,
                                     int sw, int sh, String s, int color) {
         int w = tr.width(s) + 14;
         int x = (sw - w) / 2, y = sh / 2 + 12;
@@ -1204,7 +1218,7 @@ public final class LocationPick {
         Draw.textCenter(ctx, tr, s, x, y + 4, w, w - 8, color, false);
     }
 
-    private static void crosshair(GuiGraphics ctx, int sw, int sh) {
+    private static void crosshair(GuiGraphicsExtractor ctx, int sw, int sh) {
         int cx2 = sw / 2, cy2 = sh / 2;
         int argb = Draw.argb(0xB4, hover >= 0 ? axisColor(hover) : 0xFFFFFF);
         Draw.rect(ctx, cx2 - 5, cy2, 4, 1, argb);

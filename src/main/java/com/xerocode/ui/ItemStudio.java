@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.client.input.CharacterEvent;
@@ -293,7 +293,7 @@ public final class ItemStudio {
 
     private int footAbsY() { return y + footY; }
 
-    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         lastMx = mouseX;
         lastMy = mouseY;
         if (picker != null) { picker.render(ctx, mouseX, mouseY, delta); return; }
@@ -327,7 +327,7 @@ public final class ItemStudio {
         drawFooter(ctx, mouseX, mouseY);
     }
 
-    private void drawLeft(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    private void drawLeft(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         ItemStack st = Stacks.preview(v);
 
         Ui.well(ctx, leftX(), absY(cardY), lw, CARD_H);
@@ -337,10 +337,10 @@ public final class ItemStudio {
                     leftX() + 20, absY(cardY) + (CARD_H - Ui.TEXT_H) / 2, lw - 26,
                     Theme.TEXT_DIM, false);
         } else {
-            ctx.renderItem(st, leftX() + 7, absY(cardY) + (CARD_H - 16) / 2);
-            ctx.renderItemDecorations(tr, st, leftX() + 7, absY(cardY) + (CARD_H - 16) / 2);
+            ctx.item(st, leftX() + 7, absY(cardY) + (CARD_H - 16) / 2);
+            ctx.itemDecorations(tr, st, leftX() + 7, absY(cardY) + (CARD_H - 16) / 2);
             int top = absY(cardY) + (CARD_H - (11 + Ui.TEXT_H)) / 2;
-            ctx.drawString(tr, McText.fit(tr, McText.runsOf(st.getHoverName()), lw - 40),
+            ctx.text(tr, McText.fit(tr, McText.runsOf(st.getHoverName()), lw - 40),
                     leftX() + 28, top, Draw.opaque(Theme.TEXT), false);
             Draw.textFit(ctx, tr, v.itemId, leftX() + 28, top + 11, lw - 36,
                     Theme.TEXT_FAINT, false);
@@ -357,13 +357,13 @@ public final class ItemStudio {
             int cx = leftX() + i * (cw + 4);
             Draw.textFit(ctx, tr, caps[i], cx + 2, absY(numsY) - CAP, cw - 4, Theme.TEXT_FAINT, false);
             Ui.input(ctx, cx, absY(numsY), cw, INPUT_H, focus == COUNT + i);
-            numField(i).render(ctx, mouseX, mouseY, delta);
+            numField(i).extractRenderState(ctx, mouseX, mouseY, delta);
             Ui.placeholder(ctx, tr, numField(i));
         }
 
         Ui.caption(ctx, tr, "НАЗВАНИЕ", leftX(), absY(nameY) - CAP, lw);
         Ui.input(ctx, leftX(), absY(nameY), lw, INPUT_H, focus == NAME);
-        nameField.render(ctx, mouseX, mouseY, delta);
+        nameField.extractRenderState(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, nameField);
         modeChips.render(ctx, tr, mouseX, mouseY, leftX(), absY(modeY),
                 parsingIndex(v.itemParsing), Values.color(Value.TEXT));
@@ -395,7 +395,7 @@ public final class ItemStudio {
                 Draw.textFit(ctx, tr, "пустая строка", leftX() + 20, ry + 4, rowW - 26,
                         Theme.TEXT_FAINT, false);
             } else {
-                ctx.drawString(tr, McText.fit(tr, McText.runs(line, v.itemParsing), rowW - 26),
+                ctx.text(tr, McText.fit(tr, McText.runs(line, v.itemParsing), rowW - 26),
                         leftX() + 20, ry + 4, Draw.opaque(Theme.TEXT), false);
             }
             Ui.iconButton(ctx, mouseX, mouseY, leftX() + lw - ROW, ry, ROW, Draw.CROSS,
@@ -467,7 +467,7 @@ public final class ItemStudio {
 
     private int enchStepX() { return leftX() + lw - ROW - 2 - 2 * ROW - 2; }
 
-    private void drawRight(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    private void drawRight(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         ItemStack st = Stacks.preview(v);
 
         Ui.caption(ctx, tr, "ПРЕДПРОСМОТР", rightX(), absY(prevY) - CAP, rw);
@@ -481,10 +481,10 @@ public final class ItemStudio {
             m.pushMatrix();
             m.translate(rightX() + 8, absY(prevY) + 6);
             m.scale(2, 2);
-            ctx.renderItem(st, 0, 0);
+            ctx.item(st, 0, 0);
             m.popMatrix();
             int nameX = rightX() + 46;
-            ctx.drawString(tr, McText.fit(tr, McText.runsOf(
+            ctx.text(tr, McText.fit(tr, McText.runsOf(
                             lines.isEmpty() ? st.getHoverName() : lines.get(0)), rw - 54), nameX,
                     absY(prevY) + 10, Draw.opaque(lines.isEmpty() ? Theme.TEXT_FAINT : Theme.TEXT),
                     false);
@@ -505,7 +505,7 @@ public final class ItemStudio {
                             Theme.TEXT_FAINT, false);
                     break;
                 }
-                ctx.drawString(tr, McText.fit(tr, McText.runsOf(lines.get(i)), rw - 16),
+                ctx.text(tr, McText.fit(tr, McText.runsOf(lines.get(i)), rw - 16),
                         rightX() + 8, at, Draw.opaque(Theme.TEXT_DIM), false);
                 at += 10;
             }
@@ -519,7 +519,7 @@ public final class ItemStudio {
         if (error != null)
             Draw.roundOutline(ctx, rightX(), absY(nbtY), rw, nbtH, Ui.R_SM,
                     Draw.opaque(Theme.DANGER));
-        nbtBox.render(ctx, mouseX, mouseY, delta);
+        nbtBox.extractRenderState(ctx, mouseX, mouseY, delta);
         if (error == null) {
             Draw.textFit(ctx, tr, v.components.isBlank()
                             ? "как в предмете: {\"minecraft:custom_data\":{…}}"
@@ -543,7 +543,7 @@ public final class ItemStudio {
     private int okX()      { return x + w - PAD - OK_W; }
     private int cancelX()  { return okX() - BTN_GAP - NO_W; }
 
-    private void drawFooter(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawFooter(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int fy = footBtnY();
         String hint = System.currentTimeMillis() - flashAt < 1800 ? flash : Stacks.summary(v);
         if (hint.isEmpty()) hint = "Enter — готово, Esc — отмена";

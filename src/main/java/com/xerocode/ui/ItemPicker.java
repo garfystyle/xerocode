@@ -7,7 +7,7 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
@@ -151,7 +151,7 @@ public final class ItemPicker extends PickerPanel {
     }
 
     @Override
-    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    protected void drawBody(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         int gx = gridX(), gy = gridY(), gw = cols * CELL, gh = rows * CELL;
         Draw.round(ctx, gx - 3, gy - 3, gw + 6, gh + 6, Ui.R_SM, Draw.opaque(Ui.WELL));
         int selectedIndex = indexOfSelected();
@@ -167,8 +167,8 @@ public final class ItemPicker extends PickerPanel {
                     Draw.round(ctx, cx, cy, CELL, CELL, 3, Draw.opaque(Ui.BTN_HOVER));
                 }
                 ItemStack st = shown.get(i).stack();
-                ctx.renderItem(st, cx + 1, cy + 1);
-                if (st.getCount() != 1) ctx.renderItemDecorations(tr, st, cx + 1, cy + 1);
+                ctx.item(st, cx + 1, cy + 1);
+                if (st.getCount() != 1) ctx.itemDecorations(tr, st, cx + 1, cy + 1);
             }
         }
         if (shown.isEmpty())
@@ -181,7 +181,7 @@ public final class ItemPicker extends PickerPanel {
     }
 
     @Override
-    protected void drawDetails(GuiGraphics ctx) {
+    protected void drawDetails(GuiGraphicsExtractor ctx) {
         if (!detailsFrame(ctx)) return;
         Stacks.Entry it = focused();
         if (it == null) {
@@ -194,7 +194,7 @@ public final class ItemPicker extends PickerPanel {
         int bottom = detailsBottom();
         List<Component> lines = Stacks.tooltip(it.stack());
         for (int i = 1; i < lines.size() && at + 10 <= bottom; i++) {
-            ctx.drawString(tr, McText.fit(tr, McText.runsOf(lines.get(i)), inner), tx, at,
+            ctx.text(tr, McText.fit(tr, McText.runsOf(lines.get(i)), inner), tx, at,
                     Draw.opaque(Theme.TEXT_DIM), false);
             at += 10;
         }

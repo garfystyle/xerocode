@@ -1,7 +1,7 @@
 package com.xerocode.ui;
 
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
@@ -101,7 +101,7 @@ public final class ColorPick {
         hex.setResponder(this::hexTyped);
     }
 
-    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         Draw.card(ctx, x, y, W, h, Ui.R, Draw.opaque(Ui.PANEL), Draw.opaque(Ui.BORDER));
         Ui.caption(ctx, tr, title, x + PAD, y + PAD, W - PAD * 2);
 
@@ -115,7 +115,7 @@ public final class ColorPick {
         hex.setX(sx + 6);
         hex.setY(fy + (ROW - 8) / 2);
         Ui.width(hex, 62);
-        hex.render(ctx, mouseX, mouseY, delta);
+        hex.extractRenderState(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, hex);
         Ui.swatch(ctx, sx + 78, fy, SV_W - 78, ROW, rgb(), true, false);
 

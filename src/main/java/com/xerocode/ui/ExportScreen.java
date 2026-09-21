@@ -9,7 +9,7 @@ import com.xerocode.Script;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 
@@ -85,7 +85,7 @@ public final class ExportScreen extends DialogScreen {
         return paragraphRows(confirmWhat(), bodyW()) * ROW + GAP + ROW;
     }
 
-    private void drawConfirm(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
+    private void drawConfirm(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
         int at = y + paragraph(ctx, confirmWhat(), x, y, w, Theme.TEXT) * ROW + GAP;
         Draw.textFit(ctx, font, confirmCounts(), x, at, w,
                 worldLines > canvasLines() ? Theme.DANGER : Theme.TEXT_DIM, false);
@@ -100,7 +100,7 @@ public final class ExportScreen extends DialogScreen {
         if (mc.level == null) { onClose(); return; }
         List<BlockPos> lines = Codespace.lines(mc.level);
         if (lines.isEmpty()) { onClose(); return; }
-        mc.setScreen(new ImportScreen(script, lines, ImportScreen.Mode.RELOAD));
+        mc.gui.setScreen(new ImportScreen(script, lines, ImportScreen.Mode.RELOAD));
     }
 
     @Override
@@ -133,14 +133,14 @@ public final class ExportScreen extends DialogScreen {
     }
 
     @Override
-    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, int x, int y, int w) {
+    protected void drawBody(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
         if (phase == Phase.CONFIRM) { drawConfirm(ctx, mouseX, mouseY, x, y, w); return; }
         if (phase == Phase.RUNNING) drawRunning(ctx, x, y, w);
         else drawDone(ctx, x, y, w);
         buttons(ctx, mouseX, mouseY, x, w, button(), null);
     }
 
-    private void drawRunning(GuiGraphics ctx, int x, int y, int w) {
+    private void drawRunning(GuiGraphicsExtractor ctx, int x, int y, int w) {
         Draw.textFit(ctx, font, "Загрузка кода…", x, y, w, Theme.TEXT, false);
 
         int by = y + ROW + 8;
@@ -182,7 +182,7 @@ public final class ExportScreen extends DialogScreen {
         return lines;
     }
 
-    private void drawDone(GuiGraphics ctx, int x, int y, int w) {
+    private void drawDone(GuiGraphicsExtractor ctx, int x, int y, int w) {
         List<String> lines = doneLines();
         for (int i = 0; i < lines.size(); i++) {
             int color = i == 0 ? Theme.TEXT
@@ -256,7 +256,7 @@ public final class ExportScreen extends DialogScreen {
 
     private void finish() {
         Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
-        if (exitTo == null) { mc.setScreen(parent); return; }
+        if (exitTo == null) { mc.gui.setScreen(parent); return; }
         XeroCode.canvasClosed();
         if (XeroCode.RESTART.equals(exitTo)) {
             XeroCode.restart();
@@ -269,6 +269,6 @@ public final class ExportScreen extends DialogScreen {
     @Override
     public void onClose() {
         Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
-        mc.setScreen(parent);
+        mc.gui.setScreen(parent);
     }
 }

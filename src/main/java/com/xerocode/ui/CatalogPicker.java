@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.world.item.ItemStack;
@@ -33,7 +33,7 @@ public final class CatalogPicker extends PickerPanel {
     public interface Extra {
         int height();
 
-        void render(GuiGraphics ctx, int x, int y, int w, int h, int mouseX, int mouseY,
+        void render(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int mouseX, int mouseY,
                     boolean flush);
 
         default void hover(String id) {}
@@ -196,12 +196,12 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     @Override
-    protected void drawBody(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+    protected void drawBody(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         drawList(ctx);
         drawStrip(ctx, mouseX, mouseY);
     }
 
-    private void drawStrip(GuiGraphics ctx, int mouseX, int mouseY) {
+    private void drawStrip(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (extra == null) return;
         Ui.hairline(ctx, x + 1, bodyY() + bodyH(), w - 2);
         Item it = focused();
@@ -209,7 +209,7 @@ public final class CatalogPicker extends PickerPanel {
         extra.render(ctx, stripX(), stripY(), stripW(), stripBodyH(), mouseX, mouseY, true);
     }
 
-    private void drawList(GuiGraphics ctx) {
+    private void drawList(GuiGraphicsExtractor ctx) {
         int lx = listX(), ly = bodyY(), lw = listW(), lh = bodyH();
         Draw.rect(ctx, lx, ly, lw, lh, Draw.opaque(Ui.WELL));
         ctx.enableScissor(lx, ly, lx + lw, ly + lh);
@@ -227,7 +227,7 @@ public final class CatalogPicker extends PickerPanel {
             } else if (i % 2 == 1) {
                 Draw.rect(ctx, lx, ry, lw, ROW_H, Draw.opaque(Ui.WELL));
             }
-            ctx.renderItem(it.picture(), lx + 6, ry + 1);
+            ctx.item(it.picture(), lx + 6, ry + 1);
             String badge = it.badge();
             int badgeW = badge.isEmpty() ? 0 : Draw.badgeWidth(tr, badge) + 6;
             Draw.textFit(ctx, tr, it.name(), lx + 27, ry + 5, lw - 33 - badgeW,
@@ -247,7 +247,7 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     @Override
-    protected void drawDetails(GuiGraphics ctx) {
+    protected void drawDetails(GuiGraphicsExtractor ctx) {
         if (!detailsFrame(ctx)) return;
         Item it = focused();
         if (it == null) {

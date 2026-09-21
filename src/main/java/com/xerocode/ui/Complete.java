@@ -6,7 +6,7 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.FormattedText;
@@ -174,7 +174,7 @@ public final class Complete {
         return scroll + rel / ROW_H;
     }
 
-    public void render(GuiGraphics ctx, Font tr, int mouseX, int mouseY) {
+    public void render(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY) {
         if (!active()) return;
         Draw.shadow(ctx, x, y, w, h, 4);
         Draw.card(ctx, x, y, w, h, 4, Draw.opaque(Ui.PANEL), Draw.opaque(Theme.ACCENT));

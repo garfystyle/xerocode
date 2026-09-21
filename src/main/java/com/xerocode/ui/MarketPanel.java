@@ -10,7 +10,7 @@ import java.util.Locale;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.CharacterEvent;
@@ -64,17 +64,17 @@ abstract class MarketPanel implements MarketScreen.Panel {
 
     protected int maxScroll() { return Math.max(0, content - h); }
 
-    protected void drawScrollBar(GuiGraphics ctx, int mouseX, int mouseY) {
+    protected void drawScrollBar(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (content > h)
             bar.draw(ctx, x + columnW() - 5, y + 2, h - 4, content, h, scroll, mouseX, mouseY);
     }
 
-    protected void caption(GuiGraphics ctx, String text, int at, String note) {
+    protected void caption(GuiGraphicsExtractor ctx, String text, int at, String note) {
         Ui.caption(ctx, tr, text.toUpperCase(Locale.ROOT), fieldX(), at, fieldW(),
                 note == null ? "" : note);
     }
 
-    protected int drawField(GuiGraphics ctx, int at, String title, EditBox field,
+    protected int drawField(GuiGraphicsExtractor ctx, int at, String title, EditBox field,
                             String what, String note, int mouseX, int mouseY, float delta) {
         int room = fieldW();
         caption(ctx, title, at, note);
@@ -82,13 +82,13 @@ abstract class MarketPanel implements MarketScreen.Panel {
         Ui.input(ctx, fieldX(), at, room, ROW, field.isFocused());
         field.setX(fieldX() + 6);
         field.setY(at + (ROW - Ui.TEXT_H) / 2 + 1);
-        field.render(ctx, mouseX, mouseY, delta);
+        field.extractRenderState(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, field);
         hits.add(new Hit(what, fieldX(), at, room, ROW));
         return at + ROW + GAP;
     }
 
-    protected int button(GuiGraphics ctx, String text, String what, int bx, int by,
+    protected int button(GuiGraphicsExtractor ctx, String text, String what, int bx, int by,
                          int mouseX, int mouseY) {
         int bw = Ui.buttonW(tr, text);
         if (bx + bw > fieldX() + inner()) return bx;

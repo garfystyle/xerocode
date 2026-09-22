@@ -189,6 +189,7 @@ public final class Palette {
         animate(screenH);
 
         int w = Theme.PALETTE_W;
+        Draw.batch(Batch.open(ctx, null, new ScreenRectangle(0, 0, w, Math.max(1, screenH)), 256));
         Draw.rect(ctx, 0, 0, w, screenH, Draw.opaque(Theme.PANEL));
         Draw.rect(ctx, w - 1, 0, 1, screenH, Draw.opaque(Theme.LINE));
 
@@ -197,6 +198,7 @@ public final class Palette {
 
         int top = listTop();
         Draw.rect(ctx, 0, top - 1, w - 1, 1, Draw.opaque(Theme.LINE));
+        Draw.batch(null);
 
         ctx.enableScissor(0, top, w - 1, screenH);
         ScreenRectangle listArea = new ScreenRectangle(0, top, w - 1, Math.max(0, screenH - top));

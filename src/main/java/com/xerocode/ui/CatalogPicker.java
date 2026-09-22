@@ -251,7 +251,7 @@ public final class CatalogPicker extends PickerPanel {
         if (!detailsFrame(ctx)) return;
         Item it = focused();
         if (it == null) {
-            detailsEmpty(ctx, "Выберите запись слева — здесь будет её описание.");
+            detailsEmpty(ctx, "Выберите запись слева");
             return;
         }
         int inner = detailsInner(), tx = detailsX();

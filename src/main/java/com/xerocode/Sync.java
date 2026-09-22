@@ -78,6 +78,10 @@ public final class Sync {
     }
 
     public static State state(Script script, ClientLevel world) {
+        return script == null ? State.UNKNOWN : state(script, world, script.codeHash());
+    }
+
+    public static State state(Script script, ClientLevel world, int code) {
         if (script == null) return State.UNKNOWN;
         Base base = read(script.plot);
         boolean canvasFilled = !script.roots.isEmpty();
@@ -87,7 +91,7 @@ public final class Sync {
             if (!canvasFilled || now == null || now.lines() == 0) return State.UNKNOWN;
             return State.DIVERGED;
         }
-        boolean canvasChanged = script.codeHash() != base.canvas;
+        boolean canvasChanged = code != base.canvas;
         if (now == null) return canvasChanged ? State.CANVAS_AHEAD : State.UNKNOWN;
         if (base.awaiting) return canvasChanged ? State.CANVAS_AHEAD : State.IN_SYNC;
 

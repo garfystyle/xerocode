@@ -72,7 +72,6 @@ public final class BlockView {
     }
 
     public static void block(GuiGraphicsExtractor ctx, Font tr, Layout.Box box, Look look) {
-        if (Audit.on()) Audit.role("block");
         Script.Node n = box.node;
         boolean hovered = look.hover == box && look.chip == null && !look.dragging;
         boolean grad = Settings.gradient();
@@ -110,18 +109,18 @@ public final class BlockView {
             Draw.rect(ctx, box.x + 4, box.y + 2, box.w - 8, 3, Draw.argb(0x4D, 0xFFFFFF));
         else
             Draw.rect(ctx, box.x + 1, box.y + 1, box.w - 2, 1, Draw.argb(0x2E, 0xFFFFFF));
+        if (box.folded) foldStrip(ctx, tr, box);
 
         int iconY = box.y + box.hatH + 5;
         boolean lightHead = hovered
                 ? Draw.isLight(Draw.shade(base, grad ? 0.28f : 0.16f)) : box.lightHead;
-        int ink = hovered ? (lightHead ? 0x141821 : 0xFFFFFF) : box.ink;
+        int ink = hovered ? Layout.ink(lightHead) : box.ink;
         if (box.card != null) {
             card(ctx, tr, box, look, ink, lightHead, top);
             for (Layout.Chip chip : box.chips) chip(ctx, tr, box, chip, look);
-            if (Audit.on()) Audit.clearRole();
             return;
         }
-        ctx.item(n.action.icon(), box.x + Layout.PAD - 1, iconY);
+        Draw.item(ctx, n.action.icon(), box.x + Layout.PAD - 1, iconY, 16);
         Draw.text(ctx, tr, box.title, box.x + Layout.PAD + 20, iconY + 4, ink, !lightHead);
         if (box.target != null)
             Draw.text(ctx, tr, box.target, box.targetX, iconY + 4,
@@ -131,7 +130,31 @@ public final class BlockView {
                     lightHead ? 0x7A5300 : 0xFFE066);
 
         for (Layout.Chip chip : box.chips) chip(ctx, tr, box, chip, look);
-        if (Audit.on()) Audit.clearRole();
+    }
+
+    private static void foldStrip(GuiGraphicsExtractor ctx, Font tr, Layout.Box box) {
+        int x = box.x + Layout.INDENT, w = box.x + box.w - x;
+        int top = box.bodyTop(), h = box.armY() - top;
+        Draw.rect(ctx, x, top, w, h, Draw.argb(0xC8, Theme.CANVAS));
+        Draw.rect(ctx, x, top, w, 1, Draw.argb(0x60, 0x000000));
+        Draw.glyph(ctx, Draw.CARET_RIGHT, x + 6, top + (h - Draw.glyphH(Draw.CARET_RIGHT)) / 2,
+                Theme.TEXT_DIM);
+        Draw.textFit(ctx, tr, Ui.plural(box.foldCount, "блок", "блока", "блоков"),
+                x + 6 + Draw.glyphW(Draw.CARET_RIGHT) + 4, top + (h - Ui.TEXT_H) / 2, w - 20,
+                Theme.TEXT_DIM, false);
+    }
+
+    public static void sample(GuiGraphicsExtractor ctx, Font tr, int x, int y, int w, int h,
+                              int base, String title, int chipBase) {
+        int head = Layout.blockHead(base);
+        Draw.shadow(ctx, x, y + 6, w, h - 6, 1);
+        Draw.blockShape(ctx, x, y, w, h, 0, 0, Draw.opaque(head), Layout.blockBottom(base),
+                Layout.blockBorder(base));
+        Draw.rect(ctx, x + 4, y + 2, w - 8, 3, Draw.argb(0x4D, 0xFFFFFF));
+        boolean light = Draw.isLight(head);
+        Draw.textFit(ctx, tr, title, x + 7, y + 8, w - 14, Layout.ink(light), !light);
+        Draw.pill(ctx, x + 7, y + 19, 60, 11, Layout.chipBorder(chipBase));
+        Draw.pillGrad(ctx, x + 8, y + 20, 58, 9, Layout.chipTop(chipBase), Layout.chipBottom(chipBase));
     }
 
     private static void chip(GuiGraphicsExtractor ctx, Font tr, Layout.Box box, Layout.Chip chip,

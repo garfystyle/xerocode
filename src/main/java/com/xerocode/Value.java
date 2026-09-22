@@ -35,6 +35,7 @@ public final class Value {
     public String parsing = "legacy";
 
     public double number;
+    public String numberText = "";
 
     public double x, y, z, yaw, pitch;
 
@@ -114,7 +115,7 @@ public final class Value {
 
     public Value copy() {
         Value v = new Value(type);
-        v.text = text; v.parsing = parsing; v.number = number;
+        v.text = text; v.parsing = parsing; v.number = number; v.numberText = numberText;
         v.x = x; v.y = y; v.z = z; v.yaw = yaw; v.pitch = pitch;
         v.name = name; v.scope = scope; v.valueType = valueType; v.typeKey = typeKey;
         v.required = required; v.gameValue = gameValue; v.selection = selection;
@@ -150,6 +151,7 @@ public final class Value {
         h = h * 31 + text.hashCode();
         h = h * 31 + parsing.hashCode();
         h = h * 31 + Double.hashCode(number);
+        h = h * 31 + numberText.hashCode();
         h = h * 31 + Double.hashCode(x);
         h = h * 31 + Double.hashCode(y);
         h = h * 31 + Double.hashCode(z);
@@ -233,10 +235,14 @@ public final class Value {
         return String.valueOf(d);
     }
 
+    public String numberString() {
+        return numberText.isBlank() ? num(number) : numberText;
+    }
+
     public String label() {
         return switch (type) {
             case TEXT -> text.isEmpty() ? "пустой текст" : text;
-            case NUMBER -> num(number);
+            case NUMBER -> numberString();
             case LOCATION -> num(x) + " " + num(y) + " " + num(z)
                     + (yaw == 0 && pitch == 0 ? "" : " · " + num(yaw) + "/" + num(pitch));
             case VECTOR -> num(x) + " " + num(y) + " " + num(z);
@@ -335,7 +341,10 @@ public final class Value {
         o.addProperty("type", type);
         switch (type) {
             case TEXT -> { o.addProperty("text", text); o.addProperty("parsing", parsing); }
-            case NUMBER -> o.addProperty("number", number);
+            case NUMBER -> {
+                if (numberText.isBlank()) o.addProperty("number", number);
+                else o.addProperty("number", numberText);
+            }
             case LOCATION -> {
                 o.addProperty("x", x); o.addProperty("y", y); o.addProperty("z", z);
                 o.addProperty("yaw", yaw); o.addProperty("pitch", pitch);
@@ -482,7 +491,13 @@ public final class Value {
         }
         if (o.has("text")) v.text = o.get("text").getAsString();
         if (o.has("parsing")) v.parsing = o.get("parsing").getAsString();
-        if (o.has("number")) v.number = o.get("number").getAsDouble();
+        if (o.has("number")) {
+            try {
+                v.number = o.get("number").getAsDouble();
+            } catch (RuntimeException e) {
+                v.numberText = o.get("number").getAsString();
+            }
+        }
         if (o.has("x")) v.x = o.get("x").getAsDouble();
         if (o.has("y")) v.y = o.get("y").getAsDouble();
         if (o.has("z")) v.z = o.get("z").getAsDouble();

@@ -3,6 +3,7 @@ package com.xerocode.ui;
 import com.xerocode.Finder;
 import com.xerocode.Functions;
 import com.xerocode.Script;
+import com.xerocode.Settings;
 import com.xerocode.Stacks;
 import com.xerocode.Value;
 import org.lwjgl.glfw.GLFW;
@@ -49,7 +50,7 @@ public final class FindPanel {
     }
 
     public void resize(int screenW, int screenH) {
-        int room = Math.max(1, screenW - Theme.PALETTE_W);
+        int room = Math.max(1, screenW - (Settings.chests() ? 0 : Theme.PALETTE_W));
         int want = Math.min(WANT_W, Math.max(MIN_W, room));
         if (screenW == this.screenW && screenH == this.screenH && want == w && field != null) return;
         this.screenW = screenW;
@@ -231,14 +232,9 @@ public final class FindPanel {
     }
 
     private void drawEmpty(GuiGraphicsExtractor ctx, int top, int bottom) {
-        String[] lines = outline
-                ? new String[]{"полотно пусто", "перетащи блок из палитры слева"}
-                : new String[]{"ничего не нашлось", "ищется имя, текст, переменная,",
-                        "звук, предмет, цель"};
-        int ty = top + (bottom - top) / 2 - lines.length * 6;
-        for (int i = 0; i < lines.length; i++)
-            Draw.textCenter(ctx, tr, lines[i], x + PAD, ty + i * 11, w - PAD * 2, w - PAD * 2,
-                    i == 0 ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
+        String said = outline ? "полотно пусто" : "ничего не нашлось";
+        Draw.textCenter(ctx, tr, said, x + PAD, top + (bottom - top) / 2 - 6,
+                w - PAD * 2, w - PAD * 2, Theme.TEXT_DIM, false);
     }
 
     private void drawRow(GuiGraphicsExtractor ctx, Finder.Hit hit, int ry, boolean hov, boolean cur) {

@@ -57,7 +57,6 @@ public final class Draw {
 
     public static void rect(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int argb) {
         if (w <= 0 || h <= 0) return;
-        if (Audit.on()) Audit.note(Audit.FILL, x, y, w, h, "");
         quad(ctx, x, y, x + w, y + h, argb, argb);
     }
 
@@ -92,7 +91,6 @@ public final class Draw {
 
     public static void roundRectGrad(GuiGraphicsExtractor ctx, int x, int y, int w, int h,
                                      int tl, int tr, int br, int bl, int top, int bottom) {
-        if (Audit.on()) Audit.note(Audit.FILL, x, y, w, h, "");
         rows(ctx, x, y, w, h, tl, tr, br, bl, 0, h, top, bottom);
     }
 
@@ -118,6 +116,12 @@ public final class Draw {
                              int tl, int tr, int br, int bl, int from, int to,
                              int top, int bottom) {
         if (w <= 0 || h <= 0 || to <= from) return;
+        boolean solid = top == bottom && (top >>> 24) == 0xFF;
+        boolean whole = from == 0 && to == h;
+        if (solid && whole && tl == tr && tr == br && br == bl) {
+            concentric(ctx, x, y, w, h, tl, top);
+            return;
+        }
         int start = from;
         int pl = insetLeft(tl, bl, h, from), pr = insetRight(tr, br, h, from);
         for (int dy = from + 1; dy <= to; dy++) {
@@ -132,6 +136,16 @@ public final class Draw {
             start = dy;
             pl = li;
             pr = ri;
+        }
+    }
+
+    private static void concentric(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int r, int argb) {
+        int prev = -1;
+        for (int dy = 0; dy <= h - 1 - dy; dy++) {
+            int v = insetLeft(r, r, h, dy);
+            if (v == prev) continue;
+            prev = v;
+            if (w - v > v) quad(ctx, x + v, y + dy, x + w - v, y + h - dy, argb, argb);
         }
     }
 
@@ -256,16 +270,17 @@ public final class Draw {
     public static void text(GuiGraphicsExtractor ctx, Font tr, String s, int x, int y,
                             int rgb, boolean shadow) {
         int argb = opaque(rgb);
-        if (Audit.on() && !s.isEmpty())
-            Audit.note(Audit.TEXT, x, y, tr.width(s), Ui.TEXT_H, s);
-        if (!SmoothText.draw(ctx, tr, s, x, y, argb, shadow)) ctx.text(tr, s, x, y, argb, shadow);
+        boolean smooth = SmoothText.draw(ctx, tr, s, x, y, argb, shadow);
+        if (!smooth) ctx.text(tr, s, x, y, argb, shadow);
+        Tape.text(smooth, s, x, y, argb, shadow);
     }
 
     public static void text(GuiGraphicsExtractor ctx, Font tr, FormattedCharSequence s, int x, int y,
                             int rgb, boolean shadow) {
         int argb = opaque(rgb);
-        if (Audit.on()) Audit.note(Audit.TEXT, x, y, tr.width(s), Ui.TEXT_H, "");
-        if (!SmoothText.draw(ctx, tr, s, x, y, argb, shadow)) ctx.text(tr, s, x, y, argb, shadow);
+        boolean smooth = SmoothText.draw(ctx, tr, s, x, y, argb, shadow);
+        if (!smooth) ctx.text(tr, s, x, y, argb, shadow);
+        Tape.text(smooth, s, x, y, argb, shadow);
     }
 
     public static void textScaled(GuiGraphicsExtractor ctx, Font tr, FormattedCharSequence s, int x, int y,
@@ -275,19 +290,21 @@ public final class Draw {
         m.pushMatrix();
         m.translate(x, y);
         m.scale(scale, scale);
+        Tape.scaled(x, y, scale);
         text(ctx, tr, s, 0, 0, rgb, shadow);
+        Tape.unscaled();
         m.popMatrix();
     }
 
     public static void item(GuiGraphicsExtractor ctx, ItemStack stack, int x, int y, int size) {
         if (stack.isEmpty()) return;
-        if (Audit.on()) Audit.note(Audit.ITEM, x, y, size, size, "");
-        if (size == 16) { ctx.item(stack, x, y); return; }
+        Tape.item(stack, x, y, size);
+        if (size == 16) { Icons.draw(ctx, stack, x, y); return; }
         var m = ctx.pose();
         m.pushMatrix();
         m.translate(x, y);
         m.scale(size / 16f, size / 16f);
-        ctx.item(stack, 0, 0);
+        Icons.draw(ctx, stack, 0, 0);
         m.popMatrix();
     }
 
@@ -310,7 +327,6 @@ public final class Draw {
                             int fill, int rgb) {
         int w = tr.width(s) + 8;
         round(ctx, x, y, w, 11, 3, fill);
-        if (Audit.on()) Audit.note(Audit.TEXT, x + 4, y + 2, tr.width(s), Ui.TEXT_H, s);
         ctx.text(tr, s, x + 4, y + 2, opaque(rgb), false);
         return w;
     }
@@ -319,7 +335,6 @@ public final class Draw {
 
     public static void glyph(GuiGraphicsExtractor ctx, String[] rows, int x, int y, int rgb) {
         int c = opaque(rgb);
-        if (Audit.on()) Audit.note(Audit.GLYPH, x, y, glyphW(rows), glyphH(rows), "");
         for (int r = 0; r < rows.length; r++) {
             String row = rows[r];
             int run = 0;
@@ -516,6 +531,14 @@ public final class Draw {
             "### ###",
             "# # # #",
             "### ###"};
+    public static final String[] USERS = {
+            " #   # ",
+            "###  ##",
+            " #    #",
+            "       ",
+            "### ###",
+            "# # # #",
+            "# # # #"};
     public static final String[] SELECT = {
             "##   ##",
             "#     #",
@@ -653,6 +676,14 @@ public final class Draw {
             "# ### #",
             "#     #",
             "#######"};
+    public static final String[] KEYBOARD = {
+            "#########",
+            "#       #",
+            "# # # # #",
+            "#       #",
+            "# ##### #",
+            "#       #",
+            "#########"};
     public static final String[] LOOP = {
             " ##   ## ",
             "#  # #  #",

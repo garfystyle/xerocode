@@ -493,8 +493,7 @@ public final class ItemStudio {
             int at = absY(prevY) + 42, bottom = absY(prevY) + prevH - 4;
             if (lines.isEmpty())
                 for (String line : Ui.wrap(tr,
-                        "подсказка скрыта целиком: при наведении игрок не увидит ни названия, "
-                                + "ни чар, ни описания. Название с предмета при этом не снято",
+                        "подсказка скрыта: игрок не увидит ни названия, ни чар, ни описания",
                         rw - 16, Math.max(1, (bottom - at) / 10))) {
                     Draw.text(ctx, tr, line, rightX() + 8, at, Theme.TEXT_FAINT, false);
                     at += 10;

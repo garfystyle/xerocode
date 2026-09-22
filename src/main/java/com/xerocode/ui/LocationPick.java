@@ -1082,7 +1082,7 @@ public final class LocationPick {
         String title = switch (op) {
             case MOVE -> "ДВИГАТЬ" + (axis < 0 ? "" : (planeMode ? " · плоскость " : " · ось ")
                     + "XYZ".charAt(axis));
-            case LOOK -> "ВЗГЛЯД ИЗ ТОЧКИ · куда смотрит местоположение";
+            case LOOK -> "ВЗГЛЯД ИЗ ТОЧКИ";
             default -> "МЕСТОПОЛОЖЕНИЕ";
         };
         String hint = op == Op.NONE ? "Enter — готово" : "Enter — применить";

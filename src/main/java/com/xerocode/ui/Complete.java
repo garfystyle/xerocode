@@ -26,6 +26,7 @@ public final class Complete {
     private int sel, scroll;
     private int dismissed = -1;
     private int x, y, w, h, listH;
+    private boolean numbersOnly;
 
     public boolean active() { return start >= 0 && !hits.isEmpty(); }
 
@@ -37,6 +38,11 @@ public final class Complete {
     }
 
     public void update(EditBox f, Font tr, int screenW, int screenH) {
+        update(f, tr, screenW, screenH, false);
+    }
+
+    public void update(EditBox f, Font tr, int screenW, int screenH, boolean numbersOnly) {
+        this.numbersOnly = numbersOnly;
         this.tr = tr;
         this.screenW = screenW;
         this.screenH = screenH;
@@ -56,19 +62,19 @@ public final class Complete {
         if (dismissed == p) return;
         dismissed = -1;
 
-        hits.addAll(Placeholders.match(text.substring(p + 1, cursor), MAX_HITS));
+        hits.addAll(Placeholders.match(text.substring(p + 1, cursor), MAX_HITS, numbersOnly));
         if (hits.isEmpty()) return;
         start = p;
         if (sel >= hits.size()) sel = 0;
         place();
     }
 
-    private void wrapDesc(String text, int room) {
+    private void wrapDesc(String text, int room, int most) {
         desc.clear();
         if (text.isBlank()) return;
         for (FormattedText line : tr.getSplitter().splitLines(text.trim(), room, Style.EMPTY)) {
-            if (desc.size() < DESC_LINES) { desc.add(line.getString()); continue; }
-            int last = DESC_LINES - 1;
+            if (desc.size() < most) { desc.add(line.getString()); continue; }
+            int last = most - 1;
             desc.set(last, Draw.fit(tr, desc.get(last) + " " + line.getString(), room));
             return;
         }
@@ -103,11 +109,12 @@ public final class Complete {
         if (sel >= scroll + rows) scroll = sel - rows + 1;
         listH = rows * ROW_H;
 
-        wrapDesc(hits.get(sel).description(), w - PAD * 2 - 2);
+        int below = field.getY() + field.getHeight() + 2;
+        int space = Math.max(screenH - 2 - below, field.getY() - 4) - PAD * 2 - listH - 2;
+        wrapDesc(hits.get(sel).description(), w - PAD * 2 - 2, Math.max(DESC_LINES, space / 9));
         h = PAD * 2 + listH + (desc.isEmpty() ? 0 : 2 + desc.size() * 9);
 
         x = Math.max(2, Math.min(field.getX() - 3, screenW - w - 2));
-        int below = field.getY() + field.getHeight() + 2;
         y = below + h > screenH - 2 ? Math.max(2, field.getY() - h - 2) : below;
     }
 

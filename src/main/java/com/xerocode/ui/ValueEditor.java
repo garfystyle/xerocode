@@ -436,7 +436,7 @@ public final class ValueEditor {
                 part("studio", BTN_H);
             }
             case Value.NUMBER -> {
-                fields.add(field(Value.num(v.number), "0"));
+                fields.add(field(v.numberString(), "0"));
                 cap("ЗНАЧЕНИЕ");
                 part("input", FIELD_H);
                 if (!compact) part("note", 12);
@@ -1091,11 +1091,9 @@ public final class ValueEditor {
                 Ui.placeholder(ctx, tr, fields.get(0));
                 if (has("note")) {
                     String text = fields.get(0).getValue().trim();
-                    boolean bad = !text.isEmpty() && !isNumber(text);
-                    Draw.textFit(ctx, tr, bad ? "это не число — станет 0 при сохранении"
-                                    : "дробная часть через точку или запятую",
-                            x + PAD + 2, py("note") + 2, full - 4,
-                            bad ? Theme.DANGER : Theme.TEXT_FAINT, false);
+                    boolean bad = !text.isEmpty() && !formula(text) && !isNumber(text);
+                    if (bad) Draw.textFit(ctx, tr, "не число — сохранится 0",
+                            x + PAD + 2, py("note") + 2, full - 4, Theme.DANGER, false);
                 }
             }
             case Value.VARIABLE -> {
@@ -1226,7 +1224,7 @@ public final class ValueEditor {
                 drawChoose(ctx, mouseX, mouseY, e != null, "Выбрать эффект", "Другой эффект");
                 drawFieldRow(ctx, mouseX, mouseY, delta, rowOf("nums"));
                 if (has("note"))
-                    Draw.textFit(ctx, tr, "-1 — бесконечно; уровень 1 = amplifier 0",
+                    Draw.textFit(ctx, tr, "-1 — бесконечно",
                             x + PAD + 2, py("note") + 2, full - 4, Theme.TEXT_FAINT, false);
             }
             case Value.GAME_VALUE -> {
@@ -2103,6 +2101,7 @@ public final class ValueEditor {
 
     private void bump(double delta) {
         EditBox f = fields.get(0);
+        if (formula(f.getValue())) return;
         double now = 0;
         try {
             String s = f.getValue().trim().replace(',', '.');
@@ -2320,12 +2319,16 @@ public final class ValueEditor {
     private boolean completable() {
         if (fields.isEmpty() || focus != 0) return false;
         String type = current().type;
-        return Value.TEXT.equals(type) || Value.VARIABLE.equals(type);
+        return Value.TEXT.equals(type) || Value.VARIABLE.equals(type)
+                || Value.NUMBER.equals(type);
     }
 
     private void syncComplete() {
-        complete.update(completable() ? fields.get(focus) : null, tr, screenW, screenH);
+        complete.update(completable() ? fields.get(focus) : null, tr, screenW, screenH,
+                Value.NUMBER.equals(current().type));
     }
+
+    private static boolean formula(String s) { return s.indexOf('%') >= 0; }
 
     private static double parse(String s) {
         try {
@@ -2340,7 +2343,11 @@ public final class ValueEditor {
         Value v = current();
         switch (v.type) {
             case Value.TEXT -> v.text = fields.get(0).getValue();
-            case Value.NUMBER -> v.number = parse(fields.get(0).getValue());
+            case Value.NUMBER -> {
+                String typed = fields.get(0).getValue();
+                if (formula(typed)) v.numberText = typed.trim();
+                else { v.number = parse(typed); v.numberText = ""; }
+            }
             case Value.VARIABLE, Value.PARAMETER -> v.name = fields.get(0).getValue().trim();
             case Value.LOCATION -> {
                 v.x = parse(fields.get(0).getValue()); v.y = parse(fields.get(1).getValue());

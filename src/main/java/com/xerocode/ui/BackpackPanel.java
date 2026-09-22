@@ -246,10 +246,8 @@ public final class BackpackPanel extends PickerPanel {
                 lx, cy, lw, lw - 20, Theme.TEXT_DIM, false);
         if (searching) return;
         cy += 14;
-        Draw.textCenter(ctx, tr, "правый клик по блоку → «Стопку в рюкзак»",
+        Draw.textCenter(ctx, tr, "ПКМ по блоку → «Стопку в рюкзак»",
                 lx, cy, lw, lw - 20, Theme.TEXT_FAINT, false);
-        Draw.textCenter(ctx, tr, "или перетащи стопку в карман внизу справа",
-                lx, cy + 11, lw, lw - 20, Theme.TEXT_FAINT, false);
     }
 
     @Override
@@ -260,8 +258,8 @@ public final class BackpackPanel extends PickerPanel {
         Backpack.Item it = focused();
         if (it == null) {
             detailsEmpty(ctx, Backpack.all().isEmpty()
-                    ? "Сюда складываются куски кода: событие со всем телом, одна стопка, один блок."
-                    : "Выбери кусок слева — здесь будет его вид.");
+                    ? "Куски кода, общие для всех миров"
+                    : "Выбери кусок слева");
             return;
         }
         int at = detailsHead(ctx, it.icon(), it.name, it.subtitle(),
@@ -524,9 +522,7 @@ public final class BackpackPanel extends PickerPanel {
 
     @Override
     protected String footerHint() {
-        if (renaming()) return "Enter — сохранить имя, Esc — отменить";
-        if (Backpack.all().isEmpty()) return "рюкзак один на все миры";
-        return "";
+        return renaming() ? "Enter — сохранить имя, Esc — отменить" : "";
     }
 
     @Override

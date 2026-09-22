@@ -146,19 +146,24 @@ public final class ImportScreen extends DialogScreen {
         int done = scan == null ? 0 : scan.index();
         int total = scan == null ? lines.size() : scan.total();
         float progress = scan == null ? 0 : scan.progress();
+        boolean reading = scan == null || scan.note.isEmpty();
 
-        Draw.textFit(ctx, font, "Строка " + done + " из " + total, x, y,
-                w - 34, Theme.TEXT, false);
-        Draw.textRight(ctx, font, Math.round(progress * 100) + " %", x + w, y,
-                Theme.ACCENT, false);
+        Draw.textFit(ctx, font, reading ? "Строка " + done + " из " + total : scan.note,
+                x, y, w - 34, Theme.TEXT, false);
+        if (reading)
+            Draw.textRight(ctx, font, Math.round(progress * 100) + " %", x + w, y,
+                    Theme.ACCENT, false);
 
         int by = y + ROW + 8;
         barTrack(ctx, x, by, w);
         barFill(ctx, x, by, 0, Math.max(0, Math.min(w - 2, Math.round((w - 2) * progress))));
 
-        String note = "блоков прочитано: " + (scan == null ? 0 : scan.blocks());
-        float left = scan == null ? -1 : scan.remaining();
-        if (left >= 0) note += "   ·   осталось ~" + Math.max(1, Math.round(left)) + " с";
+        String note = "если сервер не отдаст файл, прочитаю строки по одной";
+        if (reading) {
+            note = "блоков прочитано: " + (scan == null ? 0 : scan.blocks());
+            float left = scan == null ? -1 : scan.remaining();
+            if (left >= 0) note += "   ·   осталось ~" + Math.max(1, Math.round(left)) + " с";
+        }
         Draw.textFit(ctx, font, note, x, by + BAR_H + 6, w, Theme.TEXT_FAINT, false);
 
         buttons(ctx, mouseX, mouseY, x, w, null, CANCEL);

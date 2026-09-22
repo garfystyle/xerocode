@@ -19,6 +19,7 @@ public final class Theme {
     public static int ACCENT        = 0x59A6FF;
     public static int DANGER        = 0xFF7373;
     public static int OK            = 0x63D68E;
+    public static int WARN          = 0xFFD24A;
 
     public static int GRID          = 0x188FA0C0;
     public static int GRID_STRONG   = 0x2A8FA0C0;
@@ -38,6 +39,7 @@ public final class Theme {
     public static final int PALETTE_MIN_W = 150;
     public static final int PALETTE_MAX_W = 460;
     public static final int TOPBAR_H  = 30;
+    public static final int STATUS_H  = 14;
 
     public static final int SEARCH_H     = 20;
     public static final int CRUMB_H      = 20;
@@ -64,6 +66,7 @@ public final class Theme {
         ACCENT        = 0x59A6FF;
         DANGER        = 0xFF7373;
         OK            = 0x63D68E;
+        WARN          = 0xFFD24A;
         GRID          = 0x188FA0C0;
         GRID_STRONG   = 0x2A8FA0C0;
         SHADOW        = 0x3A000000;
@@ -108,6 +111,7 @@ public final class Theme {
         ACCENT        = 0x2F7BE0;
         DANGER        = 0xC93B3B;
         OK            = 0x2C9557;
+        WARN          = 0xA36A00;
         GRID          = 0x1C4A5A78;
         GRID_STRONG   = 0x3A4A5A78;
         SHADOW        = 0x1E1B2333;

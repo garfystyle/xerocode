@@ -53,6 +53,9 @@ public final class Codespace {
     private static final double NEAR = 8.0;
     private static final int NEAR_TRIES = 20;
 
+    private static final String ASKING = "спрашиваю код у сервера";
+    private static final String FETCHING = "сервер отдал файл — забираю";
+
     private static final String SAID_LIMIT = "Подождите перед сохранением";
     private static final String SAID_SAVED = "Строка сохранена";
 
@@ -234,8 +237,11 @@ public final class Codespace {
 
         public State state = State.RUNNING;
         public String error = "";
+        public String note = "";
         public Path file;
         public long millis;
+
+        private Download fast;
 
         Scan(ClientLevel world, List<BlockPos> lines, Memo memo) {
             this.world = world;
@@ -249,9 +255,9 @@ public final class Codespace {
                 index = this.memo.next;
                 for (JsonElement el : this.memo.handlers) handlers.add(el);
             }
-            index = ahead(index);
-            if (lines.isEmpty() || index >= lines.size()) { state = State.DONE; return; }
-            teleport();
+            if (handlers.isEmpty()) fast = Download.start(client);
+            if (fast != null) note = ASKING;
+            else readLines();
         }
 
         public int index()  { return Math.min(index + 1, lines.size()); }
@@ -274,6 +280,7 @@ public final class Codespace {
 
         public void cancel() {
             if (state != State.RUNNING) return;
+            dropFast();
             millis = System.currentTimeMillis() - startedAt;
             restore();
             save();
@@ -292,6 +299,7 @@ public final class Codespace {
                 broke("мир сменился на " + client.level.dimension().identifier().getPath());
                 return;
             }
+            if (fast != null) { fastTick(); return; }
             if (picking) {
                 String raw = template(client.player.getInventory().getItem(SLOT));
                 if (raw != null) {
@@ -401,6 +409,37 @@ public final class Codespace {
             }
         }
 
+        private void fastTick() {
+            fast.tick();
+            switch (fast.state) {
+                case FETCHING -> note = FETCHING;
+                case DONE -> {
+                    handlers.addAll(fast.handlers);
+                    dropFast();
+                    complete();
+                }
+                case FAILED -> {
+                    XeroCode.LOG.info("[xerocode] быстрая загрузка не вышла ({}) — читаю строки",
+                            fast.error);
+                    dropFast();
+                    readLines();
+                }
+                case WAITING -> { }
+            }
+        }
+
+        private void dropFast() {
+            if (fast != null) fast.cancel();
+            fast = null;
+            note = "";
+        }
+
+        private void readLines() {
+            index = ahead(index);
+            if (index < lines.size()) teleport();
+            else state = State.DONE;
+        }
+
         private void next() {
             walked++;
             index = ahead(index + 1);
@@ -421,8 +460,12 @@ public final class Codespace {
         }
 
         private void finish() {
-            millis = System.currentTimeMillis() - startedAt;
             restore();
+            complete();
+        }
+
+        private void complete() {
+            millis = System.currentTimeMillis() - startedAt;
             save();
             forget();
             state = State.DONE;

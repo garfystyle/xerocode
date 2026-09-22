@@ -54,12 +54,18 @@ public final class Catalog {
         public final List<Arg> args;
         public final List<Setting> settings;
         public final boolean unavailable;
+        public final boolean deprecated;
         public Category category;
         public String subcategory;
         Action(int id, String name, String item, String description, List<Arg> args,
                List<Setting> settings, boolean unavailable) {
+            this(id, name, item, description, args, settings, unavailable, false);
+        }
+        Action(int id, String name, String item, String description, List<Arg> args,
+               List<Setting> settings, boolean unavailable, boolean deprecated) {
             this.id = id; this.name = name; this.item = item; this.description = description;
             this.args = args; this.settings = settings; this.unavailable = unavailable;
+            this.deprecated = deprecated;
         }
         public ItemStack icon() { return stackOf(item); }
     }
@@ -194,7 +200,7 @@ public final class Catalog {
                         Action a = ACTIONS.get(ai.getAsInt());
                         a.category = cat;
                         a.subcategory = sn.isJsonNull() ? null : sn.getAsString();
-                        list.add(a);
+                        if (!a.deprecated) list.add(a);
                         BY_KEY.put(key(cat.name, a.name), a);
                         BY_KEY.put(keyOf(a), a);
                     }
@@ -453,7 +459,8 @@ public final class Catalog {
         if (o.has("f")) for (JsonElement fe : o.getAsJsonArray("f"))
             if ("unavailable_in_world".equals(fe.getAsString())) unavailable = true;
         return new Action(id, o.get("n").getAsString(), o.get("i").getAsString(),
-                o.has("d") ? o.get("d").getAsString() : "", args, settings, unavailable);
+                o.has("d") ? o.get("d").getAsString() : "", args, settings, unavailable,
+                o.has("h"));
     }
 
     public static final String UNKNOWN_EVENT_CAT = "Неизвестное событие";
@@ -531,7 +538,7 @@ public final class Catalog {
     }
 
     public static List<Action> search(String query, int limit) {
-        return rank(ACTIONS, query, limit);
+        return rank(ACTIONS.stream().filter(a -> !a.deprecated).toList(), query, limit);
     }
 
     public static List<Action> searchIn(Category category, String query, int limit) {

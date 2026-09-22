@@ -95,7 +95,10 @@ public final class MiniMap {
         if (!shown) return;
         int r = radius();
         int border = Draw.argb(hover ? 0xFF : 0xA0, hover ? Theme.ACCENT : Ui.BORDER);
+        ScreenRectangle whole = new ScreenRectangle(x, y, w, h);
+        Draw.batch(Batch.open(ctx, null, whole, 64 + 2 * h));
         Draw.card(ctx, x, y, w, h, r, Draw.argb(hover ? 0xF2 : 0xD8, Ui.PANEL), border);
+        Draw.batch(null);
         ScreenRectangle area = new ScreenRectangle(x + 1, y + 1, w - 2, h - 2);
         ctx.enableScissor(x + 1, y + 1, x + w - 1, y + h - 1);
         Draw.batch(Batch.open(ctx, area, area, Math.max(256, count + 2 * h)));
@@ -120,7 +123,9 @@ public final class MiniMap {
         }
         Draw.batch(null);
         ctx.disableScissor();
+        Draw.batch(Batch.open(ctx, null, whole, 2 * h + 4));
         Draw.roundOutline(ctx, x, y, w, h, r, border);
+        Draw.batch(null);
     }
 
     public void marks(GuiGraphicsExtractor ctx, List<Layout.Box> boxes, int rgb) {

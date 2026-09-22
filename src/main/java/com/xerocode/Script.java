@@ -16,6 +16,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntFunction;
+import java.util.function.ObjIntConsumer;
+import java.util.function.Predicate;
+import java.util.function.ToIntFunction;
 import net.minecraft.client.Minecraft;
 
 public final class Script {
@@ -34,6 +38,7 @@ public final class Script {
 
         public JsonObject raw;
         public Node cond;
+        public boolean folded;
 
         public Node(Catalog.Action action) {
             this.action = action;
@@ -259,7 +264,7 @@ public final class Script {
         if (root.has("viewX")) s.viewX = root.get("viewX").getAsDouble();
         if (root.has("viewY")) s.viewY = root.get("viewY").getAsDouble();
         if (root.has("viewZoom"))
-            s.viewZoom = Math.max(0.2, Math.min(2.0, root.get("viewZoom").getAsDouble()));
+            s.viewZoom = Math.max(0.1, Math.min(2.0, root.get("viewZoom").getAsDouble()));
         for (JsonElement re : root.getAsJsonArray("roots")) {
             JsonObject ro = re.getAsJsonObject();
             Root rt = new Root(ro.get("x").getAsDouble(), ro.get("y").getAsDouble(),
@@ -281,8 +286,25 @@ public final class Script {
             h = h * 31 + Double.hashCode(r.x);
             h = h * 31 + Double.hashCode(r.y);
             h = chainHash(h, r.chain);
+            h = foldHash(h, r.chain);
         }
         return h;
+    }
+
+    private static int foldHash(int h, List<Node> chain) {
+        for (Node n : chain) {
+            h = h * 31 + (n.folded ? 1 : 0);
+            if (!n.body.isEmpty()) h = foldHash(h, n.body);
+        }
+        return h;
+    }
+
+    public static boolean unfoldTo(List<Node> chain, Node target) {
+        for (Node n : chain) {
+            if (n == target) return true;
+            if (unfoldTo(n.body, target)) { n.folded = false; return true; }
+        }
+        return false;
     }
 
     public int codeHash() {
@@ -366,83 +388,195 @@ public final class Script {
         }
     }
 
+    private static final List<String> LOST = new ArrayList<>();
+
+    public static List<String> lostOnLoad() { return List.copyOf(LOST); }
+
+    public static void forgetLost() { LOST.clear(); }
+
+    private static void lost(String what) {
+        if (LOST.contains(what) || LOST.size() >= 12) return;
+        LOST.add(what);
+        XeroCode.LOG.warn("[xerocode] полотно: не нашлось место для «{}»", what);
+    }
+
+    private static int plainIndex(String s) {
+        if (s.isEmpty() || s.length() > 9) return -1;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < '0' || c > '9') return -1;
+        }
+        return Integer.parseInt(s);
+    }
+
+    private static String slotKey(Node n, int idx, int count, IntFunction<String> nameOf) {
+        boolean fixedShape = n.invokes() || n.declares()
+                || !n.dynKeys.isEmpty() || !n.dynMarkerKeys.isEmpty();
+        if (fixedShape || idx < 0 || idx >= count) return String.valueOf(idx);
+        String name = nameOf.apply(idx);
+        return name == null || name.isBlank() || plainIndex(name) >= 0 ? String.valueOf(idx) : name;
+    }
+
+    private static String argKey(Node n, int idx) {
+        List<Catalog.Arg> args = n.args();
+        return slotKey(n, idx, args.size(), i -> args.get(i).purpose);
+    }
+
+    private static String settingKey(Node n, int idx) {
+        List<Catalog.Setting> settings = n.settings();
+        return slotKey(n, idx, settings.size(), i -> settings.get(i).label);
+    }
+
+    private static String serverId(Catalog.Action a) {
+        String id = Mapping.actionId(a);
+        if (id == null) id = Mapping.eventId(a);
+        if (id == null) id = Mapping.elseCondId(a);
+        return id;
+    }
+
+    private static JsonArray strings(List<String> list) {
+        JsonArray arr = new JsonArray();
+        for (String s : list) arr.add(s);
+        return arr;
+    }
+
     static JsonArray writeChain(List<Node> chain) {
         JsonArray arr = new JsonArray();
         for (Node n : chain) {
             JsonObject o = new JsonObject();
             o.addProperty("a", Catalog.keyOf(n.action));
+            String sid = Mapping.loaded() ? serverId(n.action) : null;
+            if (sid != null) o.addProperty("sid", sid);
             if (!n.values.isEmpty()) {
                 JsonObject vals = new JsonObject();
                 n.values.forEach((idx, list) -> {
                     if (list.isEmpty()) return;
                     JsonArray la = new JsonArray();
                     for (Value v : list) la.add(v.toJson());
-                    vals.add(String.valueOf(idx), la);
+                    vals.add(argKey(n, idx), la);
                 });
                 if (!vals.isEmpty()) o.add("v", vals);
             }
             if (!n.markers.isEmpty()) {
                 JsonObject mk = new JsonObject();
-                n.markers.forEach((idx, opt) -> mk.addProperty(String.valueOf(idx), opt));
+                n.markers.forEach((idx, opt) -> mk.addProperty(settingKey(n, idx), opt));
                 o.add("m", mk);
             }
             if (!n.markerVars.isEmpty()) {
                 JsonObject mv = new JsonObject();
-                n.markerVars.forEach((idx, v) -> mv.add(String.valueOf(idx), v.toJson()));
+                n.markerVars.forEach((idx, v) -> mv.add(settingKey(n, idx), v.toJson()));
                 o.add("mv", mv);
             }
             if (n.cond != null) o.add("c", writeChain(List.of(n.cond)).get(0));
             if (!n.body.isEmpty()) o.add("b", writeChain(n.body));
+            if (n.folded && !n.body.isEmpty()) o.addProperty("f", true);
             if (n.raw != null && !n.raw.isEmpty()) o.add("r", n.raw);
-            if (!n.dynKeys.isEmpty()) {
-                JsonArray keys = new JsonArray();
-                for (String k : n.dynKeys) keys.add(k);
-                o.add("dk", keys);
-            }
-            if (!n.dynMarkerKeys.isEmpty()) {
-                JsonArray keys = new JsonArray();
-                for (String k : n.dynMarkerKeys) keys.add(k);
-                o.add("dm", keys);
-            }
+            if (!n.dynKeys.isEmpty()) o.add("dk", strings(n.dynKeys));
+            if (!n.dynMarkerKeys.isEmpty()) o.add("dm", strings(n.dynMarkerKeys));
             arr.add(o);
         }
         return arr;
+    }
+
+    private record Moved(String key, int[] args, Predicate<JsonObject> applies) {}
+
+    private static final String VARIABLE = "Действие с переменной|";
+
+    private static final Map<String, Moved> MOVED = Map.of(
+            VARIABLE + "Получить значение словаря",
+            new Moved(VARIABLE + "Получить значение словаря", new int[]{1, 3, 2, 0}, o -> true),
+            VARIABLE + "Распаковать список",
+            new Moved(VARIABLE + "Разложить список", new int[]{1, 0}, o -> true),
+            VARIABLE + "Получить список хранимых зачарований предмета",
+            new Moved(VARIABLE + "Получить хранимые зачарования предмета", null, o -> true),
+            VARIABLE + "Объединить словари",
+            new Moved(VARIABLE + "Объединить словари (старое)", null,
+                    o -> o.has("v") && o.getAsJsonObject("v").has("2")),
+            VARIABLE + "Очистить переменные",
+            new Moved(VARIABLE + "Очистить переменные (по именам)", null, o -> o.has("m")));
+
+    private static Moved moved(JsonObject o, String key) {
+        if (o.has("sid")) return null;
+        Moved m = MOVED.get(key);
+        return m != null && m.applies().test(o) ? m : null;
+    }
+
+    private static Catalog.Action byServerId(String sid, boolean branch) {
+        if (branch) {
+            Catalog.Action a = Mapping.elseFor(sid);
+            if (a != null) return a;
+        }
+        Mapping.Act act = Mapping.action(sid);
+        Catalog.Action a = act == null ? null : Catalog.byKey(act.key);
+        return a != null ? a : Mapping.event(sid);
+    }
+
+    private static int argIndex(Node n, String key, int[] remap) {
+        List<Catalog.Arg> args = n.action.args;
+        int num = plainIndex(key);
+        if (num >= 0) {
+            if (remap != null) num = num < remap.length ? remap[num] : -1;
+            return num >= 0 && (!n.dynKeys.isEmpty() || num < args.size()) ? num : -1;
+        }
+        for (int i = 0; i < args.size(); i++)
+            if (key.equals(args.get(i).purpose)) return i;
+        return n.dynKeys.indexOf(key);
+    }
+
+    private static int settingIndex(Node n, String key) {
+        int num = plainIndex(key);
+        if (num >= 0) return num < n.settings().size() ? num : -1;
+        return n.settingIndex(key);
+    }
+
+    private static void readSlots(JsonObject o, String field, Node n, ToIntFunction<String> index,
+                                  ObjIntConsumer<JsonElement> put) {
+        if (!o.has(field)) return;
+        JsonObject slots = o.getAsJsonObject(field);
+        for (String k : slots.keySet()) {
+            int idx = index.applyAsInt(k);
+            if (idx < 0) lost(n.action.name + " · " + k);
+            else put.accept(slots.get(k), idx);
+        }
+    }
+
+    private static void readStrings(JsonObject o, String field, List<String> into) {
+        if (o.has(field)) for (JsonElement k : o.getAsJsonArray(field)) into.add(k.getAsString());
     }
 
     static List<Node> readChain(JsonArray arr) {
         List<Node> out = new ArrayList<>();
         for (JsonElement e : arr) {
             JsonObject o = e.getAsJsonObject();
-            Catalog.Action a = Catalog.byKey(o.get("a").getAsString());
-            if (a == null) continue;
+            String key = o.get("a").getAsString();
+            String sid = o.has("sid") ? o.get("sid").getAsString() : null;
+            Moved move = moved(o, key);
+            if (move != null) key = move.key();
+            Catalog.Action a = Catalog.byKey(key);
+            if (a == null && sid != null)
+                a = byServerId(sid, key.startsWith(Catalog.ELSE_CATEGORY + "|"));
+            if (a == null) {
+                a = Catalog.unknownAction(sid == null ? key : sid);
+                lost(key);
+                if (a == null) continue;
+            }
             Node n = new Node(a);
-            if (o.has("dk")) for (JsonElement k : o.getAsJsonArray("dk")) n.dynKeys.add(k.getAsString());
-            if (o.has("dm")) for (JsonElement k : o.getAsJsonArray("dm"))
-                n.dynMarkerKeys.add(k.getAsString());
-            if (o.has("v")) {
-                JsonObject vals = o.getAsJsonObject("v");
-                for (String k : vals.keySet()) {
-                    int idx = Integer.parseInt(k);
-                    boolean dyn = !n.dynKeys.isEmpty();
-                    if (idx < 0 || (!dyn && idx >= a.args.size())) continue;
-                    List<Value> list = n.valuesOf(idx);
-                    String argType = dyn ? "Любое значение" : a.args.get(idx).type;
-                    for (JsonElement ve : vals.getAsJsonArray(k)) {
-                        if (ve.isJsonPrimitive()) list.add(Value.fromLegacy(ve.getAsString(), argType));
-                        else if (ve.isJsonObject()) list.add(Value.fromJson(ve.getAsJsonObject()));
-                    }
+            readStrings(o, "dk", n.dynKeys);
+            readStrings(o, "dm", n.dynMarkerKeys);
+            int[] remap = move == null ? null : move.args();
+            readSlots(o, "v", n, k -> argIndex(n, k, remap), (el, idx) -> {
+                List<Value> list = n.valuesOf(idx);
+                String argType = n.dynKeys.isEmpty() && idx < n.action.args.size()
+                        ? n.action.args.get(idx).type : "Любое значение";
+                for (JsonElement ve : el.getAsJsonArray()) {
+                    if (ve.isJsonPrimitive()) list.add(Value.fromLegacy(ve.getAsString(), argType));
+                    else if (ve.isJsonObject()) list.add(Value.fromJson(ve.getAsJsonObject()));
                 }
-            }
-            if (o.has("m")) {
-                JsonObject mk = o.getAsJsonObject("m");
-                for (String k : mk.keySet()) n.markers.put(Integer.parseInt(k), mk.get(k).getAsString());
-            }
-            if (o.has("mv")) {
-                JsonObject mv = o.getAsJsonObject("mv");
-                for (String k : mv.keySet())
-                    n.markerVars.put(Integer.parseInt(k),
-                            Value.fromJson(mv.getAsJsonObject(k)));
-            }
+            });
+            readSlots(o, "m", n, k -> settingIndex(n, k),
+                    (el, idx) -> n.markers.put(idx, el.getAsString()));
+            readSlots(o, "mv", n, k -> settingIndex(n, k),
+                    (el, idx) -> n.markerVars.put(idx, Value.fromJson(el.getAsJsonObject())));
             if (o.has("c") && o.get("c").isJsonObject()) {
                 JsonArray one = new JsonArray();
                 one.add(o.getAsJsonObject("c"));
@@ -450,6 +584,7 @@ public final class Script {
                 if (!read.isEmpty()) n.cond = read.get(0);
             }
             if (o.has("b")) n.body.addAll(readChain(o.getAsJsonArray("b")));
+            if (o.has("f") && o.get("f").isJsonPrimitive()) n.folded = o.get("f").getAsBoolean();
             if (o.has("r") && o.get("r").isJsonObject()) n.raw = o.getAsJsonObject("r");
             if (n.cond == null && Mapping.loaded() && Mapping.hasConditional(n.action))
                 Importer.adoptConditional(n);

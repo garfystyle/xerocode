@@ -13,7 +13,8 @@ import java.util.List;
 import java.util.Map;
 
 public final class Placeholders {
-    public record Item(String insert, String category, String description) {
+    public record Item(String insert, String category, String description,
+                       boolean numeric) {
         public boolean call() { return insert.endsWith("()"); }
 
         public String name() {
@@ -28,6 +29,7 @@ public final class Placeholders {
 
     public static final List<Item> ALL = new ArrayList<>();
     private static final List<Item> PERCENT = new ArrayList<>();
+    private static final List<Item> NUMBERS = new ArrayList<>();
     private static final Map<String, String> CATEGORIES = new LinkedHashMap<>();
 
     public static boolean loaded() { return !ALL.isEmpty(); }
@@ -49,9 +51,11 @@ public final class Placeholders {
             for (JsonElement ie : root.getAsJsonArray("items")) {
                 JsonObject o = ie.getAsJsonObject();
                 Item it = new Item(o.get("p").getAsString(), o.get("c").getAsString(),
-                        o.get("d").getAsString());
+                        o.get("d").getAsString(), o.has("num"));
                 ALL.add(it);
-                if (it.insert().startsWith("%")) PERCENT.add(it);
+                if (!it.insert().startsWith("%")) continue;
+                PERCENT.add(it);
+                if (it.numeric()) NUMBERS.add(it);
             }
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] failed to read placeholders.json", e);
@@ -60,10 +64,11 @@ public final class Placeholders {
 
     public static String categoryName(String id) { return CATEGORIES.getOrDefault(id, id); }
 
-    public static List<Item> match(String query, int limit) {
+    public static List<Item> match(String query, int limit, boolean numbersOnly) {
+        List<Item> from = numbersOnly ? NUMBERS : PERCENT;
         if (query.isBlank())
-            return new ArrayList<>(PERCENT.subList(0, Math.min(limit, PERCENT.size())));
-        return Search.rank(PERCENT, query, limit, it -> new Search.Fields(
+            return new ArrayList<>(from.subList(0, Math.min(limit, from.size())));
+        return Search.rank(from, query, limit, it -> new Search.Fields(
                 it.name(), "", categoryName(it.category()), it.description()));
     }
 

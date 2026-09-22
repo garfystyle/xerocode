@@ -34,6 +34,7 @@ public final class Settings {
 
     public static final String[] YES_NO = {"Есть", "Нет"};
     public static final String[] BLOCK_NAMES = {"Градиент", "Плоские"};
+    public static final String[] CATALOG_NAMES = {"Список слева", "Сундуки"};
 
     public enum Hot {
         OPEN     ("open",      "Открыть кодинг",       GLFW.GLFW_KEY_G,      CTRL),
@@ -60,7 +61,13 @@ public final class Settings {
         STASH    ("stash",     "Убрать в рюкзак",      GLFW.GLFW_KEY_R,      CTRL | SHIFT),
         PLAY     ("play",      "Игра",                 GLFW.GLFW_KEY_P,      CTRL),
         BUILD    ("build",     "Строительство",        GLFW.GLFW_KEY_B,      CTRL),
-        RESTART  ("restart",   "Перезапустить мир",    GLFW.GLFW_KEY_P,      CTRL | SHIFT);
+        RESTART  ("restart",   "Перезапустить мир",    GLFW.GLFW_KEY_P,      CTRL | SHIFT),
+        FOLD     ("fold",      "Свернуть тело блока",  GLFW.GLFW_KEY_LEFT_BRACKET, CTRL),
+        FOLD_ALL ("foldAll",   "Свернуть все тела",    GLFW.GLFW_KEY_LEFT_BRACKET, CTRL | SHIFT),
+        QUICK_ADD("quickAdd",  "Быстро добавить блок", GLFW.GLFW_KEY_N,      CTRL),
+        PREV_LINE("prevLine",  "Предыдущая строка",    GLFW.GLFW_KEY_UP,     CTRL),
+        NEXT_LINE("nextLine",  "Следующая строка",     GLFW.GLFW_KEY_DOWN,   CTRL),
+        TIDY     ("tidy",      "Упорядочить строки",   GLFW.GLFW_KEY_L,      CTRL);
 
         public final String id, label;
         public final int defCode, defMods;
@@ -88,6 +95,9 @@ public final class Settings {
     public int grid = GRID_LINES;
     public boolean smoothText = true;
     public boolean minimap = true;
+    public boolean lineNumbers = true;
+    public boolean chests = false;
+    public boolean statusBar = false;
 
     public String collabName = "";
     public String collabCode = "";
@@ -101,8 +111,10 @@ public final class Settings {
     private final Map<Hot, int[]> keys = new EnumMap<>(Hot.class);
 
     private Settings() {
-        for (Hot h : Hot.values()) keys.put(h, new int[]{h.defCode, h.defMods});
+        resetKeys();
     }
+
+    private static final JsonObject DEFAULT_LOOK = new Settings().lookJson();
 
     public static Settings get() {
         if (INSTANCE == null) {
@@ -118,6 +130,9 @@ public final class Settings {
     public static boolean minimap()   { return get().minimap; }
     public static int gridStyle()     { return get().grid; }
     public static boolean outlined()  { return get().buttons == BTN_OUTLINE; }
+    public static boolean lineNumbers(){ return get().lineNumbers; }
+    public static boolean chests()    { return get().chests; }
+    public static boolean statusBar() { return get().statusBar; }
     public static boolean canvasMode(){ return get().mode == Mode.CANVAS; }
 
     public static int radius(int h) {
@@ -251,24 +266,33 @@ public final class Settings {
         Catalog.applyColors(colors);
     }
 
-    public void reset() {
-        for (Hot h : Hot.values()) keys.put(h, new int[]{h.defCode, h.defMods});
-        theme = THEME_DARK;
-        buttons = BTN_SOFT;
-        grid = GRID_LINES;
-        shadows = true;
-        gradient = true;
-        smoothText = true;
-        minimap = true;
-        colors.clear();
+    public boolean isDefault(Hot h) { return code(h) == h.defCode && mods(h) == h.defMods; }
+
+    public void resetKey(Hot h) { keys.put(h, new int[]{h.defCode, h.defMods}); }
+
+    public boolean keysDefault() {
+        for (Hot h : Hot.values()) if (!isDefault(h)) return false;
+        return true;
+    }
+
+    public int clashCount() {
+        int n = 0;
+        for (Hot h : Hot.values()) if (clashes(h)) n++;
+        return n;
+    }
+
+    public void resetKeys() {
+        for (Hot h : Hot.values()) resetKey(h);
+    }
+
+    public boolean lookDefault() { return lookJson().equals(DEFAULT_LOOK); }
+
+    public void resetLook() {
+        readLook(DEFAULT_LOOK);
         apply();
     }
 
-    private static Path file() {
-        return Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode/settings.json");
-    }
-
-    public JsonObject toJson() {
+    private JsonObject lookJson() {
         JsonObject look = new JsonObject();
         look.addProperty("theme", theme);
         look.addProperty("buttons", buttons);
@@ -277,6 +301,31 @@ public final class Settings {
         look.addProperty("gradient", gradient);
         look.addProperty("smoothText", smoothText);
         look.addProperty("minimap", minimap);
+        look.addProperty("lineNumbers", lineNumbers);
+        look.addProperty("chests", chests);
+        look.addProperty("statusBar", statusBar);
+        return look;
+    }
+
+    private void readLook(JsonObject look) {
+        theme = clamp(num(look, "theme", theme), 0, THEME_NAMES.length - 1);
+        buttons = clamp(num(look, "buttons", buttons), 0, BTN_NAMES.length - 1);
+        grid = clamp(num(look, "grid", grid), 0, GRID_NAMES.length - 1);
+        shadows = flag(look, "shadows", shadows);
+        gradient = flag(look, "gradient", gradient);
+        smoothText = flag(look, "smoothText", smoothText);
+        minimap = flag(look, "minimap", minimap);
+        lineNumbers = flag(look, "lineNumbers", lineNumbers);
+        chests = flag(look, "chests", chests);
+        statusBar = flag(look, "statusBar", statusBar);
+    }
+
+    private static Path file() {
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode/settings.json");
+    }
+
+    public JsonObject toJson() {
+        JsonObject look = lookJson();
         look.addProperty("drawableOnly", drawableOnly);
 
         JsonObject hot = new JsonObject();
@@ -339,13 +388,7 @@ public final class Settings {
                     s.mode = Mode.ORIGINAL;
                 if (root.has("look")) {
                     JsonObject look = root.getAsJsonObject("look");
-                    s.theme = clamp(num(look, "theme", s.theme), 0, THEME_NAMES.length - 1);
-                    s.buttons = clamp(num(look, "buttons", s.buttons), 0, BTN_NAMES.length - 1);
-                    s.grid = clamp(num(look, "grid", s.grid), 0, GRID_NAMES.length - 1);
-                    s.shadows = flag(look, "shadows", s.shadows);
-                    s.gradient = flag(look, "gradient", s.gradient);
-                    s.smoothText = flag(look, "smoothText", s.smoothText);
-                    s.minimap = flag(look, "minimap", s.minimap);
+                    s.readLook(look);
                     s.drawableOnly = flag(look, "drawableOnly", s.drawableOnly);
                 }
                 if (root.has("keys")) {

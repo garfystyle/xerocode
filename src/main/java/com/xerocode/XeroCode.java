@@ -2,9 +2,11 @@ package com.xerocode;
 
 import com.xerocode.ui.EditorScreen;
 import com.mojang.blaze3d.platform.InputConstants;
+import com.xerocode.ui.Backstage;
 import com.xerocode.ui.CoverScreen;
 import com.xerocode.ui.ImportScreen;
 import com.xerocode.ui.LocationPick;
+import com.xerocode.ui.Tape;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
@@ -173,6 +175,7 @@ public final class XeroCode implements ClientModInitializer {
         Mapping.load();
         Placeholders.load();
 
+        Tape.register();
         LevelRenderEvents.START_MAIN.register(ctx -> {
             Minecraft mc = Minecraft.getInstance();
             if (holdScreen <= 0 || holding == null || mc.gui.screen() != null) return;
@@ -188,6 +191,7 @@ public final class XeroCode implements ClientModInitializer {
         });
 
         ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) -> {
+            if (!overlay && Download.heard(message)) return false;
             if (waitingDev <= 0 || overlay) return true;
             String text = message.getString();
             if (text.contains(ENTERED)) {
@@ -255,7 +259,7 @@ public final class XeroCode implements ClientModInitializer {
         ClientTickEvents.START_CLIENT_TICK.register(this::stealHotkeys);
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            com.xerocode.ui.Audit.tick();
+            Backstage.guard(client);
             Codespace.watch();
             Collab.tick();
             Market.tick();

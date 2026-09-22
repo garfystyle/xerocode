@@ -185,7 +185,7 @@ public final class ItemPicker extends PickerPanel {
         if (!detailsFrame(ctx)) return;
         Stacks.Entry it = focused();
         if (it == null) {
-            detailsEmpty(ctx, "Выберите предмет слева — здесь будет его подсказка.");
+            detailsEmpty(ctx, "Выберите предмет слева");
             return;
         }
         int inner = detailsInner(), tx = detailsX();

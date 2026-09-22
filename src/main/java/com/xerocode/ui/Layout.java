@@ -29,6 +29,7 @@ public final class Layout {
     public static final int SEAM_LIFT = 1;
     public static final int ARM_H = 14;
     public static final int EMPTY_BODY_H = 24;
+    public static final int FOLD_H = 14;
     public static final int MIN_W = 118;
     public static final int MAX_W = 300;
     public static final int CHIP_INK_X = 11;
@@ -143,6 +144,8 @@ public final class Layout {
         public boolean lightHead;
         public int coverFrom, coverTo;
         public int mouthFrom, mouthTo;
+        public boolean folded;
+        public int foldCount;
         public final List<Chip> chips = new ArrayList<>();
 
         Box(Script.Node node, List<Script.Node> owner, int index, Script.Root root,
@@ -163,7 +166,12 @@ public final class Layout {
             if (!node.wraps()) return false;
             int arm = armY();
             if (my >= arm && my < arm + ARM_H) return true;
-            return mx < x + INDENT && my >= y + headerH && my < arm;
+            return (folded || mx < x + INDENT) && my >= y + headerH && my < arm;
+        }
+
+        public boolean hitFold(double mx, double my) {
+            return folded && mx >= x + INDENT && mx < x + w
+                    && my >= y + headerH && my < armY();
         }
 
         public boolean hitTarget(double mx, double my) {
@@ -238,6 +246,24 @@ public final class Layout {
         return null;
     }
 
+    static int ink(boolean lightBackground) { return lightBackground ? 0x141821 : 0xFFFFFF; }
+
+    static int blockHead(int base) { return Draw.shade(base, Settings.gradient() ? 0.15f : 0.04f); }
+
+    static int blockBottom(int base) {
+        return Draw.opaque(Settings.gradient() ? Draw.shade(base, -0.12f) : blockHead(base));
+    }
+
+    static int blockBorder(int base) { return Draw.opaque(Draw.shade(base, -0.46f)); }
+
+    static int chipTop(int tc) { return Draw.opaque(Draw.shade(tc, Settings.gradient() ? 0.12f : 0.02f)); }
+
+    static int chipBottom(int tc) {
+        return Settings.gradient() ? Draw.opaque(Draw.shade(tc, -0.10f)) : chipTop(tc);
+    }
+
+    static int chipBorder(int tc) { return Draw.opaque(Draw.shade(tc, -0.5f)); }
+
     public static Layout of(Script script, Font tr) {
         return of(script, tr, null);
     }
@@ -304,7 +330,12 @@ public final class Layout {
             if (n.wraps()) {
                 int bodyTop = box.bodyTop();
                 int bodyEnd;
-                if (n.body.isEmpty()) {
+                if (n.folded && !n.body.isEmpty()) {
+                    box.folded = true;
+                    box.foldCount = Script.blocks(n.body);
+                    bodyEnd = bodyTop + FOLD_H;
+                    mouth(box, x, x + INDENT, box.w - INDENT);
+                } else if (n.body.isEmpty()) {
                     bodyEnd = gap(n.body, 0, x + INDENT, bodyTop);
                     if (gapIn(n.body, 0)) mouth(box, x, x + INDENT, ghost.w);
                     else bodyEnd = bodyTop + EMPTY_BODY_H;
@@ -429,13 +460,12 @@ public final class Layout {
         }
         int base = a.category == null ? 0x7A7A7A : a.category.color;
         if (a.unavailable) base = Draw.mix(base, 0x8A8A8A, 0.4f);
-        boolean grad = Settings.gradient();
-        int head = Draw.shade(base, grad ? 0.15f : 0.04f);
+        int head = blockHead(base);
         box.top = Draw.opaque(head);
-        box.bottom = grad ? Draw.opaque(Draw.shade(base, -0.12f)) : box.top;
-        box.border = Draw.opaque(Draw.shade(base, -0.46f));
+        box.bottom = blockBottom(base);
+        box.border = blockBorder(base);
         box.lightHead = Draw.isLight(head);
-        box.ink = box.lightHead ? 0x141821 : 0xFFFFFF;
+        box.ink = ink(box.lightHead);
         int headH = box.card == null ? TITLE_H : box.card.headH;
         box.headerH = box.hatH + headH
                 + (rows == 0 ? NO_CHIP_PAD : rows * (CHIP_H + ROW_GAP) - ROW_GAP + CHIP_BOTTOM_PAD);
@@ -604,13 +634,12 @@ public final class Layout {
                 c.w - 6 - CHIP_INK_X - (note.isEmpty() ? 0 : c.noteW + 4)));
 
         c.filled = true;
-        boolean grad = Settings.gradient();
-        c.border = Draw.opaque(Draw.shade(tc, -0.5f));
-        c.top = Draw.opaque(Draw.shade(tc, grad ? 0.12f : 0.02f));
-        c.bottom = grad ? Draw.opaque(Draw.shade(tc, -0.10f)) : c.top;
+        c.border = chipBorder(tc);
+        c.top = chipTop(tc);
+        c.bottom = chipBottom(tc);
         c.dot = Draw.opaque(Draw.shade(tc, -0.55f));
         c.dim = Draw.shade(tc, -0.42f);
-        c.ink = Draw.isLight(tc) ? 0x141821 : 0xFFFFFF;
+        c.ink = ink(Draw.isLight(tc));
     }
 
     private static void plusChip(Box box, List<Chip> out, Font tr) {
@@ -704,9 +733,9 @@ public final class Layout {
         c.filled = argFilled(n, c.argIndex);
         boolean grad = Settings.gradient();
         if (c.filled) {
-            c.border = Draw.opaque(Draw.shade(tc, -0.5f));
-            c.top = Draw.opaque(Draw.shade(tc, grad ? 0.12f : 0.02f));
-            c.bottom = grad ? Draw.opaque(Draw.shade(tc, -0.10f)) : c.top;
+            c.border = chipBorder(tc);
+            c.top = chipTop(tc);
+            c.bottom = chipBottom(tc);
         } else {
             c.border = Draw.opaque(Draw.shade(tc, -0.58f));
             c.top = Theme.LIGHT ? Draw.argb(0xC4, 0xF4F6FA) : Draw.argb(0xB4, 0x11151D);
@@ -716,7 +745,7 @@ public final class Layout {
         }
         c.dot = Draw.opaque(c.filled ? Draw.shade(tc, -0.55f) : tc);
         c.dim = c.filled ? Draw.shade(tc, -0.42f) : Draw.shade(Theme.TEXT_FAINT, -0.30f);
-        c.ink = c.filled ? (Draw.isLight(tc) ? 0x141821 : 0xFFFFFF)
+        c.ink = c.filled ? ink(Draw.isLight(tc))
                 : Draw.shade(Theme.TEXT_FAINT, -0.15f);
     }
 

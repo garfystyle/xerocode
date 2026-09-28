@@ -1,0 +1,239 @@
+plugins {
+    id 'java'
+    id 'org.teavm' version '0.15.0'
+}
+
+repositories {
+    mavenCentral()
+}
+
+def modSrc = file('../src/main/java')
+def ownSrc = file('src/main/java')
+def genRes = layout.buildDirectory.dir('webres').get().asFile
+def siteDir = layout.buildDirectory.dir('site').get().asFile
+
+def overridden = fileTree(ownSrc).matching { include 'com/xerocode/**/*.java' }.files.collect {
+    ownSrc.toPath().relativize(it.toPath()).toString().replace('\\', '/')
+} as Set
+
+def modCopy = layout.buildDirectory.dir('modsrc').get().asFile
+
+def excludedMod = [] as Set
+file('excluded.txt').eachLine { line ->
+    def t = line.trim()
+    if (!t.isEmpty()) excludedMod << t
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = [ownSrc, modCopy]
+        }
+        resources {
+            srcDirs = ['../src/main/resources', 'src/main/resources', genRes]
+            include 'assets/xerocode/**'
+            include 'web/**'
+            include 'META-INF/**'
+        }
+    }
+    tools {
+        java {
+            srcDirs = ['src/tools/java']
+        }
+    }
+}
+
+dependencies {
+    implementation teavm.libs.jsoApis
+    compileOnly 'org.teavm:teavm-interop:0.15.0'
+    compileOnly 'org.teavm:teavm-classlib:0.15.0'
+    compileOnly 'org.teavm:teavm-extension-spi:0.15.0'
+    toolsImplementation 'com.google.code.gson:gson:2.13.2'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+tasks.register('patchMod') {
+    inputs.dir(modSrc)
+    inputs.dir(ownSrc)
+    inputs.file('patches.txt')
+    inputs.file('excluded.txt')
+    outputs.dir(modCopy)
+    doLast {
+        project.delete(modCopy)
+        def patches = [:]
+        file('patches.txt').eachLine { line ->
+            def t = line.trim()
+            if (t.isEmpty()) return
+            def parts = t.split(java.util.regex.Pattern.quote('|'), 3)
+            patches.computeIfAbsent(parts[0]) { [] } << [parts[1], parts[2]]
+        }
+        def used = [] as Set
+        fileTree(modSrc).matching { include '**/*.java' }.each { f ->
+            def rel = modSrc.toPath().relativize(f.toPath()).toString().replace(File.separator, '/')
+            if (overridden.contains(rel) || excludedMod.contains(rel)) return
+            def text = f.getText('UTF-8')
+            (patches.get(rel) ?: []).each { p ->
+                if (!text.contains(p[0])) throw new GradleException("правка не подошла: ${rel}: ${p[0]}")
+                text = text.replace(p[0], p[1])
+                used << rel
+            }
+            def out = new File(modCopy, rel)
+            out.parentFile.mkdirs()
+            out.setText(text, 'UTF-8')
+        }
+        patches.keySet().each { k ->
+            if (!used.contains(k)) throw new GradleException("файл для правки не найден: ${k}")
+        }
+    }
+}
+
+tasks.named('compileJava') { dependsOn 'patchMod' }
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = 'UTF-8'
+    it.options.release = 25
+    it.options.compilerArgs << '-Xlint:deprecation'
+    it.options.compilerArgs << '-proc:none'
+}
+
+def mcJar = providers.gradleProperty('mcJar').orElse(
+        fileTree('../.gradle/loom-cache/minecraftMaven/net/minecraft').matching {
+            include '**/26.2/minecraft-merged-*-26.2.jar'
+        }.files.sort { it.lastModified() }.last().path)
+
+def mcAssets = providers.gradleProperty('mcAssets').orElse(
+        System.getenv('APPDATA') + '/PrismLauncher/assets')
+
+tasks.register('genAssets', JavaExec) {
+    group = 'build'
+    classpath = sourceSets.tools.runtimeClasspath
+    mainClass = 'com.xerocode.tools.GenAssets'
+    inputs.file(mcJar)
+    inputs.file('data/game.tsv')
+    inputs.files(sourceSets.tools.java)
+    outputs.dir(genRes)
+    outputs.dir(file("$siteDir/assets"))
+    args mcJar.get(), genRes.path, file("$siteDir/assets").path, mcAssets.get(), file('data/game.tsv').path
+}
+
+tasks.named('processResources') {
+    dependsOn 'genAssets'
+    doLast {
+        def root = destinationDir
+        def names = []
+        root.eachFileRecurse { f ->
+            if (f.isFile()) {
+                def rel = root.toPath().relativize(f.toPath()).toString().replace(File.separator, '/')
+                if (!rel.startsWith('META-INF') && !rel.endsWith('.list') && !rel.endsWith('.png')) names << rel
+            }
+        }
+        new File(root, 'web/resources.list').setText(names.sort().join(System.lineSeparator()), 'UTF-8')
+    }
+}
+
+teavm {
+    js {
+        mainClass = 'com.xerocode.web.Main'
+        addedToWebApp = true
+        obfuscated = !providers.gradleProperty('dev').isPresent()
+        sourceMap = providers.gradleProperty('dev').isPresent()
+        targetFileName = 'xerocode.js'
+    }
+}
+
+tasks.register('site', Sync) {
+    group = 'build'
+    dependsOn 'generateJavaScript', 'genAssets'
+    from(layout.buildDirectory.dir('generated/teavm/js')) {
+        include 'xerocode.js'
+    }
+    from('src/main/webapp')
+    from("$siteDir/assets") { into 'assets' }
+    from('../src/main/resources/assets/xerocode/icon.png') { into 'assets' }
+    into layout.buildDirectory.dir('www')
+}
+
+tasks.register('gzipSite') {
+    dependsOn 'site'
+    def www = layout.buildDirectory.dir('www').get().asFile
+    doLast {
+        www.eachFileRecurse { f ->
+            if (f.isFile() && (f.name.endsWith('.js') || f.name.endsWith('.html') || f.name.endsWith('.css') || f.name.endsWith('.json'))) {
+                def gz = new File(f.path + '.gz')
+                new java.util.zip.GZIPOutputStream(new FileOutputStream(gz)).withStream { it << f.bytes }
+                gz.setLastModified(f.lastModified() + 1000)
+            }
+        }
+    }
+}
+
+def deployHost = providers.gradleProperty('webHost').orElse('root@2.27.249.33')
+def deployKey = providers.gradleProperty('webKey').orElse(System.getProperty('user.home') + '/.ssh/xerocode_ed25519')
+
+tasks.register('deployWeb', Exec) {
+    group = 'publishing'
+    dependsOn 'gzipSite'
+    def www = layout.buildDirectory.dir('www').get().asFile
+    def remote = 'set -e; cd /usr/local/xerocode; rm -rf www.new www.old; mkdir www.new; tar xzf - -C www.new; ' +
+            'chown -R root:wheel www.new; chmod -R a+rX,go-w www.new; ' +
+            'if [ -d www ]; then mv www www.old; fi; mv www.new www; rm -rf www.old; echo SITE_OK'
+    def wwwPath = www.path.replace(File.separator, '/')
+    def keyPath = deployKey.get().replace(File.separator, '/')
+    commandLine 'sh', '-c', "tar czf - -C '${wwwPath}' . | ssh -i '${keyPath}' -o BatchMode=yes ${deployHost.get()} '${remote}'"
+}
+
+tasks.register('genSounds') {
+    group = 'build'
+    def out = layout.buildDirectory.dir('sounds').get().asFile
+    outputs.dir(out)
+    doLast {
+        def assets = new File(mcAssets.get())
+        def slurp = new groovy.json.JsonSlurper()
+        def meta = slurp.parse(new File(assets.parentFile, 'meta/net.minecraft/26.2.json'))
+        def objects = slurp.parse(new File(assets, "indexes/${meta.assetIndex.id}.json")).objects
+        def obj = { String key -> def o = objects[key]; o == null ? null : new File(assets, "objects/${o.hash.substring(0, 2)}/${o.hash}") }
+        def sounds = slurp.parse(obj('minecraft/sounds.json'))
+        def pickers = slurp.parse(file('../src/main/resources/assets/xerocode/pickers.json'), 'UTF-8')
+        def first
+        first = { String ev, int depth ->
+            def e = sounds[ev]
+            if (e == null || depth > 5 || !e.sounds) return null
+            def s = e.sounds[0]
+            def name = s instanceof String ? s : s.name
+            def type = s instanceof String ? 'file' : (s.type ?: 'file')
+            type == 'event' ? first(name.replace('minecraft:', ''), depth + 1) : name.replace('minecraft:', '')
+        }
+        project.delete(out)
+        out.mkdirs()
+        def index = [:]
+        pickers.sounds.each { cat ->
+            cat.v.each { ev ->
+                def f = first(ev, 0)
+                def src = f == null ? null : obj("minecraft/sounds/${f}.ogg")
+                if (src == null || !src.exists()) return
+                def dst = new File(out, "${f}.ogg")
+                dst.parentFile.mkdirs()
+                if (!dst.exists()) dst.bytes = src.bytes
+                index[ev] = [f]
+            }
+        }
+        new File(out, 'index.json').setText(groovy.json.JsonOutput.toJson(index), 'UTF-8')
+        println "звуков: ${index.size()}"
+    }
+}
+
+tasks.register('deploySounds', Exec) {
+    group = 'publishing'
+    dependsOn 'genSounds'
+    def dir = layout.buildDirectory.dir('sounds').get().asFile
+    def remote = 'set -e; cd /usr/local/xerocode; rm -rf sounds.new; mkdir sounds.new; tar xzf - -C sounds.new; ' +
+            'chown -R root:wheel sounds.new; chmod -R a+rX,go-w sounds.new; rm -rf sounds; mv sounds.new sounds; echo SOUNDS_OK'
+    def dirPath = dir.path.replace(File.separator, '/')
+    def keyPath = deployKey.get().replace(File.separator, '/')
+    commandLine 'sh', '-c', "tar czf - -C '${dirPath}' . | ssh -i '${keyPath}' -o BatchMode=yes ${deployHost.get()} '${remote}'"
+}

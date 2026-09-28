@@ -44,3 +44,21 @@ processResources {
 tasks.register('printCp') {
     doLast { println sourceSets.main.compileClasspath.asPath }
 }
+
+tasks.register('webSite', Exec) {
+    group = 'publishing'
+    description = 'Собирает сайт из исходников мода и выкладывает его'
+    workingDir file('web')
+    def windows = System.getProperty('os.name').toLowerCase().contains('win')
+    def args = ['deployWeb', '-q']
+    if (gradle.startParameter.offline) args << '--offline'
+    commandLine(windows ? ['cmd', '/c', file('web/gradlew.bat').absolutePath] + args : [file('web/gradlew').absolutePath] + args)
+    ignoreExitValue = true
+    doLast {
+        if (executionResult.get().exitValue != 0) logger.warn('сайт не выложен — см. вывод выше')
+    }
+}
+
+if (!providers.gradleProperty('noWeb').isPresent()) {
+    tasks.named('build') { finalizedBy 'webSite' }
+}

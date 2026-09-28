@@ -170,7 +170,7 @@ public final class Complete {
     public boolean mouseScrolled(double mx, double my, double amount) {
         if (!active() || mx < x || mx >= x + w || my < y || my >= y + h) return false;
         int rows = Math.min(ROWS, hits.size());
-        scroll = Math.max(0, Math.min(hits.size() - rows, scroll - (int) Math.signum(amount)));
+        scroll = Math.max(0, Math.min(hits.size() - rows, scroll - Ui.rows(amount, 1, ROW_H)));
         return true;
     }
 

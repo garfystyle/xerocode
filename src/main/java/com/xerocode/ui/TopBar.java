@@ -1,6 +1,7 @@
 package com.xerocode.ui;
 
 import com.xerocode.Backpack;
+import com.xerocode.Env;
 import com.xerocode.History;
 import com.xerocode.Settings;
 import java.util.ArrayList;
@@ -99,7 +100,7 @@ final class TopBar {
         return leftEnd + 10 <= rightStart;
     }
 
-    private static String hotkey(Settings.Hot hot) { return Settings.get().label(hot); }
+    private static String hotkey(Settings.Hot hot) { return Env.touch() ? "" : Settings.get().label(hot); }
 
     private List<Btn> build(int drop, boolean modeLabels) {
         List<Btn> list = new ArrayList<>();
@@ -109,20 +110,23 @@ final class TopBar {
         redo.enabled = History.canRedo();
         list.add(undo);
         list.add(redo);
-        list.add(btn(2, PLAY, Draw.PLAY, "Игра  " + hotkey(Settings.Hot.PLAY)));
-        list.add(btn(2, BUILD, Draw.BRICKS, "Строительство  " + hotkey(Settings.Hot.BUILD)));
+        if (!Env.browser()) {
+            list.add(btn(2, PLAY, Draw.PLAY, "Игра  " + hotkey(Settings.Hot.PLAY)));
+            list.add(btn(2, BUILD, Draw.BRICKS, "Строительство  " + hotkey(Settings.Hot.BUILD)));
+        }
         Btn clear = btn(3, CLEAR, Draw.TRASH, "Очистить полотно");
         clear.enabled = !host.empty();
         list.add(clear);
         Btn upload = btn(3, UPLOAD, Draw.UPLOAD, "Сохранить на сервер  "
-                + hotkey(Settings.Hot.UPLOAD) + "\nЗаписать код блоками в мир");
+                + hotkey(Settings.Hot.UPLOAD) + (Env.browser()
+                ? "\nДаст команду для чата JustMC" : "\nЗаписать код блоками в мир"));
         upload.enabled = !host.empty();
         list.add(upload);
         list.add(btn(3, LOAD, Draw.LOAD, "Загрузить json\nПолотно заменится кодом из файла"));
         int stashed = Backpack.count();
         list.add(btn(4, BACKPACK, Draw.PACK, stashed == 0 ? null : String.valueOf(stashed),
-                "Рюкзак кода  " + hotkey(Settings.Hot.BACKPACK)
-                        + "\n" + hotkey(Settings.Hot.STASH) + " — убрать стопку под курсором"));
+                "Рюкзак кода  " + hotkey(Settings.Hot.BACKPACK) + (Env.touch() ? ""
+                        : "\n" + hotkey(Settings.Hot.STASH) + " — убрать стопку под курсором")));
         list.add(btn(4, MARKET, Draw.SHOP, "Магазин модулей  " + hotkey(Settings.Hot.MARKET)));
 
         boolean canvasMode = Settings.canvasMode();
@@ -131,8 +135,10 @@ final class TopBar {
         original.active = !canvasMode;
         Btn canvas = btn(5, CANVAS, Draw.CANVAS, modeLabels ? "2D" : null, "2D-кодинг");
         canvas.active = canvasMode;
-        list.add(original);
-        list.add(canvas);
+        if (!Env.browser()) {
+            list.add(original);
+            list.add(canvas);
+        }
 
         List<Btn> right = new ArrayList<>();
         Btn find = btn(6, FIND, Draw.SEARCH, "Поиск по коду  " + hotkey(Settings.Hot.FIND));
@@ -188,6 +194,8 @@ final class TopBar {
     }
 
     private static boolean over(Btn b, double mx, double my) {
+        if (Env.touch())
+            return mx >= b.x - GAP / 2 && mx < b.x + b.w + GAP / 2 && my >= 0 && my < Theme.TOPBAR_H;
         return mx >= b.x && mx < b.x + b.w && my >= 5 && my < 25;
     }
 

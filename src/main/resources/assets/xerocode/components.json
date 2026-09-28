@@ -1,0 +1,895 @@
+{
+ "minecraft:additional_trade_cost": {
+  "d": "Служебный: прибавка к цене сделки жителя.",
+  "e": "1",
+  "f": [],
+  "n": "доплата в сделке"
+ },
+ "minecraft:attack_range": {
+  "d": "Дальность атаки и запас хитбокса цели.",
+  "e": "{max_reach:5.0f}",
+  "f": [
+   "min_reach / max_reach — дальность 0–64 (0 / 3)",
+   "min_creative_reach / max_creative_reach — в творческом (0 / 5)",
+   "hitbox_margin — запас хитбокса 0–1 (0.3)",
+   "mob_factor — множитель для мобов 0–2 (1)"
+  ],
+  "n": "дальность удара"
+ },
+ "minecraft:attribute_modifiers": {
+  "d": "Меняет атрибуты того, кто держит или носит предмет в нужном слоте.",
+  "e": "[{type:\"minecraft:scale\",slot:\"hand\",id:\"xerocode:grow\",amount:1.0d,operation:\"add_multiplied_base\"}]",
+  "f": [
+   "type — атрибут (minecraft:attack_damage, minecraft:scale…)",
+   "id — свой уникальный id",
+   "amount — число",
+   "operation — add_value, add_multiplied_base, add_multiplied_total",
+   "slot — any, hand, armor, mainhand, offhand, head, chest, legs, feet, body, saddle",
+   "display — {type:\"hidden\"} или {type:\"override\",value:текст}"
+  ],
+  "n": "атрибуты"
+ },
+ "minecraft:axolotl/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"blue\"",
+  "f": [
+   "lucy, wild, gold, cyan, blue"
+  ],
+  "n": "аксолотль: окрас"
+ },
+ "minecraft:banner_patterns": {
+  "d": "Слои узоров флага или щита.",
+  "e": "[{pattern:\"minecraft:triangle_top\",color:\"red\"}]",
+  "f": [
+   "pattern — узор",
+   "color — white, orange, magenta, light_blue, yellow, lime, pink, gray, light_gray, cyan, purple, blue, brown, green, red, black"
+  ],
+  "n": "узоры флага"
+ },
+ "minecraft:base_color": {
+  "d": "Основной цвет флага на щите.",
+  "e": "\"lime\"",
+  "f": [
+   "white, orange, magenta, light_blue, yellow, lime, pink, gray, light_gray, cyan, purple, blue, brown, green, red, black"
+  ],
+  "n": "цвет щита"
+ },
+ "minecraft:bees": {
+  "d": "Сущности в улье и сколько они там пробыли.",
+  "e": "[{entity_data:{id:\"minecraft:bee\"},min_ticks_in_hive:60,ticks_in_hive:0}]",
+  "f": [],
+  "n": "пчёлы в улье"
+ },
+ "minecraft:block_entity_data": {
+  "d": "NBT блок-сущности при установке. Нужен id.",
+  "e": "{id:\"minecraft:mob_spawner\",SpawnData:{entity:{id:\"minecraft:spider\"}}}",
+  "f": [],
+  "n": "данные блока"
+ },
+ "minecraft:block_state": {
+  "d": "Свойства блока при установке: ключ → значение строкой.",
+  "e": "{type:\"top\"}",
+  "f": [],
+  "n": "состояние блока"
+ },
+ "minecraft:blocks_attacks": {
+  "d": "Работает как щит: какой урон и сколько гасит.",
+  "e": "{block_delay_seconds:0.25f,damage_reductions:[{base:0.0f,factor:0.5f}]}",
+  "f": [
+   "block_delay_seconds — через сколько сек начинает блокировать (0)",
+   "disable_cooldown_scale — множитель отключения (1)",
+   "damage_reductions — {type:…,base:…,factor:…,horizontal_blocking_angle:90}",
+   "item_damage — {threshold:…,base:…,factor:…}",
+   "block_sound / disabled_sound — звуки",
+   "bypassed_by — #тег урона, который пробивает"
+  ],
+  "n": "блокирует удары"
+ },
+ "minecraft:break_sound": {
+  "d": "Звук, когда предмет ломается.",
+  "e": "\"minecraft:item.wolf_armor.break\"",
+  "f": [],
+  "n": "звук поломки"
+ },
+ "minecraft:bucket_entity_data": {
+  "d": "Поля рыбы или аксолотля из ведра.",
+  "e": "{NoAI:1b,Glowing:1b}",
+  "f": [
+   "NoAI, Silent, NoGravity, Glowing, Invulnerable — 1b/0b",
+   "Health — здоровье",
+   "Age, AgeLocked — для аксолотлей и головастиков"
+  ],
+  "n": "данные из ведра"
+ },
+ "minecraft:bundle_contents": {
+  "d": "Предметы внутри мешка.",
+  "e": "[{id:\"minecraft:diamond\",count:2}]",
+  "f": [
+   "список предметов"
+  ],
+  "n": "содержимое мешка"
+ },
+ "minecraft:can_break": {
+  "d": "Какие блоки можно ломать в режиме приключения.",
+  "e": "{blocks:[\"minecraft:coal_ore\",\"minecraft:iron_ore\"]}",
+  "f": [
+   "blocks — блок, #тег или список блоков",
+   "state — свойства блока {facing:\"east\"}",
+   "nbt — данные блок-сущности",
+   "можно список таких условий"
+  ],
+  "n": "может ломать"
+ },
+ "minecraft:can_place_on": {
+  "d": "На какие блоки можно ставить в режиме приключения.",
+  "e": "{blocks:\"minecraft:sandstone\"}",
+  "f": [
+   "blocks — блок, #тег или список блоков",
+   "state — свойства блока {facing:\"east\"}",
+   "nbt — данные блок-сущности",
+   "можно список таких условий"
+  ],
+  "n": "можно ставить на"
+ },
+ "minecraft:cat/collar": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"blue\"",
+  "f": [
+   "white, orange, magenta, light_blue, yellow, lime, pink, gray, light_gray, cyan, purple, blue, brown, green, red, black"
+  ],
+  "n": "кошка: ошейник"
+ },
+ "minecraft:cat/sound_variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"royal\"",
+  "f": [
+   "classic, royal, …"
+  ],
+  "n": "кошка: голос"
+ },
+ "minecraft:cat/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"jellie\"",
+  "f": [
+   "tabby, black, red, siamese, british_shorthair, calico, persian, ragdoll, white, jellie, all_black"
+  ],
+  "n": "кошка: окрас"
+ },
+ "minecraft:charged_projectiles": {
+  "d": "Снаряды, которыми заряжен арбалет.",
+  "e": "[{id:\"minecraft:spectral_arrow\"}]",
+  "f": [
+   "список предметов"
+  ],
+  "n": "заряд арбалета"
+ },
+ "minecraft:chicken/sound_variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"picky\"",
+  "f": [
+   "classic, picky"
+  ],
+  "n": "курица: голос"
+ },
+ "minecraft:chicken/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"cold\"",
+  "f": [
+   "temperate, warm, cold"
+  ],
+  "n": "курица: вид"
+ },
+ "minecraft:consumable": {
+  "d": "Предмет употребляется по ПКМ: время, анимация, звук, эффекты.",
+  "e": "{consume_seconds:1.6f,animation:\"eat\",sound:\"entity.generic.eat\",has_consume_particles:true}",
+  "f": [
+   "consume_seconds — секунды (1.6)",
+   "animation — none, eat, drink, block, bow, spear, crossbow, spyglass, toot_horn, brush, bundle, trident",
+   "sound — звук: id (\"entity.generic.eat\") или {sound_id:\"…\",range:16.0f}",
+   "has_consume_particles — частицы (true)",
+   "on_consume_effects — список: {type:\"apply_effects\",effects:[…],probability:1.0f}, {type:\"remove_effects\",effects:\"…\"}, {type:\"clear_all_effects\"}, {type:\"teleport_randomly\",diameter:16.0f}, {type:\"play_sound\",sound:\"…\"}"
+  ],
+  "n": "можно съесть"
+ },
+ "minecraft:container": {
+  "d": "Предметы в слотах контейнера, до 256.",
+  "e": "[{slot:0,item:{id:\"minecraft:apple\",count:1}}]",
+  "f": [
+   "slot — 0–255",
+   "item — предмет: {id:\"minecraft:…\",count:1,components:{…}}"
+  ],
+  "n": "содержимое"
+ },
+ "minecraft:container_loot": {
+  "d": "Таблица добычи и зерно для контейнера.",
+  "e": "{loot_table:\"minecraft:chests/desert_pyramid\"}",
+  "f": [
+   "loot_table — таблица",
+   "seed — зерно (случайное)"
+  ],
+  "n": "таблица добычи"
+ },
+ "minecraft:cow/sound_variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"moody\"",
+  "f": [
+   "classic, moody"
+  ],
+  "n": "корова: голос"
+ },
+ "minecraft:cow/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"cold\"",
+  "f": [
+   "temperate, warm, cold"
+  ],
+  "n": "корова: вид"
+ },
+ "minecraft:creative_slot_lock": {
+  "d": "Служебный: предмет нельзя вынуть из слота творческого инвентаря.",
+  "e": "{}",
+  "f": [],
+  "n": "замок слота"
+ },
+ "minecraft:custom_data": {
+  "d": "Произвольные ключи и значения. Игра их не читает — это метки для своего кода.",
+  "e": "{tag:\"value\",level:1}",
+  "f": [
+   "<ключ> — любое значение, можно вложенное"
+  ],
+  "n": "свои данные"
+ },
+ "minecraft:custom_model_data": {
+  "d": "Числа, флаги, строки и цвета для выбора модели в ресурспаке.",
+  "e": "{floats:[1.0f],strings:[\"red\"]}",
+  "f": [
+   "floats — дробные (range_dispatch)",
+   "flags — флаги (condition)",
+   "strings — строки (select)",
+   "colors — цвета RGB числом"
+  ],
+  "n": "данные модели"
+ },
+ "minecraft:custom_name": {
+  "d": "Имя, как с наковальни или бирки. Наклонное, если не поставить italic:false.",
+  "e": "{text:\"Волшебная палочка\",color:\"light_purple\",italic:false}",
+  "f": [
+   "текст: \"строка\" или {text:…,color:…,bold:…}"
+  ],
+  "n": "своё имя"
+ },
+ "minecraft:damage": {
+  "d": "Сколько прочности уже потрачено — не остаток, а расход.",
+  "e": "10",
+  "f": [],
+  "n": "износ"
+ },
+ "minecraft:damage_resistant": {
+  "d": "Лежащий или надетый предмет не получает урон этих типов.",
+  "e": "{types:\"#minecraft:is_fire\"}",
+  "f": [
+   "types — тип урона, #тег или список"
+  ],
+  "n": "стойкость к урону"
+ },
+ "minecraft:damage_type": {
+  "d": "Каким типом урона бьёт предмет.",
+  "e": "\"minecraft:campfire\"",
+  "f": [],
+  "n": "тип урона"
+ },
+ "minecraft:death_protection": {
+  "d": "Работает как тотем: спасает от смерти и применяет эффекты.",
+  "e": "{death_effects:[{type:\"minecraft:clear_all_effects\"}]}",
+  "f": [
+   "death_effects — эффекты, как у consumable"
+  ],
+  "n": "спасает от смерти"
+ },
+ "minecraft:debug_stick_state": {
+  "d": "Какое свойство меняет палка отладки у каждого блока.",
+  "e": "{\"minecraft:oak_fence\":\"east\"}",
+  "f": [],
+  "n": "палка отладки"
+ },
+ "minecraft:dye": {
+  "d": "Предмет работает как краситель этого цвета.",
+  "e": "\"red\"",
+  "f": [
+   "white, orange, magenta, light_blue, yellow, lime, pink, gray, light_gray, cyan, purple, blue, brown, green, red, black"
+  ],
+  "n": "как краситель"
+ },
+ "minecraft:dyed_color": {
+  "d": "Цвет окраски (кожаная броня и т. п.): число RGB.",
+  "e": "16711680",
+  "f": [
+   "число: красный×65536 + зелёный×256 + синий"
+  ],
+  "n": "цвет окраски"
+ },
+ "minecraft:enchantable": {
+  "d": "Зачаровываемость на столе; нужны ещё enchantments.",
+  "e": "{value:15}",
+  "f": [
+   "value — чем больше, тем дороже чары"
+  ],
+  "n": "зачаровываемость"
+ },
+ "minecraft:enchantment_glint_override": {
+  "d": "true — блестит без чар, false — не блестит даже с чарами.",
+  "e": "true",
+  "f": [],
+  "n": "блеск чар"
+ },
+ "minecraft:enchantments": {
+  "d": "Действующие зачарования: id → уровень.",
+  "e": "{\"minecraft:sharpness\":3,\"minecraft:knockback\":2}",
+  "f": [],
+  "n": "чары"
+ },
+ "minecraft:entity_data": {
+  "d": "NBT сущности, которую создаёт предмет (яйцо, стойка). Нужен id.",
+  "e": "{id:\"minecraft:armor_stand\",Small:1b}",
+  "f": [],
+  "n": "данные сущности"
+ },
+ "minecraft:equippable": {
+  "d": "Предмет можно надеть в слот: звук, модель брони, оверлей.",
+  "e": "{slot:\"head\",equip_sound:\"item.armor.equip_generic\",dispensable:true}",
+  "f": [
+   "slot — head, chest, legs, feet, body, mainhand, offhand, saddle",
+   "equip_sound — звук: id (\"entity.generic.eat\") или {sound_id:\"…\",range:16.0f}",
+   "asset_id — модель брони (minecraft:diamond)",
+   "camera_overlay — текстура поверх экрана",
+   "allowed_entities — кто может надеть",
+   "dispensable / swappable / damage_on_hurt — (true)",
+   "equip_on_interact / can_be_sheared — (false)",
+   "shearing_sound — звук снятия ножницами"
+  ],
+  "n": "надевается"
+ },
+ "minecraft:firework_explosion": {
+  "d": "Взрыв фейерверочной звезды.",
+  "e": "{shape:\"star\",colors:[I;16711680],has_trail:true}",
+  "f": [
+   "shape — small_ball, large_ball, star, creeper, burst",
+   "colors / fade_colors — [I;RGB,…]",
+   "has_trail — след",
+   "has_twinkle — мерцание"
+  ],
+  "n": "взрыв звезды"
+ },
+ "minecraft:fireworks": {
+  "d": "Длительность полёта и взрывы ракеты.",
+  "e": "{flight_duration:2b,explosions:[{shape:\"large_ball\",colors:[I;65280]}]}",
+  "f": [
+   "flight_duration — длительность (1)",
+   "explosions — взрывы, как у firework_explosion"
+  ],
+  "n": "ракета"
+ },
+ "minecraft:food": {
+  "d": "Сколько голода и насыщения восстанавливает. Съесть можно, только если есть consumable.",
+  "e": "{nutrition:4,saturation:2.4f,can_always_eat:true}",
+  "f": [
+   "nutrition — единицы голода",
+   "saturation — насыщение",
+   "can_always_eat — есть без голода (false)"
+  ],
+  "n": "еда"
+ },
+ "minecraft:fox/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"snow\"",
+  "f": [
+   "red, snow"
+  ],
+  "n": "лиса: вид"
+ },
+ "minecraft:frog/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"cold\"",
+  "f": [
+   "temperate, warm, cold"
+  ],
+  "n": "лягушка: вид"
+ },
+ "minecraft:glider": {
+  "d": "Надетый предмет даёт планировать, как элитры.",
+  "e": "{}",
+  "f": [],
+  "n": "планер"
+ },
+ "minecraft:horse/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"chestnut\"",
+  "f": [
+   "white, creamy, chestnut, brown, black, gray, dark_brown"
+  ],
+  "n": "лошадь: окрас"
+ },
+ "minecraft:instrument": {
+  "d": "Инструмент козьего рога: id или своё описание.",
+  "e": "\"minecraft:feel_goat_horn\"",
+  "f": [],
+  "n": "звук рога"
+ },
+ "minecraft:intangible_projectile": {
+  "d": "Выпущенную стрелу или трезубец нельзя подобрать (кроме творческого).",
+  "e": "{}",
+  "f": [],
+  "n": "неподбираемый снаряд"
+ },
+ "minecraft:item_model": {
+  "d": "Какой моделью рисовать предмет: assets/<пространство>/items/<id>.",
+  "e": "\"minecraft:diamond_sword\"",
+  "f": [],
+  "n": "модель"
+ },
+ "minecraft:item_name": {
+  "d": "Базовое имя: не наклонное, наковальня его не стирает.",
+  "e": "{text:\"Ключ\",color:\"gold\"}",
+  "f": [
+   "текст: \"строка\" или {text:…,color:…}"
+  ],
+  "n": "имя предмета"
+ },
+ "minecraft:jukebox_playable": {
+  "d": "Какую мелодию играет в проигрывателе.",
+  "e": "\"minecraft:pigstep\"",
+  "f": [],
+  "n": "пластинка"
+ },
+ "minecraft:kinetic_weapon": {
+  "d": "Атака разгоном, как у копья: урон зависит от скорости.",
+  "e": "{delay_ticks:10,damage_conditions:{max_duration_ticks:100},damage_multiplier:1.0f}",
+  "f": [
+   "delay_ticks — задержка до удара (0)",
+   "contact_cooldown_ticks — пауза между касаниями",
+   "damage_conditions / knockback_conditions / dismount_conditions — {max_duration_ticks:…,min_speed:…,min_relative_speed:…}",
+   "forward_movement — вынос вперёд (0)",
+   "damage_multiplier — множитель урона (1)",
+   "sound / hit_sound — звуки"
+  ],
+  "n": "таранный удар"
+ },
+ "minecraft:llama/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"gray\"",
+  "f": [
+   "creamy, white, brown, gray"
+  ],
+  "n": "лама: окрас"
+ },
+ "minecraft:lock": {
+  "d": "Контейнер откроется, только если в руке подходящий предмет.",
+  "e": "{components:{\"minecraft:custom_name\":\"Ключ\"}}",
+  "f": [
+   "items — предмет, #тег или список",
+   "count — количество",
+   "components — точные компоненты",
+   "predicates — условия на компоненты"
+  ],
+  "n": "замок"
+ },
+ "minecraft:lodestone_tracker": {
+  "d": "Куда указывает компас: позиция и измерение.",
+  "e": "{target:{pos:[I;0,64,0],dimension:\"minecraft:overworld\"},tracked:false}",
+  "f": [
+   "target — {pos:[I;x,y,z],dimension:…}; без него стрелка крутится",
+   "tracked — снять, если магнетит сломан (true)"
+  ],
+  "n": "компас на магнетит"
+ },
+ "minecraft:lore": {
+  "d": "Строки под именем, до 256.",
+  "e": "[{text:\"Строка описания\",color:\"gray\",italic:false}]",
+  "f": [
+   "список текстов, каждый — строка описания"
+  ],
+  "n": "описание"
+ },
+ "minecraft:map_color": {
+  "d": "Цвет пометок на значке карты: число RGB.",
+  "e": "16711680",
+  "f": [],
+  "n": "цвет карты"
+ },
+ "minecraft:map_decorations": {
+  "d": "Значки на карте: ключ → тип, x, z, поворот.",
+  "e": "{mark:{type:\"red_x\",x:0.0d,z:0.0d,rotation:0.0f}}",
+  "f": [
+   "type — player, frame, red_marker, blue_marker, target_x, target_point, mansion, monument, red_x, banner_*…",
+   "x, z — координаты мира",
+   "rotation — поворот 0–360"
+  ],
+  "n": "значки на карте"
+ },
+ "minecraft:map_id": {
+  "d": "Номер данных карты.",
+  "e": "0",
+  "f": [],
+  "n": "номер карты"
+ },
+ "minecraft:map_post_processing": {
+  "d": "Служебный: 0 — заблокировать, 1 — масштаб.",
+  "e": "0",
+  "f": [],
+  "n": "обработка карты"
+ },
+ "minecraft:max_damage": {
+  "d": "Сколько раз предмет можно использовать до поломки. Не сочетается со стопкой больше 1.",
+  "e": "250",
+  "f": [],
+  "n": "прочность"
+ },
+ "minecraft:max_stack_size": {
+  "d": "Сколько штук помещается в стопку: 1–99. Больше 1 нельзя вместе с max_damage.",
+  "e": "16",
+  "f": [],
+  "n": "размер стопки"
+ },
+ "minecraft:minimum_attack_charge": {
+  "d": "Насколько должна заполниться шкала атаки, чтобы ударить: 0–1.",
+  "e": "0.5f",
+  "f": [],
+  "n": "мин. заряд удара"
+ },
+ "minecraft:mooshroom/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"brown\"",
+  "f": [
+   "red, brown"
+  ],
+  "n": "грибная корова: вид"
+ },
+ "minecraft:note_block_sound": {
+  "d": "Звук нотного блока, если голова стоит сверху.",
+  "e": "\"minecraft:entity.item.pickup\"",
+  "f": [],
+  "n": "звук нотного блока"
+ },
+ "minecraft:ominous_bottle_amplifier": {
+  "d": "Уровень «Дурного знамения»: 0–4.",
+  "e": "2",
+  "f": [],
+  "n": "сила зловещей бутылки"
+ },
+ "minecraft:painting/variant": {
+  "d": "Какую картину повесит предмет.",
+  "e": "\"minecraft:plant\"",
+  "f": [
+   "id картины: kebab, aztec, plant, wanderer, skull_and_roses…"
+  ],
+  "n": "картина"
+ },
+ "minecraft:parrot/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"blue\"",
+  "f": [
+   "red_blue, blue, green, yellow_blue, gray"
+  ],
+  "n": "попугай: вид"
+ },
+ "minecraft:piercing_weapon": {
+  "d": "Удар бьёт всех по лучу, а не одну цель; копать им нельзя.",
+  "e": "{deals_knockback:true,dismounts:false}",
+  "f": [
+   "deals_knockback — отбрасывает (true)",
+   "dismounts — сбивает с седла (false)",
+   "sound / hit_sound — звуки"
+  ],
+  "n": "пронзающий удар"
+ },
+ "minecraft:pig/sound_variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"big\"",
+  "f": [
+   "classic, big, mini"
+  ],
+  "n": "свинья: голос"
+ },
+ "minecraft:pig/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"warm\"",
+  "f": [
+   "temperate, warm, cold"
+  ],
+  "n": "свинья: вид"
+ },
+ "minecraft:pot_decorations": {
+  "d": "Четыре стороны горшка: кирпич или черепок.",
+  "e": "[\"minecraft:brick\",\"minecraft:angler_pottery_sherd\",\"minecraft:brick\",\"minecraft:brick\"]",
+  "f": [
+   "ровно 4 id: зад, лево, право, перед"
+  ],
+  "n": "черепки горшка"
+ },
+ "minecraft:potion_contents": {
+  "d": "Базовое зелье, свои эффекты и цвет.",
+  "e": "{potion:\"minecraft:swiftness\",custom_color:16711680,custom_effects:[{id:\"minecraft:speed\",amplifier:1b,duration:600}]}",
+  "f": [
+   "potion — базовое зелье",
+   "custom_color — цвет RGB",
+   "custom_name — ключ названия",
+   "custom_effects — {id:…,amplifier:…,duration:тики,ambient:…,show_particles:…,show_icon:…}"
+  ],
+  "n": "зелье"
+ },
+ "minecraft:potion_duration_scale": {
+  "d": "Множитель длительности эффектов зелья.",
+  "e": "2.0f",
+  "f": [],
+  "n": "длительность зелья ×"
+ },
+ "minecraft:profile": {
+  "d": "Скин головы: ник, UUID или готовые свойства.",
+  "e": "\"Notch\"",
+  "f": [
+   "строка — ник",
+   "{name:…,id:[I;…],properties:[{name:\"textures\",value:…}]}",
+   "texture / cape / elytra / model — свои текстуры"
+  ],
+  "n": "голова игрока"
+ },
+ "minecraft:provides_banner_patterns": {
+  "d": "Какие узоры даёт в ткацком станке: id, #тег или список.",
+  "e": "\"#minecraft:pattern_item/globe\"",
+  "f": [],
+  "n": "узоры для станка"
+ },
+ "minecraft:provides_trim_material": {
+  "d": "Предмет даёт этот материал отделки в кузнице.",
+  "e": "\"minecraft:emerald\"",
+  "f": [],
+  "n": "материал отделки"
+ },
+ "minecraft:rabbit/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"gold\"",
+  "f": [
+   "brown, white, black, white_splotched, gold, salt, evil"
+  ],
+  "n": "кролик: вид"
+ },
+ "minecraft:rarity": {
+  "d": "Цвет имени по умолчанию.",
+  "e": "\"epic\"",
+  "f": [
+   "common, uncommon, rare, epic"
+  ],
+  "n": "редкость"
+ },
+ "minecraft:recipes": {
+  "d": "Рецепты, которые открывает книга знаний.",
+  "e": "[\"minecraft:diamond_block\"]",
+  "f": [],
+  "n": "рецепты"
+ },
+ "minecraft:repair_cost": {
+  "d": "Сколько уровней добавляется к цене на наковальне.",
+  "e": "0",
+  "f": [],
+  "n": "цена починки"
+ },
+ "minecraft:repairable": {
+  "d": "Чем чинить предмет на наковальне.",
+  "e": "{items:\"minecraft:stick\"}",
+  "f": [
+   "items — предмет, #тег или список"
+  ],
+  "n": "чем чинить"
+ },
+ "minecraft:salmon/size": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"large\"",
+  "f": [
+   "small, medium, large"
+  ],
+  "n": "лосось: размер"
+ },
+ "minecraft:sheep/color": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"pink\"",
+  "f": [
+   "white, orange, magenta, light_blue, yellow, lime, pink, gray, light_gray, cyan, purple, blue, brown, green, red, black"
+  ],
+  "n": "овца: шерсть"
+ },
+ "minecraft:shulker/color": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"red\"",
+  "f": [
+   "white, orange, magenta, light_blue, yellow, lime, pink, gray, light_gray, cyan, purple, blue, brown, green, red, black"
+  ],
+  "n": "шалкер: цвет"
+ },
+ "minecraft:stored_enchantments": {
+  "d": "Неактивные чары, как в зачарованной книге: id → уровень.",
+  "e": "{\"minecraft:mending\":1}",
+  "f": [],
+  "n": "чары в книге"
+ },
+ "minecraft:sulfur_cube_content": {
+  "d": "Предмет внутри серного куба.",
+  "e": "{id:\"minecraft:diamond\",count:1}",
+  "f": [
+   "предмет: {id:\"minecraft:…\",count:1,components:{…}}"
+  ],
+  "n": "в серном кубе"
+ },
+ "minecraft:suspicious_stew_effects": {
+  "d": "Эффекты подозрительного рагу: id и длительность в тиках.",
+  "e": "[{id:\"minecraft:night_vision\",duration:160}]",
+  "f": [],
+  "n": "эффекты рагу"
+ },
+ "minecraft:swing_animation": {
+  "d": "Как машет рукой при ударе.",
+  "e": "{type:\"stab\",duration:6}",
+  "f": [
+   "type — whack, stab, none",
+   "duration — тики (6)"
+  ],
+  "n": "анимация взмаха"
+ },
+ "minecraft:tool": {
+  "d": "Скорость добычи, износ за блок и правила для блоков.",
+  "e": "{default_mining_speed:1.0f,damage_per_block:1,rules:[{blocks:\"#minecraft:mineable/pickaxe\",speed:6.0f,correct_for_drops:true}]}",
+  "f": [
+   "default_mining_speed — скорость (1.0)",
+   "damage_per_block — износ за блок (1)",
+   "can_destroy_blocks_in_creative — ломать в творческом (true)",
+   "rules — {blocks:…,speed:…,correct_for_drops:…}"
+  ],
+  "n": "инструмент"
+ },
+ "minecraft:tooltip_display": {
+  "d": "Прячет всё описание или строки отдельных компонентов.",
+  "e": "{hidden_components:[\"minecraft:enchantments\"]}",
+  "f": [
+   "hide_tooltip — скрыть описание целиком",
+   "hidden_components — список id компонентов"
+  ],
+  "n": "скрыть в описании"
+ },
+ "minecraft:tooltip_style": {
+  "d": "Свои спрайты фона и рамки описания из ресурспака.",
+  "e": "\"xerocode:frame\"",
+  "f": [],
+  "n": "стиль описания"
+ },
+ "minecraft:trim": {
+  "d": "Узор и материал отделки брони.",
+  "e": "{pattern:\"minecraft:host\",material:\"minecraft:emerald\"}",
+  "f": [],
+  "n": "отделка брони"
+ },
+ "minecraft:tropical_fish/base_color": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"red\"",
+  "f": [
+   "white, orange, magenta, light_blue, yellow, lime, pink, gray, light_gray, cyan, purple, blue, brown, green, red, black"
+  ],
+  "n": "тропическая рыба: цвет"
+ },
+ "minecraft:tropical_fish/pattern": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"snooper\"",
+  "f": [
+   "kob, sunstreak, snooper, dasher, brinely, spotty, flopper, stripey, glitter, blockfish, betty, clayfish"
+  ],
+  "n": "тропическая рыба: узор"
+ },
+ "minecraft:tropical_fish/pattern_color": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"blue\"",
+  "f": [
+   "white, orange, magenta, light_blue, yellow, lime, pink, gray, light_gray, cyan, purple, blue, brown, green, red, black"
+  ],
+  "n": "тропическая рыба: цвет узора"
+ },
+ "minecraft:unbreakable": {
+  "d": "Предмет не тратит прочность, в описании появляется «Неразрушимый».",
+  "e": "{}",
+  "f": [],
+  "n": "неразрушимый"
+ },
+ "minecraft:use_cooldown": {
+  "d": "Задержка после использования — для всех таких предметов или своей группы.",
+  "e": "{seconds:3.0f,cooldown_group:\"xerocode:wand\"}",
+  "f": [
+   "seconds — секунды",
+   "cooldown_group — общий id группы (необязательно)"
+  ],
+  "n": "перезарядка"
+ },
+ "minecraft:use_effects": {
+  "d": "Что происходит, пока держат ПКМ: можно ли бежать и насколько замедляет.",
+  "e": "{can_sprint:true,speed_multiplier:1.0f}",
+  "f": [
+   "can_sprint — можно бежать (false)",
+   "speed_multiplier — скорость 0–1 (0.2)",
+   "interact_vibrations — будит скалк (true)"
+  ],
+  "n": "пока используют"
+ },
+ "minecraft:use_remainder": {
+  "d": "Во что превращается предмет после использования.",
+  "e": "{id:\"minecraft:bowl\",count:1}",
+  "f": [
+   "предмет: {id:\"minecraft:…\",count:1,components:{…}}"
+  ],
+  "n": "остаток"
+ },
+ "minecraft:villager/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"desert\"",
+  "f": [
+   "desert, jungle, plains, savanna, snow, swamp, taiga"
+  ],
+  "n": "житель: вид"
+ },
+ "minecraft:weapon": {
+  "d": "Износ за удар и сколько секунд отключает щит.",
+  "e": "{item_damage_per_attack:1,disable_blocking_for_seconds:5.0f}",
+  "f": [
+   "item_damage_per_attack — износ за удар (1)",
+   "disable_blocking_for_seconds — отключает щит, сек (0)"
+  ],
+  "n": "оружие"
+ },
+ "minecraft:wolf/collar": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"blue\"",
+  "f": [
+   "white, orange, magenta, light_blue, yellow, lime, pink, gray, light_gray, cyan, purple, blue, brown, green, red, black"
+  ],
+  "n": "волк: ошейник"
+ },
+ "minecraft:wolf/sound_variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"cute\"",
+  "f": [
+   "classic, big, cute, angry, grumpy, puglin, sad"
+  ],
+  "n": "волк: голос"
+ },
+ "minecraft:wolf/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"rusty\"",
+  "f": [
+   "pale, ashen, black, chestnut, rusty, snowy, spotted, striped, woods"
+  ],
+  "n": "волк: вид"
+ },
+ "minecraft:writable_book_content": {
+  "d": "Страницы книги с пером — простой текст.",
+  "e": "{pages:[\"Первая страница\"]}",
+  "f": [
+   "pages — строки или {raw:…,filtered:…}"
+  ],
+  "n": "книга с пером"
+ },
+ "minecraft:written_book_content": {
+  "d": "Название, автор и страницы подписанной книги.",
+  "e": "{title:\"Книга\",author:\"XeroCode\",pages:[\"Привет\"]}",
+  "f": [
+   "title — название до 32 символов",
+   "author — автор",
+   "pages — тексты страниц",
+   "generation — 0 оригинал … 3 потрёпанная",
+   "resolved — тексты уже разобраны"
+  ],
+  "n": "подписанная книга"
+ },
+ "minecraft:zombie_nautilus/variant": {
+  "d": "Каким появится существо из яйца призыва, ведра или другого предмета.",
+  "e": "\"warm\"",
+  "f": [
+   "temperate, warm"
+  ],
+  "n": "зомби-наутилус: вид"
+ }
+}

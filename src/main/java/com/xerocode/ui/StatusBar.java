@@ -2,6 +2,7 @@ package com.xerocode.ui;
 
 import com.xerocode.Collab;
 import com.xerocode.Codespace;
+import com.xerocode.Env;
 import com.xerocode.Script;
 import com.xerocode.Settings;
 import com.xerocode.Sync;
@@ -79,11 +80,12 @@ final class StatusBar {
             case CANVAS_AHEAD -> new Said("не отправлено · " + s.label(Settings.Hot.UPLOAD), Theme.WARN);
             case WORLD_AHEAD -> new Said("мир новее полотна", Theme.DANGER);
             case DIVERGED -> new Said("мир и полотно разошлись", Theme.DANGER);
-            default -> new Said("мир не сверялся", 0);
+            default -> Env.browser() ? new Said("сохранено", Theme.OK) : new Said("мир не сверялся", 0);
         };
     }
 
     private static String world() {
+        if (Env.browser()) return "браузер";
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return "нет мира";
         if (!Codespace.inDev(mc.level)) return "вне кодинга";

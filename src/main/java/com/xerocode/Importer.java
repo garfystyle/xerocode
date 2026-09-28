@@ -323,7 +323,7 @@ public final class Importer {
             }
 
             Mapping.Act act = Mapping.action(id);
-            Catalog.Action action = act == null ? null : Catalog.byKey(act.key);
+            Catalog.Action action = Mapping.catalogAction(act);
             if (action == null) {
                 unknown(result, id);
                 Script.Node kept = keptBlock(op, Catalog.unknownAction(id));
@@ -383,7 +383,7 @@ public final class Importer {
 
     private static Cond condition(JsonObject c) {
         Mapping.Act act = Mapping.action(str(c, "action"));
-        Catalog.Action action = act == null ? null : Catalog.byKey(act.key);
+        Catalog.Action action = Mapping.catalogAction(act);
         if (action == null) return null;
         Script.Node node = new Script.Node(action);
         if (c.has("is_inverted") && c.get("is_inverted").getAsBoolean())

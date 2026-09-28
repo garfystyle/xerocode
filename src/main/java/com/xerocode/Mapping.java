@@ -33,6 +33,7 @@ public final class Mapping {
         public final Map<String, Setting> settings;
         public String selections;
         public boolean container;
+        public String sub;
         public final Set<String> plural;
 
         public final Map<Integer, String> argNames = new HashMap<>();
@@ -104,6 +105,7 @@ public final class Mapping {
                 Act act = new Act(o.get("k").getAsString(), args, settings, plural);
                 act.selections = o.has("t") ? o.get("t").getAsString() : family(act.key);
                 act.container = o.has("c");
+                act.sub = o.has("u") ? o.get("u").getAsString() : null;
                 ACTIONS.put(id, act);
             }
 
@@ -137,8 +139,19 @@ public final class Mapping {
     public static Act action(String id) { return ACTIONS.get(id); }
 
     public static String actionId(Catalog.Action action) {
-        return action == null || action.category == null
-                ? null : EXPORT_ACTIONS.get(Catalog.keyOf(action));
+        if (action == null || action.category == null) return null;
+        String key = Catalog.keyOf(action);
+        if (Catalog.namesakes(action).size() > 1)
+            for (Map.Entry<String, Act> e : ACTIONS.entrySet())
+                if (key.equals(e.getValue().key) && action.subcategory != null
+                        && action.subcategory.equals(e.getValue().sub)) return e.getKey();
+        return EXPORT_ACTIONS.get(key);
+    }
+
+    public static Catalog.Action catalogAction(Act act) {
+        if (act == null) return null;
+        Catalog.Action a = Catalog.byKey(act.key);
+        return a == null || act.sub == null ? a : Catalog.namesake(a, act.sub);
     }
 
     public static String eventId(Catalog.Action action) {

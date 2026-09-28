@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.xerocode.Env;
 import com.xerocode.Symbols;
 import com.xerocode.Value;
 import com.xerocode.Values;
@@ -7,10 +8,8 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
-import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -19,9 +18,6 @@ import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.Style;
-import net.minecraft.network.chat.TextColor;
-import net.minecraft.util.FormattedCharSequence;
 
 public final class TextStudio {
     private static final int PAD = 10, HEAD_H = 26, FOOT_H = 26, GUTTER = 12;
@@ -72,8 +68,7 @@ public final class TextStudio {
     private int[][] cells = new int[0][];
     private int gridTotal;
 
-    private String tintKey = SEP, prevKey = SEP, shownKey = SEP;
-    private int[] tint = new int[0];
+    private String prevKey = SEP, shownKey = SEP;
     private Component preview = Component.empty();
     private int plainW;
     private List<String> otherModes = List.of();
@@ -98,7 +93,7 @@ public final class TextStudio {
         });
         setHexFromPicker();
         focus(input);
-        input.addFormatter(this::highlight);
+        input.addFormatter(Tint.of(input, () -> parsing));
 
         layout();
     }
@@ -252,95 +247,7 @@ public final class TextStudio {
         search.setFocused(f == search);
     }
 
-    private int[] colourise(String s) {
-        int[] out = new int[s.length()];
-        int plainInk = Theme.TEXT, tagInk = 0xB08CFF, dimInk = 0x707A8C;
-        Arrays.fill(out, plainInk);
-        int i = 0;
-        while (i < s.length()) {
-            char c = s.charAt(i);
-            int len = 0, ink = plainInk;
-
-            if (McText.LEGACY.equals(parsing) && (c == '&' || c == '§') && i + 1 < s.length()) {
-                char next = s.charAt(i + 1);
-                String h6 = i + 8 <= s.length() && next == '#'
-                        ? McText.normaliseHex(s.substring(i + 2, i + 8)) : null;
-                if (h6 != null) {
-                    len = 8;
-                    ink = McText.hexRgb(h6);
-                } else {
-                    ChatFormatting f = ChatFormatting.getByCode(next);
-                    if (f != null) {
-                        len = 2;
-                        ink = McText.rgb(f) != null ? McText.rgb(f) : tagInk;
-                    }
-                }
-            } else if (McText.MINI.equals(parsing) && c == '<') {
-                int end = s.indexOf('>', i);
-                if (end > i) {
-                    len = end - i + 1;
-                    String body = s.substring(i + 1, end);
-                    boolean closing = body.startsWith("/");
-                    String name = (closing ? body.substring(1) : body).toLowerCase();
-                    ink = tagInk;
-                    if (name.startsWith("#")) {
-                        String h6 = McText.normaliseHex(name);
-                        if (h6 != null) ink = McText.hexRgb(h6);
-                    } else {
-                        for (McText.Colour col : McText.COLOURS)
-                            if (col.name().equals(name)) { ink = col.rgb(); break; }
-                    }
-                    if (closing) ink = Draw.shade(ink, -0.35f);
-                }
-            } else if (McText.JSON.equals(parsing)) {
-                if (c == '"') {
-                    int end = i + 1;
-                    while (end < s.length() && (s.charAt(end) != '"' || s.charAt(end - 1) == '\\')) end++;
-                    len = Math.min(s.length(), end + 1) - i;
-                    ink = 0x9CDCFE;
-                } else if ("{}[],:".indexOf(c) >= 0) {
-                    len = 1;
-                    ink = dimInk;
-                }
-            }
-
-            if (len == 0) { i++; continue; }
-            for (int k = i; k < i + len && k < out.length; k++) out[k] = ink;
-            i += len;
-        }
-        return out;
-    }
-
     private String textKey() { return parsing + SEP + input.getValue(); }
-
-    private FormattedCharSequence highlight(String visible, int offset) {
-        String key = textKey();
-        if (!key.equals(tintKey)) {
-            tintKey = key;
-            tint = colourise(input.getValue());
-        }
-        List<FormattedCharSequence> out = new ArrayList<>();
-        StringBuilder buf = new StringBuilder();
-        int run = Theme.TEXT;
-        for (int i = 0; i < visible.length(); i++) {
-            int idx = offset + i;
-            int ink = idx >= 0 && idx < tint.length ? tint[idx] : Theme.TEXT;
-            if (ink != run) {
-                flush(out, buf, run);
-                run = ink;
-            }
-            buf.append(visible.charAt(i));
-        }
-        flush(out, buf, run);
-        return out.isEmpty() ? FormattedCharSequence.EMPTY : FormattedCharSequence.composite(out);
-    }
-
-    private static void flush(List<FormattedCharSequence> out, StringBuilder buf, int rgb) {
-        if (buf.isEmpty()) return;
-        out.add(FormattedCharSequence.forward(buf.toString(),
-                Style.EMPTY.withColor(TextColor.fromRgb(rgb))));
-        buf.setLength(0);
-    }
 
     private void syncPreview() {
         String key = textKey();
@@ -503,11 +410,11 @@ public final class TextStudio {
         for (int i = 0; i < McText.DECOS.size(); i++)
             if (Ui.hit(mx, my, lx + decoAt + i * (DECO_W + 3), ty, DECO_W, TOOL_H)) {
                 McText.Deco d = McText.DECOS.get(i);
-                return d.code() == 'r' ? "сбросить формат · ПКМ — снять разметку" : d.title();
+                return d.code() == 'r' ? "сбросить формат · " + Ui.rmb() + " — снять разметку" : d.title();
             }
         int gx = lx + gradAt, gy = ty + gradRow * (TOOL_H + 4);
-        if (Ui.hit(mx, my, gx, gy, 18, TOOL_H)) return "начальный цвет · ПКМ — список";
-        if (Ui.hit(mx, my, gx + 44, gy, 18, TOOL_H)) return "конечный цвет · ПКМ — список";
+        if (Ui.hit(mx, my, gx, gy, 18, TOOL_H)) return "начальный цвет · " + Ui.rmb() + " — список";
+        if (Ui.hit(mx, my, gx + 44, gy, 18, TOOL_H)) return "конечный цвет · " + Ui.rmb() + " — список";
         if (!pane.inBody(my, y)) return "";
         if (tab == 0) {
             int swW = swatchW();
@@ -612,7 +519,7 @@ public final class TextStudio {
         ctx.disableScissor();
         if (shown.isEmpty())
             Draw.textFit(ctx, tr, searching ? "ничего не нашлось"
-                            : "ПКМ по символу добавит его сюда",
+                            : Ui.rmb() + " по символу добавит его сюда",
                     lx + 2, gy + 4, lw - 4, Theme.TEXT_FAINT, false);
         if (gridMax() > 0) {
             int trackH = gridRows * CELL;
@@ -1075,7 +982,12 @@ public final class TextStudio {
             return true;
         }
         if (key == GLFW.GLFW_KEY_TAB) {
-            if (input.isFocused()) focus(tab == 1 ? search : hex);
+            boolean back = (in.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
+            if (back) {
+                if (input.isFocused()) focus(hex);
+                else if (hex.isFocused()) focus(tab == 1 ? search : input);
+                else focus(input);
+            } else if (input.isFocused()) focus(tab == 1 ? search : hex);
             else if (search.isFocused()) focus(hex);
             else focus(input);
             return true;

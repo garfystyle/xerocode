@@ -158,6 +158,18 @@ public final class Catalog {
     public static final List<Category> CATEGORIES = new ArrayList<>();
     public static final List<Action> ACTIONS = new ArrayList<>();
     private static final Map<String, Action> BY_KEY = new HashMap<>();
+    private static final Map<String, List<Action>> NAMESAKES = new HashMap<>();
+
+    public static List<Action> namesakes(Action a) {
+        List<Action> same = NAMESAKES.get(keyOf(a));
+        return same == null ? List.of(a) : same;
+    }
+
+    public static Action namesake(Action a, String subcategory) {
+        for (Action other : namesakes(a))
+            if (java.util.Objects.equals(other.subcategory, subcategory)) return other;
+        return a;
+    }
 
     public static boolean loaded() { return !ACTIONS.isEmpty(); }
 
@@ -203,6 +215,7 @@ public final class Catalog {
                         if (!a.deprecated) list.add(a);
                         BY_KEY.put(key(cat.name, a.name), a);
                         BY_KEY.put(keyOf(a), a);
+                        NAMESAKES.computeIfAbsent(keyOf(a), k -> new ArrayList<>()).add(a);
                     }
                     cat.subNames.add(sn.isJsonNull() ? null : sn.getAsString());
                     cat.subActions.add(list);
@@ -535,6 +548,25 @@ public final class Catalog {
     public static Slots slots(Action action, int argIndex) {
         if (action == null || action.category == null || argIndex != 0) return null;
         return SLOTTED.get(keyOf(action));
+    }
+
+    private static final List<String> UNPAIRED = List.of("Местоположение", "Блок", "Предмет", "Эффект частиц");
+
+    public static int pairOf(Action action, int argIndex) {
+        if (action == null || argIndex < 0 || argIndex >= action.args.size()) return -1;
+        if (!action.args.get(argIndex).list) return -1;
+        int other = -1, lists = 0;
+        for (int i = 0; i < action.args.size(); i++) {
+            if (!action.args.get(i).list) continue;
+            lists++;
+            if (i != argIndex) other = i;
+        }
+        if (lists != 2 || other < 0) return -1;
+        Arg a = action.args.get(argIndex), b = action.args.get(other);
+        if (a.capacity != b.capacity || a.capacity < 2) return -1;
+        if (UNPAIRED.contains(a.type) || UNPAIRED.contains(b.type)) return -1;
+        if (slots(action, argIndex) != null || slots(action, other) != null) return -1;
+        return other;
     }
 
     public static List<Action> search(String query, int limit) {

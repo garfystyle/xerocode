@@ -30,6 +30,8 @@ public final class Layout {
     public static final int ARM_H = 14;
     public static final int EMPTY_BODY_H = 24;
     public static final int FOLD_H = 14;
+    public static final int TAIL_H = 15;
+    public static final int MARKER_FIXED_MAX = 150;
     public static final int MIN_W = 118;
     public static final int MAX_W = 300;
     public static final int CHIP_INK_X = 11;
@@ -146,6 +148,7 @@ public final class Layout {
         public int mouthFrom, mouthTo;
         public boolean folded;
         public int foldCount;
+        public int tail, tailH;
         public final List<Chip> chips = new ArrayList<>();
 
         Box(Script.Node node, List<Script.Node> owner, int index, Script.Root root,
@@ -156,7 +159,7 @@ public final class Layout {
             this.hatH = node.isHat() ? HAT_H : 0;
         }
 
-        public int bottom()  { return y + totalH; }
+        public int bottom()  { return y + totalH + tailH; }
         public int armY()    { return y + totalH - ARM_H; }
         public int bodyTop() { return y + headerH - MOUTH_LIFT; }
 
@@ -172,6 +175,10 @@ public final class Layout {
         public boolean hitFold(double mx, double my) {
             return folded && mx >= x + INDENT && mx < x + w
                     && my >= y + headerH && my < armY();
+        }
+
+        public boolean hitTail(double mx, double my) {
+            return tailH > 0 && mx >= x && mx < x + w && my >= y + totalH - SEAM_LIFT && my < bottom();
         }
 
         public boolean hitTarget(double mx, double my) {
@@ -214,6 +221,8 @@ public final class Layout {
     public static final class Chunk {
         public final int from, to;
         public final int x0, y0, x1, y1;
+        public Script.Root root;
+        public int key;
         Chunk(int from, int to, int x0, int y0, int x1, int y1) {
             this.from = from; this.to = to;
             this.x0 = x0; this.y0 = y0; this.x1 = x1; this.y1 = y1;
@@ -269,17 +278,60 @@ public final class Layout {
     }
 
     public static Layout of(Script script, Font tr, Ghost ghost) {
+        return of(script, tr, ghost, null, 0, 0);
+    }
+
+    public static Layout of(Script script, Font tr, Ghost ghost, Layout prev, int style, int calls) {
         Layout l = new Layout();
         l.ghost = ghost;
+        java.util.Map<Script.Root, Chunk> old = new java.util.IdentityHashMap<>();
+        if (prev != null) for (Chunk c : prev.chunks) if (c.root != null) old.put(c.root, c);
         for (Script.Root r : script.roots) {
+            int key = keyOf(r, style, calls, ghost);
+            Chunk was = old.get(r);
             int from = l.boxes.size();
-            l.chain(r.chain, r, false, (int) r.x, (int) r.y, tr);
-            l.seal(from);
+            if (was != null && was.key == key) {
+                l.boxes.addAll(prev.boxes.subList(was.from, was.to));
+                Chunk c = new Chunk(from, l.boxes.size(), was.x0, was.y0, was.x1, was.y1);
+                c.root = r;
+                c.key = key;
+                l.chunks.add(c);
+                continue;
+            }
+            l.chain(r.chain, r, false, (int) r.x, (int) r.y, tr, r.hides() ? 1 : Integer.MAX_VALUE);
+            if (r.hides() && l.boxes.size() > from) {
+                Box head = l.boxes.get(from);
+                head.tail = Script.blocks(r.chain) - Script.blocks(r.chain.subList(0, 1));
+                head.tailH = TAIL_H;
+            }
+            l.seal(from, r, key);
         }
         return l;
     }
 
-    private void seal(int from) {
+    private static int keyOf(Script.Root r, int style, int calls, Ghost ghost) {
+        int key = Script.viewHash(r) * 31 + style;
+        if (invokes(r.chain)) key = key * 31 + calls;
+        if (ghost != null && holds(r.chain, ghost.target))
+            key = key * 31 + System.identityHashCode(ghost.target) * 7 + ghost.index * 131
+                    + ghost.w * 17 + ghost.h;
+        return key;
+    }
+
+    private static boolean invokes(List<Script.Node> chain) {
+        for (Script.Node n : chain) if (n.invokes() || invokes(n.body)) return true;
+        return false;
+    }
+
+    private static boolean holds(List<Script.Node> chain, List<Script.Node> target) {
+        if (chain == target) return true;
+        for (Script.Node n : chain) if (holds(n.body, target)) return true;
+        return false;
+    }
+
+    private void seal(int from) { seal(from, null, 0); }
+
+    private void seal(int from, Script.Root root, int key) {
         if (boxes.size() == from) return;
         int x0 = Integer.MAX_VALUE, y0 = Integer.MAX_VALUE;
         int x1 = Integer.MIN_VALUE, y1 = Integer.MIN_VALUE;
@@ -290,18 +342,21 @@ public final class Layout {
             x1 = Math.max(x1, b.x + b.w);
             y1 = Math.max(y1, b.bottom());
         }
-        chunks.add(new Chunk(from, boxes.size(), x0, y0, x1, y1));
+        Chunk c = new Chunk(from, boxes.size(), x0, y0, x1, y1);
+        c.root = root;
+        c.key = key;
+        chunks.add(c);
     }
 
     public static Layout ofChain(List<Script.Node> chain, int x, int y, Font tr) {
         Layout l = new Layout();
-        l.chain(chain, null, false, x, y, tr);
+        l.chain(chain, null, false, x, y, tr, Integer.MAX_VALUE);
         return l;
     }
 
     public static int chainHeight(List<Script.Node> chain, Font tr) {
         if (chain.isEmpty()) return 0;
-        return new Layout().chain(chain, null, false, 0, 0, tr);
+        return new Layout().chain(chain, null, false, 0, 0, tr, Integer.MAX_VALUE);
     }
 
     private int gap(List<Script.Node> owner, int index, int x, int cy) {
@@ -317,10 +372,10 @@ public final class Layout {
     }
 
     private int chain(List<Script.Node> chain, Script.Root root, boolean nested,
-                      int x, int y, Font tr) {
+                      int x, int y, Font tr, int limit) {
         List<Box> mine = new ArrayList<>();
         int cy = y;
-        for (int i = 0; i < chain.size(); i++) {
+        for (int i = 0; i < chain.size() && i < limit; i++) {
             cy = gap(chain, i, x, cy);
             Script.Node n = chain.get(i);
             Box box = new Box(n, chain, i, root, nested, x, cy);
@@ -341,7 +396,7 @@ public final class Layout {
                     else bodyEnd = bodyTop + EMPTY_BODY_H;
                 } else {
                     int firstBody = boxes.size();
-                    bodyEnd = chain(n.body, root, true, x + INDENT, bodyTop, tr);
+                    bodyEnd = chain(n.body, root, true, x + INDENT, bodyTop, tr, Integer.MAX_VALUE);
                     Box first = boxes.get(firstBody);
                     mouth(box, x, x + INDENT,
                             gapIn(n.body, 0) ? Math.max(ghost.w, first.w) : first.w);
@@ -782,7 +837,15 @@ public final class Layout {
     }
 
     private static int markerChipWidth(Script.Node n, int i, Font tr) {
-        int w = (markerBound(n, i) ? 13 : 8) + tr.width(markerText(n, i)) + 6 + 5 + 6;
+        int text = tr.width(markerText(n, i));
+        if (!markerBound(n, i)) {
+            Catalog.Setting s = n.settings().get(i);
+            String prefix = n.invokes() ? s.label + ": " : "";
+            int widest = 0;
+            for (String option : s.options) widest = Math.max(widest, tr.width(prefix + option));
+            text = Math.max(text, Math.min(MARKER_FIXED_MAX, widest));
+        }
+        int w = (markerBound(n, i) ? 13 : 8) + text + 6 + 5 + 6;
         return Math.max(CHIP_MIN_W, Math.min(CHIP_MAX_W, w));
     }
 

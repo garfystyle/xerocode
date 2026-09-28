@@ -1,6 +1,7 @@
 package com.xerocode.ui;
 
 import com.xerocode.Codespace;
+import com.xerocode.Env;
 import com.xerocode.Exporter;
 import com.xerocode.Sync;
 import com.xerocode.XeroCode;
@@ -33,6 +34,15 @@ public final class ExportScreen extends DialogScreen {
     private int spin;
     private int listening;
     private List<String> answers = List.of();
+    private boolean copied;
+
+    private static final String COPY = "Копировать", COPIED = "Скопировано", DONE = "Готово";
+
+    private boolean chatStep() {
+        return Env.browser() && phase == Phase.DONE && !failed() && job != null && !job.url.isEmpty();
+    }
+
+    private String command() { return "/module loadUrl force " + job.url; }
 
     public ExportScreen(Script script, Screen parent, String exitTo) {
         super(344);
@@ -121,6 +131,7 @@ public final class ExportScreen extends DialogScreen {
     protected String title() {
         if (phase == Phase.CONFIRM) return "ОТПРАВКА СОТРЁТ КОД МИРА";
         if (phase == Phase.RUNNING) return "ОТПРАВКА КОДА";
+        if (chatStep()) return "КОД ГОТОВ";
         return failed() ? "НЕ ОТПРАВИЛОСЬ" : "КОД ОТПРАВЛЕН";
     }
 
@@ -129,6 +140,7 @@ public final class ExportScreen extends DialogScreen {
     }
 
     private String button() {
+        if (chatStep()) return copied ? COPIED : COPY;
         return phase == Phase.RUNNING ? CANCEL : exitTo == null ? "Готово" : "Выйти";
     }
 
@@ -137,7 +149,7 @@ public final class ExportScreen extends DialogScreen {
         if (phase == Phase.CONFIRM) { drawConfirm(ctx, mouseX, mouseY, x, y, w); return; }
         if (phase == Phase.RUNNING) drawRunning(ctx, x, y, w);
         else drawDone(ctx, x, y, w);
-        buttons(ctx, mouseX, mouseY, x, w, button(), null);
+        buttons(ctx, mouseX, mouseY, x, w, button(), chatStep() ? DONE : null);
     }
 
     private void drawRunning(GuiGraphicsExtractor ctx, int x, int y, int w) {
@@ -160,6 +172,16 @@ public final class ExportScreen extends DialogScreen {
 
     private List<String> doneLines() {
         List<String> lines = new ArrayList<>();
+        if (chatStep()) {
+            lines.add("Вставь в чат JustMC, стоя в /dev:");
+            lines.add("");
+            lines.add("");
+            lines.add("Ссылка одноразовая и живёт минуту.");
+            if (code != null && code.report().unmapped > 0)
+                lines.add("не уехало блоков: " + code.report().unmapped
+                        + " (" + String.join(", ", code.report().problems) + ")");
+            return lines;
+        }
         if (failed()) {
             lines.add("Сервер кода не получил.");
             lines.add(job == null ? String.valueOf(failure) : job.error);
@@ -184,6 +206,14 @@ public final class ExportScreen extends DialogScreen {
 
     private void drawDone(GuiGraphicsExtractor ctx, int x, int y, int w) {
         List<String> lines = doneLines();
+        if (chatStep()) {
+            Draw.textFit(ctx, font, lines.get(0), x, y, w, Theme.TEXT, false);
+            Ui.input(ctx, x, y + ROW + 2, w, ROW * 2 - 4, copied);
+            Draw.textFit(ctx, font, command(), x + 6, y + ROW + 2 + (ROW * 2 - 4 - 8) / 2, w - 12, Theme.TEXT, false);
+            for (int i = 3; i < lines.size(); i++)
+                Draw.textFit(ctx, font, lines.get(i), x, y + ROW * i, w, Theme.TEXT_FAINT, false);
+            return;
+        }
         for (int i = 0; i < lines.size(); i++) {
             int color = i == 0 ? Theme.TEXT
                     : i == 1 && failed() ? Theme.DANGER
@@ -199,6 +229,15 @@ public final class ExportScreen extends DialogScreen {
             if (hit == 0) { onClose(); return true; }
             if (hit == 1) { reread(); return true; }
             if (hit == 2) { phase = Phase.RUNNING; begin(); return true; }
+            return false;
+        }
+        if (chatStep()) {
+            if (hitPrimary(mx, my, button())) {
+                Minecraft.getInstance().keyboardHandler.setClipboard(command());
+                copied = true;
+                return true;
+            }
+            if (hitGhost(mx, my, button(), DONE)) { finish(); return true; }
             return false;
         }
         if (!hitPrimary(mx, my, button())) return false;

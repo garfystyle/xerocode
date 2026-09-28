@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.xerocode.Env;
 import com.xerocode.Backpack;
 import com.xerocode.Functions;
 import com.xerocode.Script;
@@ -74,7 +75,7 @@ public final class BackpackPanel extends PickerPanel {
         int det = Math.min(DET_WANT, panelW - rail - Math.min(LIST_MIN, panelW * 45 / 100));
         det = det < 150 ? 0 : det;
 
-        int wanted = Ui.fitH(screenH, HEAD_H + 2 + 11 * ROW_H + FOOT_H);
+        int wanted = Ui.fitH(screenH, Ui.tall(screenH, HEAD_H + 2 + 11 * ROW_H + FOOT_H));
         this.rows = Math.max(3, (wanted - HEAD_H - FOOT_H - 2) / ROW_H);
         place(panelW, HEAD_H + 2 + rows * ROW_H + FOOT_H, rail, det, "найти в рюкзаке…");
         scroll = Math.max(0, Math.min(maxScroll(), scroll));
@@ -246,7 +247,7 @@ public final class BackpackPanel extends PickerPanel {
                 lx, cy, lw, lw - 20, Theme.TEXT_DIM, false);
         if (searching) return;
         cy += 14;
-        Draw.textCenter(ctx, tr, "ПКМ по блоку → «Стопку в рюкзак»",
+        Draw.textCenter(ctx, tr, (Env.touch() ? "удержание блока" : "ПКМ по блоку") + " → «Стопку в рюкзак»",
                 lx, cy, lw, lw - 20, Theme.TEXT_FAINT, false);
     }
 
@@ -626,7 +627,7 @@ public final class BackpackPanel extends PickerPanel {
                 zoomStep(amount > 0 ? 1.12 : 1 / 1.12);
             return true;
         }
-        scroll = Math.max(0, Math.min(maxScroll(), scroll - (int) Math.signum(amount) * 3));
+        scroll = Math.max(0, Math.min(maxScroll(), scroll - Ui.rows(amount, 3, ROW_H)));
         return true;
     }
 

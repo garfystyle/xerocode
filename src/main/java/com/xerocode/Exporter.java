@@ -173,7 +173,7 @@ public final class Exporter {
             if (act != null && node.raw != null && node.raw.has(Importer.KEPT_ID)) {
                 String kept = node.raw.get(Importer.KEPT_ID).getAsString();
                 Mapping.Act keptAct = Mapping.action(kept);
-                if (keptAct != null && act.key.equals(keptAct.key)) { id = kept; act = keptAct; }
+                if (keptAct != null && Mapping.catalogAction(keptAct) == node.action) { id = kept; act = keptAct; }
             }
             if (act == null) {
                 report.unmapped++;
@@ -379,9 +379,9 @@ public final class Exporter {
                 JsonObject o = new JsonObject();
                 o.addProperty("type", Value.ARRAY);
                 int last = -1;
-                for (int i = 0; i < v.items.size(); i++) if (!v.items.get(i).isBlank()) last = i;
+                for (int i = 0; i < v.items.size(); i++) if (!v.items.get(i).isHole()) last = i;
                 JsonArray cells = new JsonArray();
-                for (int i = 0; i <= last; i++) cells.add(cell(v.items.get(i), false));
+                for (int i = 0; i <= last; i++) cells.add(nested(v.items.get(i)));
                 o.add("values", cells);
                 return o;
             }
@@ -391,11 +391,10 @@ public final class Exporter {
                 JsonObject entries = new JsonObject();
                 for (int i = 0; i < v.keys.size(); i++) {
                     Value key = v.keys.get(i);
-                    Value val = i < v.items.size() ? v.items.get(i) : Value.blank();
                     JsonObject keyJson = key.isBlank() ? null : value(key);
-                    JsonObject valJson = val.isBlank() ? null : value(val);
-                    entries.add(i + "_" + (keyJson == null ? "{}" : keyJson.toString()),
-                            valJson == null ? new JsonObject() : valJson);
+                    if (keyJson == null) continue;
+                    Value val = i < v.items.size() ? v.items.get(i) : Value.blank();
+                    entries.add(keyJson.toString(), nested(val));
                 }
                 o.add("values", entries);
                 return o;
@@ -404,6 +403,11 @@ public final class Exporter {
                 return v.toJson();
             }
         }
+    }
+
+    private static JsonObject nested(Value v) {
+        JsonObject out = v.isHole() ? null : value(v);
+        return out == null ? new JsonObject() : out;
     }
 
     private static JsonObject entry(String name, JsonElement value) {

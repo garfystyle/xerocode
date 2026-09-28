@@ -243,7 +243,14 @@ public final class Codespace {
 
         private Download fast;
 
+        private final boolean single;
+
         Scan(ClientLevel world, List<BlockPos> lines, Memo memo) {
+            this(world, lines, memo, false);
+        }
+
+        Scan(ClientLevel world, List<BlockPos> lines, Memo memo, boolean single) {
+            this.single = single;
             this.world = world;
             this.lines = lines;
             this.memo = memo == null ? Memo.fresh(worldId(world), null) : memo;
@@ -255,7 +262,7 @@ public final class Codespace {
                 index = this.memo.next;
                 for (JsonElement el : this.memo.handlers) handlers.add(el);
             }
-            if (handlers.isEmpty()) fast = Download.start(client);
+            if (handlers.isEmpty() && !single) fast = Download.start(client);
             if (fast != null) note = ASKING;
             else readLines();
         }
@@ -452,6 +459,7 @@ public final class Codespace {
             state = State.FAILED;
             error = why;
             if (picking && index < lines.size()) memo.skip.add(key(lines.get(index)));
+            if (single) { restore(); return; }
             memo.next = Math.min(index + 1, lines.size());
             memo.total = lines.size();
             memo.handlers = handlers;
@@ -472,6 +480,7 @@ public final class Codespace {
         }
 
         private void forget() {
+            if (single) return;
             memo.next = 0;
             memo.total = 0;
             memo.handlers = new JsonArray();
@@ -480,7 +489,7 @@ public final class Codespace {
         }
 
         private void save() {
-            if (handlers.isEmpty()) return;
+            if (handlers.isEmpty() || single) return;
             try {
                 Files.createDirectories(savedDir());
                 JsonObject root = new JsonObject();
@@ -524,6 +533,12 @@ public final class Codespace {
         Minecraft client = Minecraft.getInstance();
         if (client.level == scan.world && client.player != null) return;
         scan.broke("сервер увёл клиента из мира");
+    }
+
+    public static Scan line(ClientLevel world, BlockPos pos) {
+        if (current != null) current.cancel();
+        current = new Scan(world, List.of(pos), null, true);
+        return current;
     }
 
     public static Scan start(ClientLevel world, List<BlockPos> lines, Memo memo) {

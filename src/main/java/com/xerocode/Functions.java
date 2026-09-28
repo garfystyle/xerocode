@@ -77,9 +77,21 @@ public final class Functions {
         return v == null ? "" : v.text.trim();
     }
 
-    public static void rebuild(Script script) {
+    public static int rebuild(Script script) {
         Known known = of(script);
         for (Script.Root r : script.roots) rebuild(r.chain, known);
+        return stamp(known.functions()) * 31 + stamp(known.processes());
+    }
+
+    private static int stamp(Map<String, Signature> all) {
+        int h = all.size();
+        for (Signature s : all.values()) {
+            h = h * 31 + s.name().hashCode();
+            h = h * 31 + (s.display() == null ? 0 : s.display().hash());
+            h = h * 31 + (s.icon() == null ? 0 : s.icon().hash());
+            for (Value p : s.parameters()) h = h * 31 + p.hash();
+        }
+        return h;
     }
 
     private static void rebuild(List<Script.Node> chain, Known known) {

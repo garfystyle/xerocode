@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.xerocode.Env;
 import com.xerocode.Catalog;
 import com.xerocode.Search;
 import org.lwjgl.glfw.GLFW;
@@ -95,7 +96,7 @@ public final class CatalogPicker extends PickerPanel {
         int det = Math.min(DET_W, panelW - rail - Math.min(LIST_MIN, panelW * 45 / 100));
         det = det < 120 ? 0 : det;
 
-        int wanted = Ui.fitH(screenH, HEAD_H + 2 + 14 * ROW_H + stripH + FOOT_H);
+        int wanted = Ui.fitH(screenH, Ui.tall(screenH, HEAD_H + 2 + 14 * ROW_H + stripH + FOOT_H));
         this.rows = Math.max(3, (wanted - HEAD_H - FOOT_H - stripH - 2) / ROW_H);
         place(panelW, HEAD_H + 2 + rows * ROW_H + stripH + FOOT_H, rail, det, "найти…");
         scroll = Math.max(0, Math.min(maxScroll(), scroll));
@@ -279,7 +280,7 @@ public final class CatalogPicker extends PickerPanel {
         String said = extra == null ? null : extra.hint();
         if (said != null) return said;
         Item sel = byId(selected);
-        return sel == null ? "стрелки — выбрать, Enter — подтвердить"
+        return sel == null ? (Env.touch() ? "" : "стрелки — выбрать, Enter — подтвердить")
                 : hits.size() + " из " + all.size() + " · выбрано: " + sel.name();
     }
 
@@ -333,7 +334,7 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     public boolean mouseScrolled(double mx, double my, double amount) {
-        scroll = Math.max(0, Math.min(maxScroll(), scroll - (int) Math.signum(amount) * 3));
+        scroll = Math.max(0, Math.min(maxScroll(), scroll - Ui.rows(amount, 3, ROW_H)));
         return true;
     }
 

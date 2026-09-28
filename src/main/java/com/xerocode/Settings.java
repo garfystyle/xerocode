@@ -35,6 +35,7 @@ public final class Settings {
     public static final String[] YES_NO = {"Есть", "Нет"};
     public static final String[] BLOCK_NAMES = {"Градиент", "Плоские"};
     public static final String[] CATALOG_NAMES = {"Список слева", "Сундуки"};
+    public static final String[] SCALE_NAMES = {"Авто", "1", "2", "3", "4"};
 
     public enum Hot {
         OPEN     ("open",      "Открыть кодинг",       GLFW.GLFW_KEY_G,      CTRL),
@@ -53,8 +54,8 @@ public final class Settings {
         PASTE    ("paste",     "Вставить",             GLFW.GLFW_KEY_V,      CTRL),
         DUPLICATE("duplicate", "Дублировать стопку",   GLFW.GLFW_KEY_D,      CTRL),
         DUP_ONE  ("dupOne",    "Дублировать блок",     GLFW.GLFW_KEY_D,      CTRL | SHIFT),
-        DELETE   ("delete",    "Удалить блок",         GLFW.GLFW_KEY_DELETE, 0),
-        DEL_STACK("delStack",  "Удалить стопку",       GLFW.GLFW_KEY_DELETE, SHIFT),
+        DELETE   ("delete",    "Удалить блок",         MOUSE + GLFW.GLFW_MOUSE_BUTTON_MIDDLE, 0),
+        DEL_STACK("delStack",  "Удалить стопку",       MOUSE + GLFW.GLFW_MOUSE_BUTTON_MIDDLE, SHIFT),
         SELECT   ("select",    "Выделить всё",         GLFW.GLFW_KEY_A,      CTRL),
         BACKPACK ("backpack",  "Рюкзак кода",          GLFW.GLFW_KEY_R,      CTRL),
         MARKET   ("market",    "Магазин модулей",      GLFW.GLFW_KEY_E,      CTRL),
@@ -62,9 +63,14 @@ public final class Settings {
         PLAY     ("play",      "Игра",                 GLFW.GLFW_KEY_P,      CTRL),
         BUILD    ("build",     "Строительство",        GLFW.GLFW_KEY_B,      CTRL),
         RESTART  ("restart",   "Перезапустить мир",    GLFW.GLFW_KEY_P,      CTRL | SHIFT),
+        EDIT_LINE("editLine",  "Строку в редактор",    GLFW.GLFW_KEY_G,      CTRL | SHIFT),
         FOLD     ("fold",      "Свернуть тело блока",  GLFW.GLFW_KEY_LEFT_BRACKET, CTRL),
         FOLD_ALL ("foldAll",   "Свернуть все тела",    GLFW.GLFW_KEY_LEFT_BRACKET, CTRL | SHIFT),
-        QUICK_ADD("quickAdd",  "Быстро добавить блок", GLFW.GLFW_KEY_N,      CTRL),
+        FOLD_STACK("foldStack", "Свернуть стопку",     GLFW.GLFW_KEY_RIGHT_BRACKET, CTRL),
+        FOLD_STACKS("foldStacks", "Свернуть все стопки", GLFW.GLFW_KEY_RIGHT_BRACKET, CTRL | SHIFT),
+        GO_DEF   ("goDef",     "К объявлению функции", MOUSE + GLFW.GLFW_MOUSE_BUTTON_LEFT, CTRL),
+        GO_BACK  ("goBack",    "Вернуться назад",      GLFW.GLFW_KEY_LEFT,   ALT),
+        QUICK_ADD("quickAdd",  "Быстро добавить блок", Env.browser() ? GLFW.GLFW_KEY_K : GLFW.GLFW_KEY_N, CTRL),
         PREV_LINE("prevLine",  "Предыдущая строка",    GLFW.GLFW_KEY_UP,     CTRL),
         NEXT_LINE("nextLine",  "Следующая строка",     GLFW.GLFW_KEY_DOWN,   CTRL),
         TIDY     ("tidy",      "Упорядочить строки",   GLFW.GLFW_KEY_L,      CTRL);
@@ -83,6 +89,55 @@ public final class Settings {
     public static final int ALT = GLFW.GLFW_MOD_ALT;
     public static final int MOD_MASK = CTRL | SHIFT | ALT;
     public static final int NONE = GLFW.GLFW_KEY_UNKNOWN;
+    public static final int MOUSE = 1000;
+    private static final int MOUSE_BUTTONS = 8;
+
+    public static int mouse(int button) { return MOUSE + button; }
+
+    public static boolean isMouse(int code) { return code >= MOUSE && code < MOUSE + MOUSE_BUTTONS; }
+
+    public static int button(int code) { return code - MOUSE; }
+
+    public static boolean isModifier(int code) {
+        return switch (canonical(code)) {
+            case GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_LEFT_ALT,
+                 GLFW.GLFW_KEY_LEFT_SUPER -> true;
+            default -> false;
+        };
+    }
+
+    public static int canonical(int code) {
+        return switch (code) {
+            case GLFW.GLFW_KEY_RIGHT_CONTROL -> GLFW.GLFW_KEY_LEFT_CONTROL;
+            case GLFW.GLFW_KEY_RIGHT_SHIFT -> GLFW.GLFW_KEY_LEFT_SHIFT;
+            case GLFW.GLFW_KEY_RIGHT_ALT -> GLFW.GLFW_KEY_LEFT_ALT;
+            case GLFW.GLFW_KEY_RIGHT_SUPER -> GLFW.GLFW_KEY_LEFT_SUPER;
+            default -> code;
+        };
+    }
+
+    public static int twin(int code) {
+        return switch (canonical(code)) {
+            case GLFW.GLFW_KEY_LEFT_CONTROL -> GLFW.GLFW_KEY_RIGHT_CONTROL;
+            case GLFW.GLFW_KEY_LEFT_SHIFT -> GLFW.GLFW_KEY_RIGHT_SHIFT;
+            case GLFW.GLFW_KEY_LEFT_ALT -> GLFW.GLFW_KEY_RIGHT_ALT;
+            case GLFW.GLFW_KEY_LEFT_SUPER -> GLFW.GLFW_KEY_RIGHT_SUPER;
+            default -> NONE;
+        };
+    }
+
+    public static int ownMod(int code) {
+        return switch (canonical(code)) {
+            case GLFW.GLFW_KEY_LEFT_CONTROL -> CTRL;
+            case GLFW.GLFW_KEY_LEFT_SHIFT -> SHIFT;
+            case GLFW.GLFW_KEY_LEFT_ALT -> ALT;
+            default -> 0;
+        };
+    }
+
+    private static int cleanMods(int code, int mods) {
+        return mods & MOD_MASK & ~ownMod(code);
+    }
 
     private static Settings INSTANCE;
 
@@ -96,8 +151,9 @@ public final class Settings {
     public boolean smoothText = true;
     public boolean minimap = true;
     public boolean lineNumbers = true;
-    public boolean chests = false;
+    public boolean chests = Env.touch();
     public boolean statusBar = false;
+    public int webScale = 0;
 
     public String collabName = "";
     public String collabCode = "";
@@ -148,19 +204,25 @@ public final class Settings {
     public int mods(Hot h) { return keys.get(h)[1]; }
 
     public void bind(Hot h, int code, int mods) {
-        keys.get(h)[0] = code;
-        keys.get(h)[1] = mods & MOD_MASK;
+        int c = canonical(code);
+        keys.get(h)[0] = c;
+        keys.get(h)[1] = cleanMods(c, mods);
     }
 
     public Hot match(int code, int mods) {
         if (code == NONE) return null;
-        int m = mods & MOD_MASK;
+        int c = canonical(code);
+        int m = cleanMods(c, mods);
         for (Hot h : Hot.values()) {
             int[] k = keys.get(h);
-            if (k[0] == code && k[1] == m) return h;
+            if (k[0] == c && k[1] == m) return h;
         }
         return null;
     }
+
+    public boolean onMouse(Hot h) { return isMouse(code(h)); }
+
+    public boolean onModifier(Hot h) { return isModifier(code(h)); }
 
     public boolean clashes(Hot h) {
         int code = code(h), mods = mods(h);
@@ -184,6 +246,14 @@ public final class Settings {
     }
 
     public static String keyName(int code) {
+        if (isMouse(code)) {
+            return switch (button(code)) {
+                case GLFW.GLFW_MOUSE_BUTTON_LEFT -> "ЛКМ";
+                case GLFW.GLFW_MOUSE_BUTTON_RIGHT -> "ПКМ";
+                case GLFW.GLFW_MOUSE_BUTTON_MIDDLE -> "СКМ";
+                default -> "Мышь " + (button(code) + 1);
+            };
+        }
         if (code >= GLFW.GLFW_KEY_A && code <= GLFW.GLFW_KEY_Z) return String.valueOf((char) code);
         if (code >= GLFW.GLFW_KEY_0 && code <= GLFW.GLFW_KEY_9) return String.valueOf((char) code);
         if (code >= GLFW.GLFW_KEY_F1 && code <= GLFW.GLFW_KEY_F25)
@@ -266,6 +336,12 @@ public final class Settings {
         Catalog.applyColors(colors);
     }
 
+    private static boolean taken(int code, int mods) {
+        if ((mods & CTRL) == 0) return false;
+        return code == GLFW.GLFW_KEY_N || code == GLFW.GLFW_KEY_T || code == GLFW.GLFW_KEY_W
+                || code == GLFW.GLFW_KEY_TAB;
+    }
+
     public boolean isDefault(Hot h) { return code(h) == h.defCode && mods(h) == h.defMods; }
 
     public void resetKey(Hot h) { keys.put(h, new int[]{h.defCode, h.defMods}); }
@@ -304,6 +380,7 @@ public final class Settings {
         look.addProperty("lineNumbers", lineNumbers);
         look.addProperty("chests", chests);
         look.addProperty("statusBar", statusBar);
+        look.addProperty("webScale", webScale);
         return look;
     }
 
@@ -318,6 +395,7 @@ public final class Settings {
         lineNumbers = flag(look, "lineNumbers", lineNumbers);
         chests = flag(look, "chests", chests);
         statusBar = flag(look, "statusBar", statusBar);
+        webScale = clamp(num(look, "webScale", webScale), 0, SCALE_NAMES.length - 1);
     }
 
     private static Path file() {
@@ -338,7 +416,7 @@ public final class Settings {
         colors.forEach((name, rgb) -> palette.addProperty(name, String.format("#%06X", rgb)));
 
         JsonObject root = new JsonObject();
-        root.addProperty("version", 2);
+        root.addProperty("version", VERSION);
         root.addProperty("mode", mode == Mode.ORIGINAL ? "original" : "canvas");
         root.add("look", look);
         root.add("keys", hot);
@@ -391,14 +469,18 @@ public final class Settings {
                     s.readLook(look);
                     s.drawableOnly = flag(look, "drawableOnly", s.drawableOnly);
                 }
+                int version = num(root, "version", 1);
+                if (version < 4 && Env.browser()) s.chests = Env.touch();
                 if (root.has("keys")) {
                     JsonObject hot = root.getAsJsonObject("keys");
                     for (Hot h : Hot.values()) {
                         if (!hot.has(h.id)) continue;
                         String[] parts = hot.get(h.id).getAsString().split(":");
                         if (parts.length != 2) continue;
-                        s.keys.put(h, new int[]{Integer.parseInt(parts[0]),
-                                Integer.parseInt(parts[1]) & MOD_MASK});
+                        int code = Integer.parseInt(parts[0]), mods = Integer.parseInt(parts[1]) & MOD_MASK;
+                        if (Env.browser() && taken(code, mods)) continue;
+                        if (version < 3 && movedDefault(h, code, mods)) continue;
+                        s.bind(h, code, mods);
                     }
                 }
                 if (root.has("colors")) {
@@ -424,6 +506,13 @@ public final class Settings {
             XeroCode.LOG.error("[xerocode] не удалось прочитать настройки", e);
         }
         return s;
+    }
+
+    private static final int VERSION = 4;
+
+    private static boolean movedDefault(Hot h, int code, int mods) {
+        if (code != GLFW.GLFW_KEY_DELETE) return false;
+        return (h == Hot.DELETE && mods == 0) || (h == Hot.DEL_STACK && mods == SHIFT);
     }
 
     private static int num(JsonObject o, String key, int def) {

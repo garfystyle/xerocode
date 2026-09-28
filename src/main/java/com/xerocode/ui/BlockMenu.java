@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.xerocode.Env;
 import com.xerocode.Settings;
 import org.lwjgl.glfw.GLFW;
 
@@ -31,16 +32,17 @@ public final class BlockMenu {
 
         String right() {
             if (!note.isEmpty()) return note;
-            return hot == null ? "" : Settings.get().label(hot);
+            return hot == null || Env.touch() ? "" : Settings.get().label(hot);
         }
     }
 
-    private static final int HEAD_H = 30, ROW_H = 15, GAP_H = 7, PAD = 4;
+    private static final int HEAD_H = 30, GAP_H = 7, PAD = 4;
     private static final int ICON_X = 9, ICON_W = 11, INK_X = ICON_X + ICON_W + 4;
     private static final int EDGE = 9, CARET_W = 8;
     private static final int MIN_W = 176, MAX_W = 340;
 
     private final Font tr;
+    private final int rowH = Env.touch() ? 20 : 15;
     private final int screenW, screenH, wantX, wantY;
     private final ItemStack stack;
     private final String title, subtitle;
@@ -90,7 +92,7 @@ public final class BlockMenu {
         for (Row r : rows) {
             if (r.gap) total += GAP_H;
             r.top = total;
-            total += ROW_H;
+            total += rowH;
         }
         h = Math.min(screenH - 6, HEAD_H + PAD * 2 + total);
         listH = h - HEAD_H - PAD * 2;
@@ -117,7 +119,7 @@ public final class BlockMenu {
         double rel = my - top + scroll;
         for (int i = 0; i < rows.size(); i++) {
             Row r = rows.get(i);
-            if (rel >= r.top && rel < r.top + ROW_H) return r.enabled ? i : -1;
+            if (rel >= r.top && rel < r.top + rowH) return r.enabled ? i : -1;
         }
         return -1;
     }
@@ -126,7 +128,7 @@ public final class BlockMenu {
         if (i < 0 || i >= rows.size()) return;
         Row r = rows.get(i);
         if (r.top < scroll) scroll = r.top;
-        else if (r.top + ROW_H > scroll + listH) scroll = r.top + ROW_H - listH;
+        else if (r.top + rowH > scroll + listH) scroll = r.top + rowH - listH;
         scroll = Math.max(0, Math.min(maxScroll(), scroll));
     }
 
@@ -180,10 +182,10 @@ public final class BlockMenu {
         for (int i = 0; i < rows.size(); i++) {
             Row r = rows.get(i);
             int ry = top + r.top - (int) Math.round(scroll);
-            if (ry + ROW_H < top || ry > top + listH) continue;
+            if (ry + rowH < top || ry > top + listH) continue;
             if (r.gap) Ui.hairline(ctx, x + 8, ry - GAP_H / 2 - 1, w - 16);
             boolean hot = i == sel && r.enabled;
-            if (hot) Draw.round(ctx, x + 4, ry, w - 8, ROW_H - 1, Ui.R_SM,
+            if (hot) Draw.round(ctx, x + 4, ry, w - 8, rowH - 1, Ui.R_SM,
                     Draw.opaque(r.danger ? Ui.DANGER_BG : Ui.BTN_HOVER));
             int ink = !r.enabled ? Theme.TEXT_FAINT
                     : r.danger ? Theme.DANGER : hot ? Theme.TEXT : Theme.TEXT_DIM;
@@ -192,20 +194,20 @@ public final class BlockMenu {
             int side = !r.enabled || !hot ? Theme.TEXT_FAINT : Theme.TEXT_DIM;
             if (r.icon != null)
                 Draw.glyph(ctx, r.icon, x + ICON_X + (ICON_W - Draw.glyphW(r.icon)) / 2,
-                        ry + (ROW_H - Draw.glyphH(r.icon)) / 2, mark);
+                        ry + (rowH - Draw.glyphH(r.icon)) / 2, mark);
             int right = x + w - EDGE;
             if (r.caret) {
                 Draw.glyph(ctx, Draw.CARET_RIGHT, right - Draw.glyphW(Draw.CARET_RIGHT),
-                        ry + (ROW_H - Draw.glyphH(Draw.CARET_RIGHT)) / 2, mark);
+                        ry + (rowH - Draw.glyphH(Draw.CARET_RIGHT)) / 2, mark);
                 right -= CARET_W;
             }
             String note = r.right();
             if (!note.isEmpty()) {
                 String cut = Draw.fit(tr, note, Math.max(0, (right - x - INK_X) / 2));
-                Draw.textRight(ctx, tr, cut, right, ry + 4, side, false);
+                Draw.textRight(ctx, tr, cut, right, ry + (rowH - 7) / 2, side, false);
                 right -= tr.width(cut) + 10;
             }
-            Draw.textFit(ctx, tr, r.label, x + INK_X, ry + 4, right - x - INK_X, ink, false);
+            Draw.textFit(ctx, tr, r.label, x + INK_X, ry + (rowH - 7) / 2, right - x - INK_X, ink, false);
         }
         ctx.disableScissor();
 
@@ -230,7 +232,7 @@ public final class BlockMenu {
 
     public boolean mouseScrolled(double mx, double my, double amount) {
         if (!contains(mx, my) || maxScroll() <= 0) return false;
-        scroll = Math.max(0, Math.min(maxScroll(), scroll - amount * ROW_H * 2));
+        scroll = Math.max(0, Math.min(maxScroll(), scroll - Ui.px(amount, rowH * 2)));
         return true;
     }
 

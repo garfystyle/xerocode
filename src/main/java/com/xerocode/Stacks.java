@@ -551,6 +551,202 @@ public final class Stacks {
                 }
             };
 
+    public static final String CUSTOM_DATA = "minecraft:custom_data";
+    private static final String BUKKIT = "PublicBukkitValues";
+    public static final String TAG_PREFIX = "justcreativeplus:";
+
+    public static List<String[]> tags(String snbt) {
+        List<String[]> out = new ArrayList<>();
+        CompoundTag nbt = compound(snbt);
+        if (nbt == null) return out;
+        CompoundTag pbv = nbt.getCompoundOrEmpty(CUSTOM_DATA).getCompoundOrEmpty(BUKKIT);
+        for (String key : pbv.keySet()) {
+            if (!key.startsWith(TAG_PREFIX)) continue;
+            Tag t = pbv.get(key);
+            out.add(new String[]{key.substring(TAG_PREFIX.length()),
+                    t == null ? "" : t.asString().orElse(t.toString())});
+        }
+        out.sort((a, b) -> a[0].compareTo(b[0]));
+        return out;
+    }
+
+    private static CompoundTag ours(CompoundTag nbt) {
+        CompoundTag out = new CompoundTag();
+        CompoundTag pbv = nbt.getCompoundOrEmpty(CUSTOM_DATA).getCompoundOrEmpty(BUKKIT);
+        for (String key : pbv.keySet()) if (key.startsWith(TAG_PREFIX)) out.put(key, pbv.get(key).copy());
+        return out;
+    }
+
+    private static void mergeTags(CompoundTag nbt, CompoundTag tags) {
+        CompoundTag data = nbt.getCompoundOrEmpty(CUSTOM_DATA).copy();
+        CompoundTag pbv = data.getCompoundOrEmpty(BUKKIT).copy();
+        pbv.keySet().removeIf(k -> k.startsWith(TAG_PREFIX));
+        for (String k : tags.keySet()) pbv.put(k, tags.get(k));
+        if (pbv.isEmpty()) data.remove(BUKKIT); else data.put(BUKKIT, pbv);
+        if (data.isEmpty()) nbt.remove(CUSTOM_DATA); else nbt.put(CUSTOM_DATA, data);
+    }
+
+    public static String withTags(String snbt, List<String[]> tags) {
+        CompoundTag nbt = compound(snbt);
+        if (nbt == null) return snbt;
+        CompoundTag mine = new CompoundTag();
+        for (String[] t : tags) {
+            String key = t[0].trim();
+            if (!key.isEmpty()) mine.putString(TAG_PREFIX + key, t[1]);
+        }
+        mergeTags(nbt, mine);
+        return nbt.isEmpty() ? "" : nbt.toString();
+    }
+
+    public static List<String[]> extraRows(String snbt) {
+        List<String[]> out = new ArrayList<>();
+        CompoundTag nbt = compound(snbt);
+        if (nbt == null) return out;
+        for (String key : nbt.keySet()) {
+            if (MODELLED.contains(key)) continue;
+            Tag value = nbt.get(key);
+            if (CUSTOM_DATA.equals(key) && value instanceof CompoundTag data) {
+                CompoundTag rest = data.copy();
+                CompoundTag pbv = rest.getCompoundOrEmpty(BUKKIT).copy();
+                pbv.keySet().removeIf(k -> k.startsWith(TAG_PREFIX));
+                if (pbv.isEmpty()) rest.remove(BUKKIT); else rest.put(BUKKIT, pbv);
+                if (rest.isEmpty()) continue;
+                value = rest;
+            }
+            out.add(new String[]{key, value.toString()});
+        }
+        return out;
+    }
+
+    public static Tag parseTag(String snbt) {
+        try {
+            return TagParser.create(NbtOps.INSTANCE).parseFully(snbt.trim());
+        } catch (CommandSyntaxException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    public static String componentId(String id) {
+        String s = id.trim();
+        boolean gone = s.startsWith("!");
+        if (gone) s = s.substring(1);
+        if (!s.isEmpty() && s.indexOf(':') < 0) s = "minecraft:" + s;
+        return (gone ? "!" : "") + s;
+    }
+
+    public static String withRows(String snbt, List<String[]> rows) {
+        CompoundTag old = compound(snbt);
+        if (old == null) old = new CompoundTag();
+        CompoundTag out = new CompoundTag();
+        for (String key : MODELLED) if (old.contains(key)) out.put(key, old.get(key));
+        for (String[] r : rows) {
+            String id = componentId(r[0]);
+            Tag tag = id.isEmpty() ? null : parseTag(r[1]);
+            if (tag != null) out.put(id, tag);
+        }
+        mergeTags(out, ours(old));
+        return out.isEmpty() ? "" : out.toString();
+    }
+
+    public static String rowError(String id, String value) {
+        String key = componentId(id);
+        if (key.isEmpty()) return "нет имени компонента";
+        if (!key.startsWith("!") && componentType(key) == null) return "нет такого компонента";
+        Tag tag = parseTag(value);
+        if (tag == null) return "значение не разбирается как SNBT";
+        CompoundTag one = new CompoundTag();
+        one.put(key, tag);
+        RegistryOps<Tag> ops = ops();
+        if (ops == null) return null;
+        DataResult<DataComponentPatch> parsed = DataComponentPatch.CODEC.parse(ops, one);
+        return parsed.error().map(e -> e.message()).orElse(null);
+    }
+
+    private static final Map<String, String> HINTS = new HashMap<>();
+
+    public static String hint(String id) {
+        String key = componentId(id);
+        if (key.startsWith("!")) return "снять компонент · значение {}";
+        String cached = HINTS.get(key);
+        if (cached != null) return cached;
+        Components.Info info = Components.of(key);
+        String made = info == null ? null : info.name() + " · " + info.example();
+        DataComponentType<?> type = componentType(key);
+        if (made == null && type != null) made = example(type);
+        if (made == null) made = type == null ? "" : "значение этого компонента";
+        HINTS.put(key, made);
+        return made;
+    }
+
+    private static String example(DataComponentType<?> type) {
+        RegistryOps<Tag> ops = ops();
+        if (ops == null) return null;
+        for (Item item : BuiltInRegistries.ITEM) {
+            Object value = item.components().get(type);
+            if (value == null) continue;
+            Tag tag = encodeValue(type, value, ops);
+            if (tag == null) continue;
+            String text = tag.toString();
+            if (text.length() > 90) text = text.substring(0, 88) + "…";
+            return kind(tag) + " · " + text;
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> Tag encodeValue(DataComponentType<T> type, Object value, RegistryOps<Tag> ops) {
+        try {
+            return type.codecOrThrow().encodeStart(ops, (T) value).result().orElse(null);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static String kind(Tag tag) {
+        return switch (tag.getId()) {
+            case Tag.TAG_COMPOUND -> "составной";
+            case Tag.TAG_LIST -> "список";
+            case Tag.TAG_STRING -> "строка";
+            case Tag.TAG_INT -> "целое";
+            case Tag.TAG_FLOAT -> "дробное";
+            case Tag.TAG_DOUBLE -> "дробное d";
+            case Tag.TAG_BYTE -> "флаг true/false";
+            case Tag.TAG_SHORT -> "короткое s";
+            case Tag.TAG_LONG -> "длинное L";
+            default -> "массив";
+        };
+    }
+
+    private static final List<String> IDS = new ArrayList<>();
+
+    public static List<String> componentIds() {
+        if (!IDS.isEmpty()) return IDS;
+        for (DataComponentType<?> type : BuiltInRegistries.DATA_COMPONENT_TYPE) {
+            if (type.isTransient()) continue;
+            Identifier id = BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(type);
+            if (id != null) IDS.add(id.toString());
+        }
+        IDS.sort(String::compareTo);
+        return IDS;
+    }
+
+    public static String pretty(String snbt) {
+        CompoundTag nbt = compound(snbt);
+        if (nbt == null || nbt.isEmpty()) return snbt;
+        try {
+            String out = new net.minecraft.nbt.SnbtPrinterTagVisitor().visit(nbt);
+            return nbt.equals(TagParser.parseCompoundFully(out)) ? out : indent(snbt);
+        } catch (CommandSyntaxException | RuntimeException e) {
+            return indent(snbt);
+        }
+    }
+
+    public static String compact(String snbt) {
+        if (snbt == null || snbt.isBlank()) return "";
+        CompoundTag nbt = compound(snbt);
+        return nbt == null ? snbt : nbt.isEmpty() ? "" : nbt.toString();
+    }
+
     public static String indent(String snbt) {
         if (snbt == null || snbt.isBlank()) return snbt;
         CompoundTag before;

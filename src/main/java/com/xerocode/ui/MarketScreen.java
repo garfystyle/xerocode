@@ -789,7 +789,7 @@ public final class MarketScreen extends Screen {
         if (panel != null && panel.wheel(mx, my, vAmount)) return true;
         if (panel == null) {
             scroll = Math.max(0, Math.min(maxScroll(),
-                    scroll - (int) Math.signum(vAmount) * 42));
+                    scroll - Ui.px(vAmount, 42)));
             if (scroll >= maxScroll() - 4) more();
             return true;
         }

@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.xerocode.Env;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -42,7 +43,7 @@ public final class Menu {
         boolean rich() { return stack != null || note != null || !desc.isEmpty(); }
     }
 
-    private static final int ITEM_H = 15;
+    private static int itemH() { return Env.touch() ? 20 : 15; }
     private static final int TITLE_H = 16;
     private static final int MAX_H = 232;
     private static final int RICH_W = 360, RICH_MAX_H = 320;
@@ -131,7 +132,7 @@ public final class Menu {
     }
 
     private static int rowH(Item it) {
-        if (!it.rich()) return ITEM_H;
+        if (!it.rich()) return itemH();
         int lines = 1 + (it.note == null ? 0 : 1) + it.wrapped.size();
         return Math.max(22, RICH_PAD * 2 + lines * LINE - 1);
     }
@@ -247,18 +248,18 @@ public final class Menu {
                 continue;
             }
             if (anyRich && i > 0) Draw.rect(ctx, x + 6, iy - 1, w - 12, 1, Draw.opaque(Ui.LINE));
-            if (multi()) tickBox(ctx, x + 7, iy + (ITEM_H - TICK) / 2, ticked[i], i == hovered);
+            if (multi()) tickBox(ctx, x + 7, iy + (itemH() - TICK) / 2, ticked[i], i == hovered);
             else if (checked >= 0 && i == checked)
-                Draw.glyph(ctx, Draw.CHECK, x + 7, iy + 4, Theme.ACCENT);
+                Draw.glyph(ctx, Draw.CHECK, x + 7, iy + (itemH() - 7) / 2, Theme.ACCENT);
             if (it.icon != null)
                 Draw.glyph(ctx, it.icon, x + (anyRich ? 9 : 7) + (multi() ? TICK_W : 0),
-                        iy + (ITEM_H - Draw.glyphH(it.icon)) / 2,
+                        iy + (itemH() - Draw.glyphH(it.icon)) / 2,
                         !it.enabled ? Theme.TEXT_FAINT
                                 : it.danger ? Theme.DANGER : Theme.TEXT_DIM);
             int plain = (checked >= 0 || it.icon != null ? 20 : 10)
                     + (multi() ? (it.icon != null ? TICK_W : 10) : 0);
             int textX = x + (anyRich ? inkX : plain);
-            Draw.textFit(ctx, tr, it.label, textX, iy + 4, x + w - 8 - textX, color, false);
+            Draw.textFit(ctx, tr, it.label, textX, iy + (itemH() - 7) / 2, x + w - 8 - textX, color, false);
         }
         ctx.disableScissor();
 
@@ -329,7 +330,7 @@ public final class Menu {
 
     public boolean mouseScrolled(double mx, double my, double amount) {
         if (!contains(mx, my)) return false;
-        scroll = Math.max(0, Math.min(maxScroll(), scroll - amount * ITEM_H * 2));
+        scroll = Math.max(0, Math.min(maxScroll(), scroll - Ui.px(amount, itemH() * 2)));
         return true;
     }
 }

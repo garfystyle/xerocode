@@ -8,6 +8,7 @@ run/
 remappedSrc/
 
 DOCS.md
-tools/
+/tools/
 branding/
 CLAUDE.md
+/web/tools/

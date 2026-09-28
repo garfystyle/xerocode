@@ -225,8 +225,12 @@ public final class Value {
 
     public int filled() {
         int n = 0;
-        for (Value it : items) if (!it.isBlank()) n++;
+        for (Value it : items) if (!it.isHole()) n++;
         return n;
+    }
+
+    public boolean isHole() {
+        return isBlank() && !ARRAY.equals(type) && !MAP.equals(type);
     }
 
     public static String num(double d) {
@@ -458,10 +462,10 @@ public final class Value {
             case ARRAY -> {
                 JsonArray arr = new JsonArray();
                 int last = -1;
-                for (int i = 0; i < items.size(); i++) if (!items.get(i).isBlank()) last = i;
+                for (int i = 0; i < items.size(); i++) if (!items.get(i).isHole()) last = i;
                 for (int i = 0; i <= last; i++) {
                     Value it = items.get(i);
-                    arr.add(it.isBlank() ? new JsonObject() : it.toJson());
+                    arr.add(it.isHole() ? new JsonObject() : it.toJson());
                 }
                 o.add("values", arr);
             }
@@ -471,7 +475,7 @@ public final class Value {
                     Value k = keys.get(i);
                     Value val = i < items.size() ? items.get(i) : blank();
                     m.add(i + "_" + (k.isBlank() ? "{}" : k.toJson().toString()),
-                            val.isBlank() ? new JsonObject() : val.toJson());
+                            val.isHole() ? new JsonObject() : val.toJson());
                 }
                 o.add("values", m);
             }
@@ -581,8 +585,7 @@ public final class Value {
             List<String> names = new ArrayList<>(m.keySet());
             names.sort((a, b) -> Integer.compare(indexOf(a), indexOf(b)));
             for (String field : names) {
-                int cut = field.indexOf('_');
-                String keyJson = cut < 0 ? field : field.substring(cut + 1);
+                String keyJson = indexOf(field) < 0 ? field : field.substring(field.indexOf('_') + 1);
                 v.keys.add(cell(parse(keyJson)));
                 v.items.add(cell(m.get(field)));
             }
@@ -592,8 +595,10 @@ public final class Value {
 
     private static int indexOf(String field) {
         int cut = field.indexOf('_');
+        if (cut <= 0) return -1;
+        for (int i = 0; i < cut; i++) if (!Character.isDigit(field.charAt(i))) return -1;
         try {
-            return cut <= 0 ? -1 : Integer.parseInt(field.substring(0, cut));
+            return Integer.parseInt(field.substring(0, cut));
         } catch (NumberFormatException e) {
             return -1;
         }
@@ -610,7 +615,9 @@ public final class Value {
     private static Value cell(JsonElement e) {
         if (e == null || !e.isJsonObject()) return blank();
         JsonObject o = e.getAsJsonObject();
-        return o.has("type") ? fromJson(o) : blank();
+        JsonElement type = o.get("type");
+        boolean typed = type != null && type.isJsonPrimitive() && !type.getAsString().isEmpty();
+        return typed ? fromJson(o) : blank();
     }
 
     public static Value fromLegacy(String s, String argType) {

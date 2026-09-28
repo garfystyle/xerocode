@@ -334,7 +334,11 @@ public final class Draw {
     public static int badgeWidth(Font tr, String s) { return tr.width(s) + 8; }
 
     public static void glyph(GuiGraphicsExtractor ctx, String[] rows, int x, int y, int rgb) {
-        int c = opaque(rgb);
+        if (rows == USERS) cells(ctx, USERS_BACK, x, y, argb(0x80, rgb));
+        cells(ctx, rows, x, y, opaque(rgb));
+    }
+
+    private static void cells(GuiGraphicsExtractor ctx, String[] rows, int x, int y, int c) {
         for (int r = 0; r < rows.length; r++) {
             String row = rows[r];
             int run = 0;
@@ -355,6 +359,18 @@ public final class Draw {
             "##   ",
             " ##  ",
             "  #  "};
+    public static final String[] HOME = {
+            "   #   ",
+            "  ###  ",
+            " ##### ",
+            "#######",
+            " ## ## ",
+            " ## ## "};
+    public static final String[] EQUAL = {
+            "#####",
+            "     ",
+            "     ",
+            "#####"};
     public static final String[] CARET_DOWN = {
             "#####",
             " ### ",
@@ -532,13 +548,23 @@ public final class Draw {
             "# # # #",
             "### ###"};
     public static final String[] USERS = {
-            " #   # ",
-            "###  ##",
-            " #    #",
-            "       ",
-            "### ###",
-            "# # # #",
-            "# # # #"};
+            "         ",
+            " ###     ",
+            " ###     ",
+            " ###     ",
+            "         ",
+            " ###     ",
+            "#####    ",
+            "#####    "};
+    private static final String[] USERS_BACK = {
+            "     ### ",
+            "     ### ",
+            "     ### ",
+            "         ",
+            "     ### ",
+            "     ####",
+            "      ###",
+            "      ###"};
     public static final String[] SELECT = {
             "##   ##",
             "#     #",

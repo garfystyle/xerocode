@@ -1,6 +1,7 @@
 package com.xerocode.ui;
 
 import com.xerocode.Blocks;
+import com.xerocode.Env;
 import com.xerocode.Catalog;
 import com.xerocode.Search;
 import com.xerocode.Stacks;
@@ -229,7 +230,7 @@ public final class BlockStudio extends PickerPanel {
     @Override
     protected void drawFooterLeft(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int room) {
         int fw = handW();
-        if (fw + 8 > room) {
+        if (Env.browser() || fw + 8 > room) {
             super.drawFooterLeft(ctx, mouseX, mouseY, room);
             return;
         }
@@ -270,7 +271,7 @@ public final class BlockStudio extends PickerPanel {
     @Override
     protected boolean bodyClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
         if (bar.grabbed(mx, my, CELL, maxScroll(), v -> scroll = v)) return true;
-        if (my >= footY() && Ui.hit(mx, my, x + PAD, footY2(), handW(), 16)) {
+        if (!Env.browser() && my >= footY() && Ui.hit(mx, my, x + PAD, footY2(), handW(), 16)) {
             takeFromHand();
             return true;
         }
@@ -295,7 +296,7 @@ public final class BlockStudio extends PickerPanel {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double amount) {
-        scroll = Math.max(0, Math.min(maxScroll(), scroll - (int) Math.signum(amount) * 2));
+        scroll = Math.max(0, Math.min(maxScroll(), scroll - Ui.rows(amount, 2, CELL)));
         return true;
     }
 

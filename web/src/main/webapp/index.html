@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#14161d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>XeroCode</title>
+<link rel="icon" href="assets/icon.png">
+<style>
+  :root { --bg: #14161d; --fg: #d8dcea; --dim: #8a90a6; --accent: #6c8cff; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; overscroll-behavior: none; }
+  #screen { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; image-rendering: pixelated;
+            touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  #type { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; resize: none;
+          font-size: 16px; pointer-events: none; }
+  #splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 14px; color: var(--fg); font: 15px system-ui, sans-serif; background: var(--bg); }
+  #splash img { width: 72px; height: 72px; image-rendering: pixelated; }
+  #bar { width: 220px; height: 4px; border-radius: 2px; background: #262a36; overflow: hidden; }
+  #bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #toasts { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); display: flex; flex-direction: column;
+            gap: 6px; align-items: center; pointer-events: none; }
+  #textbar { position: fixed; left: 50%; top: 0; transform: translateX(-50%); display: none; gap: 4px; padding: 4px;
+             background: rgba(23,26,33,.97); border: 1px solid #3d4757; border-radius: 10px; z-index: 5;
+             -webkit-user-select: none; user-select: none; touch-action: none; }
+  #textbar button { font: 14px system-ui, sans-serif; color: var(--fg); background: #1e232d; border: 0; border-radius: 7px;
+                    padding: 9px 12px; }
+  #textbar button.on { background: #2c3441; }
+  .toast { background: rgba(20,22,30,.94); color: var(--fg); border: 1px solid #2c3142; border-radius: 8px;
+           padding: 8px 14px; font: 14px system-ui, sans-serif; max-width: 80vw; }
+</style>
+</head>
+<body>
+<canvas id="screen" tabindex="0"></canvas>
+<textarea id="type" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+<div id="splash"><img src="assets/icon.png" alt=""><div>XeroCode</div><div id="bar"><i></i></div><div id="state"></div></div>
+<div id="textbar"><button data-a="all">Всё</button><button data-a="copy">Копировать</button><button data-a="cut">Вырезать</button><button data-a="paste">Вставить</button></div>
+<div id="toasts"></div>
+<script src="xc.js"></script>
+<script src="xerocode.js"></script>
+<script>XC.boot(function () { main([]); });</script>
+</body>
+</html>

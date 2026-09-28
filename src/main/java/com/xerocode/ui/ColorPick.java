@@ -107,6 +107,7 @@ public final class ColorPick {
 
         int sx = x + PAD, sy = y + svY;
         Ui.svSquare(ctx, sx, sy, SV_W, SV_H, pickH, pickS, pickV, 4);
+        Ui.dragZone(sx, sy, SV_W, SV_H);
         Ui.hueBar(ctx, sx, y + hueY, SV_W, HUE_H, pickH);
 
         syncHex();

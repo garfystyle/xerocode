@@ -673,7 +673,8 @@ public final class LocationPick {
         int cap = op == Op.LOOK ? 2 : 3;
         if (hit(GLFW.GLFW_KEY_TAB)) {
             commitTyped();
-            typeAxis = (typeAxis + 1) % cap;
+            boolean back = down(GLFW.GLFW_KEY_LEFT_SHIFT) || down(GLFW.GLFW_KEY_RIGHT_SHIFT);
+            typeAxis = Math.floorMod(typeAxis + (back ? -1 : 1), cap);
             typed = "";
             return;
         }

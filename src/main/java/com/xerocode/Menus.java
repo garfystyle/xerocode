@@ -21,6 +21,7 @@ public final class Menus {
         public final int slot;
         public final String item;
         public String name = "", description = "";
+        public final List<String> examples = new ArrayList<>();
         public int nav;
         public Node child;
         public Catalog.Action action;
@@ -56,9 +57,37 @@ public final class Menus {
 
     public static List<Cell> kit() { load(); return KIT; }
 
+    public static final int FOUND_ROWS = 4;
+
+    public static Node found(String title, List<Catalog.Action> acts) {
+        Node n = new Node(null);
+        int per = FOUND_ROWS * 9;
+        int pages = Math.max(1, (acts.size() + per - 1) / per);
+        for (int p = 0; p < pages; p++) {
+            Page page = new Page(title, (FOUND_ROWS + (pages > 1 ? 1 : 0)) * 9);
+            for (int i = 0; i < per && p * per + i < acts.size(); i++) {
+                Catalog.Action a = acts.get(p * per + i);
+                Cell cell = new Cell(i, a.item.isEmpty() ? "minecraft:barrier" : a.item);
+                cell.action = a;
+                cell.name = a.name;
+                page.cells.add(cell);
+            }
+            if (p > 0) page.cells.add(arrow(per, PREV));
+            if (p < pages - 1) page.cells.add(arrow(per + 8, NEXT));
+            n.pages.add(page);
+        }
+        return n;
+    }
+
+    private static Cell arrow(int slot, int nav) {
+        Cell c = new Cell(slot, "minecraft:arrow");
+        c.nav = nav;
+        return c;
+    }
+
     public static Node root(Catalog.Category c) { load(); return c == null ? null : ROOTS.get(c.name); }
 
-    private static void load() {
+    public static void load() {
         if (loaded || !Catalog.loaded()) return;
         loaded = true;
         try (InputStream in = Menus.class.getResourceAsStream("/assets/xerocode/menus.json")) {
@@ -78,6 +107,9 @@ public final class Menus {
                 Cell cell = new Cell(o.get("s").getAsInt(), c.block);
                 cell.category = c;
                 cell.name = c.name;
+                cell.description = o.has("d") ? o.get("d").getAsString() : "";
+                if (o.has("x"))
+                    for (JsonElement x : o.getAsJsonArray("x")) cell.examples.add(x.getAsString());
                 KIT.add(cell);
             }
             if (lost > 0) XeroCode.LOG.warn("[xerocode] menus.json: {} записей нет в каталоге", lost);

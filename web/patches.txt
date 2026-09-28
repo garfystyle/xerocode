@@ -1,0 +1,2 @@
+com/xerocode/Symbols.java|Character.getName(|com.xerocode.web.Unicode.name(
+com/xerocode/Settings.java|"chests"|"chestsWeb"

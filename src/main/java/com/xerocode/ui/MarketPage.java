@@ -432,7 +432,7 @@ public final class MarketPage implements MarketScreen.Panel {
             stage.wheel(mx, my, amount);
             return true;
         }
-        scroll = Math.max(0, scroll - (int) Math.signum(amount) * 30);
+        scroll = Math.max(0, scroll - Ui.px(amount, 30));
         return true;
     }
 

@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.xerocode.Env;
 import com.xerocode.Settings;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +45,14 @@ public final class Ui {
         return Math.max(60, Math.min(want, screenW - margin(screenW) * 2));
     }
 
+    public static String click() { return Env.touch() ? "тап" : "клик"; }
+
+    public static String rmb() { return Env.touch() ? "2 пальца" : "ПКМ"; }
+
+    public static int tall(int screenH, int want) {
+        return Env.touch() ? Math.max(want, screenH) : want;
+    }
+
     public static int fitH(int screenH, int want) {
         return Math.max(60, Math.min(want, screenH - margin(screenH) * 2));
     }
@@ -57,12 +66,40 @@ public final class Ui {
     }
 
     public static int anchorX(int screenW, int wanted, int w) {
+        if (Env.touch() && w * 5 > screenW * 3) return midX(screenW, w);
         return Math.max(4, Math.min(wanted, screenW - w - 4));
     }
 
     public static int anchorY(int screenH, int wanted, int h) {
         return Math.max(4, Math.min(wanted, screenH - h - 4));
     }
+
+    private static double touchRows;
+
+    public static int rows(double amount, int perNotch, int rowH) {
+        if (!Env.touch()) return (int) Math.signum(amount) * perNotch;
+        touchRows += amount * 18 / Math.max(1, rowH);
+        int n = (int) touchRows;
+        touchRows -= n;
+        return n;
+    }
+
+    public static int px(double amount, int perNotch) {
+        return (int) Math.round(amount * (Env.touch() ? 18 : perNotch));
+    }
+
+    private static final List<int[]> DRAG_ZONES = new ArrayList<>();
+
+    public static void dragZone(int x, int y, int w, int h) {
+        if (Env.touch() && w > 0 && h > 0) DRAG_ZONES.add(new int[]{x, y, w, h});
+    }
+
+    public static boolean inDragZone(double mx, double my) {
+        for (int[] z : DRAG_ZONES) if (hit(mx, my, z[0], z[1], z[2], z[3])) return true;
+        return false;
+    }
+
+    public static void clearDragZones() { DRAG_ZONES.clear(); }
 
     private static int scrolled(int scroll, int contentH, int viewH, double amount) {
         return Math.max(0, Math.min(Math.max(0, contentH - viewH),
@@ -365,6 +402,7 @@ public final class Ui {
             if (contentH <= viewH || trackH <= 0) { thumbH = 0; return; }
             thumbH = Math.min(trackH, Math.max(THUMB_MIN, trackH * viewH / contentH));
             thumbY = y + (trackH - thumbH) * Math.max(0, Math.min(span, scroll)) / Math.max(1, span);
+            dragZone(x - BAR_GRAB, y, BAR_W + BAR_GRAB * 2, trackH);
             boolean hot = dragging || over(mx, my);
             Draw.rect(ctx, x, y, BAR_W, trackH, Draw.argb(0x30, 0x000000));
             Draw.round(ctx, x, thumbY, BAR_W, thumbH, 1,

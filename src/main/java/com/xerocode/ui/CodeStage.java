@@ -96,6 +96,7 @@ public final class CodeStage {
     public void draw(GuiGraphicsExtractor ctx, Font tr, Layout layout, BlockView.Look look) {
         if (layout == null) return;
         ScreenRectangle area = new ScreenRectangle(x, y, w, h);
+        Ui.dragZone(x, y, w, h);
         ctx.enableScissor(x, y, x + w, y + h);
         SmoothText.clip(area);
         var m = ctx.pose();

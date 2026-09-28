@@ -142,7 +142,7 @@ abstract class MarketPanel implements MarketScreen.Panel {
 
     @Override
     public boolean wheel(double mx, double my, double amount) {
-        scroll = Math.max(0, Math.min(maxScroll(), scroll - (int) Math.signum(amount) * 30));
+        scroll = Math.max(0, Math.min(maxScroll(), scroll - Ui.px(amount, 30)));
         return true;
     }
 

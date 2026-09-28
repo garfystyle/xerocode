@@ -3,6 +3,7 @@ package com.xerocode.ui;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.xerocode.Catalog;
 import com.xerocode.Collab;
+import com.xerocode.Env;
 import com.xerocode.Settings;
 import com.xerocode.Settings.Hot;
 import org.lwjgl.glfw.GLFW;
@@ -52,7 +53,7 @@ public final class SettingsPanel {
     private static final int GAP = 10;
     private static final int MEMBER_H = 14;
     private static final long CONFIRM_MS = 3000;
-    private static final String WAITING = "жду клавишу…";
+    private static final String WAITING = "жду клавишу или кнопку…";
     private static final String UNSET = "не задано";
     private static final String NOTHING = "ничего не нашлось";
     private static final String CONFIRM = "Точно сбросить?";
@@ -73,13 +74,22 @@ public final class SettingsPanel {
                 new KeyGroup("ПРАВКА", List.of(Hot.QUICK_ADD, Hot.COPY, Hot.COPY_ONE, Hot.CUT,
                         Hot.PASTE, Hot.DUPLICATE, Hot.DUP_ONE, Hot.DELETE, Hot.DEL_STACK, Hot.SELECT)),
                 new KeyGroup("НАВИГАЦИЯ", List.of(Hot.SEARCH, Hot.FIND, Hot.FIT, Hot.PREV_LINE,
-                        Hot.NEXT_LINE, Hot.FOLD, Hot.FOLD_ALL, Hot.TIDY)),
+                        Hot.NEXT_LINE, Hot.GO_DEF, Hot.GO_BACK, Hot.FOLD, Hot.FOLD_ALL,
+                        Hot.FOLD_STACK, Hot.FOLD_STACKS, Hot.TIDY)),
                 new KeyGroup("РЮКЗАК И МАГАЗИН", List.of(Hot.BACKPACK, Hot.STASH, Hot.MARKET)),
-                new KeyGroup("ИГРА", List.of(Hot.PLAY, Hot.BUILD, Hot.RESTART))));
+                new KeyGroup("ИГРА", List.of(Hot.PLAY, Hot.BUILD, Hot.RESTART, Hot.EDIT_LINE))));
         Set<Hot> rest = EnumSet.allOf(Hot.class);
         for (KeyGroup g : groups) rest.removeAll(g.keys());
         groups.add(new KeyGroup("ПРОЧЕЕ", List.copyOf(rest)));
-        return groups;
+        if (!Env.browser()) return groups;
+        Set<Hot> world = EnumSet.of(Hot.OPEN, Hot.MODE, Hot.PLAY, Hot.BUILD, Hot.RESTART, Hot.EDIT_LINE);
+        List<KeyGroup> web = new ArrayList<>();
+        for (KeyGroup g : groups) {
+            List<Hot> keys = new ArrayList<>(g.keys());
+            keys.removeAll(world);
+            if (!keys.isEmpty()) web.add(new KeyGroup(g.caption(), List.copyOf(keys)));
+        }
+        return web;
     }
 
     private static final class Row {
@@ -147,9 +157,10 @@ public final class SettingsPanel {
     private int screenW, screenH;
     private int W, SV_W, side;
     private int x, y, h;
-    private int tab;
+    private int tab = Env.touch() ? TAB_LOOK : TAB_KEYS;
     private final int[] scroll = new int[TABS.size()];
     private Hot binding;
+    private int soloKey = Settings.NONE, soloMods;
     private int openColor = -1;
     private float pickH, pickS, pickV;
     private EditBox hexField;
@@ -193,6 +204,8 @@ public final class SettingsPanel {
         rows.add(new Row(look, "Блоки", "",
                 Settings.BLOCK_NAMES, () -> s.gradient ? 0 : 1, v -> s.gradient = v == 0));
         rows.add(Row.toggle(look, "Тени", "", () -> s.shadows, v -> s.shadows = v));
+        if (Env.browser())
+            rows.add(new Row(look, "Масштаб", "", Settings.SCALE_NAMES, () -> s.webScale, v -> s.webScale = v));
         rows.add(new Row(canvas, "Сетка", "",
                 Settings.GRID_NAMES, () -> s.grid, v -> s.grid = v));
         rows.add(Row.toggle(canvas, "Номера строк", "", () -> s.lineNumbers, v -> s.lineNumbers = v));
@@ -206,7 +219,7 @@ public final class SettingsPanel {
         for (Row r : rows) r.measure(tr, cw());
 
         this.x = Ui.midX(screenW, W);
-        this.h = Ui.fitH(screenH, WANT_H);
+        this.h = Ui.fitH(screenH, Ui.tall(screenH, WANT_H));
         this.y = Ui.midY(screenH, h);
 
         String hadName = nameField == null ? s.collabName : nameField.getValue();
@@ -585,7 +598,7 @@ public final class SettingsPanel {
             if (it.caption() != null) { drawCaption(ctx, it.caption(), ry); continue; }
             drawKeyRow(ctx, mouseX, mouseY, it.hot(), ry);
         }
-        Draw.textFit(ctx, tr, "ПКМ — снять привязку",
+        Draw.textFit(ctx, tr, Ui.rmb() + " — снять привязку",
                 cx(), top + end(items) + 8, cw(), Theme.TEXT_FAINT, false);
     }
 
@@ -899,7 +912,7 @@ public final class SettingsPanel {
     private void drawColors(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, int top) {
         int presetW = presetW();
         Ui.button(ctx, tr, mouseX, mouseY, cx(), top, presetW, BTN_H, PRESET, Ui.GHOST);
-        Draw.textFit(ctx, tr, "ПКМ — вернуть цвет", cx() + presetW + 10, top + (BTN_H - Ui.TEXT_H) / 2,
+        Draw.textFit(ctx, tr, Ui.rmb() + " — вернуть цвет", cx() + presetW + 10, top + (BTN_H - Ui.TEXT_H) / 2,
                 cw() - presetW - 10, Theme.TEXT_FAINT, false);
 
         List<Integer> shown = visibleColors();
@@ -952,6 +965,7 @@ public final class SettingsPanel {
     public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         double mx = click.x(), my = click.y();
         int button = click.button();
+        if (binding != null && bindMouse(button, click.modifiers())) return true;
         if (!contains(mx, my)) { close(); return true; }
         if (bar.grabbed(mx, my, 1, maxScroll(), v -> scroll[tab] = v)) return true;
         if (hexField != null) {
@@ -1032,6 +1046,17 @@ public final class SettingsPanel {
             return;
         }
         binding = null;
+    }
+
+    private boolean bindMouse(int button, int mods) {
+        boolean plain = (mods & Settings.MOD_MASK) == 0;
+        if (plain && (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT))
+            return false;
+        s.bind(binding, Settings.mouse(button), mods);
+        binding = null;
+        soloKey = Settings.NONE;
+        changed = true;
+        return true;
     }
 
     private boolean overResetIcon(Hot hot, double mx, double rowDy) {
@@ -1209,10 +1234,15 @@ public final class SettingsPanel {
     public boolean keyPressed(KeyEvent input) {
         int key = input.key();
         if (binding != null) {
-            if (key == GLFW.GLFW_KEY_ESCAPE) { binding = null; return true; }
-            if (isModifier(key)) return true;
+            if (key == GLFW.GLFW_KEY_ESCAPE) { binding = null; soloKey = Settings.NONE; return true; }
+            if (isModifier(key)) {
+                soloKey = key;
+                soloMods = input.modifiers();
+                return true;
+            }
             s.bind(binding, key, input.modifiers());
             binding = null;
+            soloKey = Settings.NONE;
             changed = true;
             return true;
         }
@@ -1254,6 +1284,15 @@ public final class SettingsPanel {
         }
         if (key == GLFW.GLFW_KEY_ESCAPE) close();
         return true;
+    }
+
+    public void keyReleased(KeyEvent input) {
+        if (binding == null || soloKey == Settings.NONE) return;
+        if (Settings.canonical(input.key()) != Settings.canonical(soloKey)) return;
+        s.bind(binding, soloKey, soloMods);
+        binding = null;
+        soloKey = Settings.NONE;
+        changed = true;
     }
 
     private EditBox focusedField() {

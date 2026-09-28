@@ -1,6 +1,8 @@
 package com.xerocode.ui;
 
+import com.xerocode.Components;
 import com.xerocode.Stacks;
+import com.xerocode.Env;
 import com.xerocode.Value;
 import com.xerocode.Values;
 import org.lwjgl.glfw.GLFW;
@@ -33,7 +35,9 @@ public final class ItemStudio {
     private static final int GUTTER = 12;
     private static final int CARD_H = 30;
 
-    private static final int NAME = 0, COUNT = 1, DAMAGE = 2, MODEL = 3, NBT = 4;
+    private static final int NAME = 0, COUNT = 1, DAMAGE = 2, MODEL = 3, NBT = 4, ROWS = 5;
+    private static final List<String> MODES = List.of("строки", "текст");
+    private static final int HEAD_ROW = ROW + 4;
 
     private static final String GLINT_LABEL = "БЛЕСК ЧАР";
     private static final List<String> GLINTS = List.of("как обычно", "всегда", "никогда");
@@ -50,7 +54,7 @@ public final class ItemStudio {
 
     private final EditBox nameField, countField, damageField, modelField;
     private MultiLineEditBox nbtBox;
-    private Ui.Chips modeChips, glintChips, hideChips;
+    private Ui.Chips modeChips, glintChips, hideChips, viewChips;
 
     private ItemPicker picker;
     private TextStudio studio;
@@ -64,6 +68,14 @@ public final class ItemStudio {
     private int lastMx, lastMy;
     private int cardY, pickY, numsY, nameY, modeY, nameBtnY, loreY, enchY, propY, glintY, hideY;
     private int prevY, prevH, nbtY, nbtH, nbtMsgY, nbtBtnY, footY;
+    private int tagsY, tagsAddY, compY, compHintY, compAddY;
+    private boolean textMode, quiet;
+    private final List<EditBox[]> tagFields = new ArrayList<>();
+    private final List<EditBox[]> compFields = new ArrayList<>();
+    private String rowsFrom = "\0";
+    private EditBox rowFocus;
+    private final NamePick ids = new NamePick();
+    private final java.util.Map<String, String> rowErrors = new java.util.HashMap<>();
     private int loreRows, enchRows, loreScroll, enchScroll;
     private int focus = NAME;
     private int lastSig;
@@ -91,9 +103,124 @@ public final class ItemStudio {
         nbtBox = buildNbtBox(screenW, v.components);
 
         nameField.setFocused(true);
+        syncRows();
         layout();
         writeNbt();
         lastSig = fieldSig();
+    }
+
+    private EditBox rowField(String text, String hint) {
+        EditBox f = Ui.field(tr, text, hint, 4096);
+        f.setFocused(false);
+        return f;
+    }
+
+    private void syncRows() {
+        if (v.components.equals(rowsFrom)) return;
+        rowsFrom = v.components;
+        boolean had = focus == ROWS;
+        tagFields.clear();
+        compFields.clear();
+        rowFocus = null;
+        ids.reset();
+        for (String[] t : Stacks.tags(v.components))
+            tagFields.add(new EditBox[]{rowField(t[0], "имя тега"), rowField(t[1], "значение")});
+        for (String[] r : Stacks.extraRows(v.components))
+            compFields.add(new EditBox[]{rowField(r[0], "minecraft:…"), rowField(r[1], "значение")});
+        if (had) { focus = NAME; focusFields(); }
+    }
+
+    private static List<String[]> rowsOf(List<EditBox[]> fields) {
+        List<String[]> out = new ArrayList<>(fields.size());
+        for (EditBox[] f : fields) out.add(new String[]{f[0].getValue(), f[1].getValue()});
+        return out;
+    }
+
+    private void rowsEdited() {
+        String made = Stacks.withTags(v.components, rowsOf(tagFields));
+        made = Stacks.withRows(made, rowsOf(compFields));
+        v.components = made;
+        rowsFrom = made;
+        setBox(made);
+        Stacks.readText(v);
+        syncWidgets();
+        lastSig = fieldSig();
+    }
+
+    private void setBox(String text) {
+        quiet = true;
+        nbtBox.setValue(textMode ? Stacks.pretty(text) : text);
+        quiet = false;
+    }
+
+    private String rowError(EditBox[] f) {
+        String key = f[0].getValue() + "\0" + f[1].getValue();
+        if (f[0].getValue().isBlank() && f[1].getValue().isBlank()) return null;
+        if (rowErrors.size() > 256) rowErrors.clear();
+        return rowErrors.computeIfAbsent(key, k -> {
+            String e = Stacks.rowError(f[0].getValue(), f[1].getValue());
+            return e == null ? "" : e;
+        });
+    }
+
+    private int keyW() { return (rw - ROW - 2 - 10) * 2 / 5; }
+
+    private int valX() { return rightX() + keyW() + 10; }
+
+    private int valW() { return rw - keyW() - 10 - ROW - 2; }
+
+    private List<EditBox> order() {
+        List<EditBox> out = new ArrayList<>(List.of(nameField, countField, damageField, modelField));
+        for (EditBox[] f : tagFields) { out.add(f[0]); out.add(f[1]); }
+        for (EditBox[] f : compFields) { out.add(f[0]); out.add(f[1]); }
+        if (textMode) out.add(null);
+        return out;
+    }
+
+    private void tab(boolean back) {
+        List<EditBox> all = order();
+        int at = focus == NBT ? all.size() - 1 : focus == ROWS ? all.indexOf(rowFocus) : focus;
+        int next = Math.floorMod(at + (back ? -1 : 1), all.size());
+        EditBox f = all.get(next);
+        if (f == null) focus = NBT;
+        else if (next < 4) focus = next;
+        else { focus = ROWS; rowFocus = f; }
+        focusFields();
+    }
+
+    private void focusRow(EditBox f) {
+        focus = ROWS;
+        rowFocus = f;
+        focusFields();
+    }
+
+    private boolean compId(EditBox f) {
+        for (EditBox[] r : compFields) if (r[0] == f) return true;
+        return false;
+    }
+
+    private void syncIds() {
+        EditBox f = focus == ROWS && compId(rowFocus) ? rowFocus : null;
+        List<NamePick.Known> pool = new ArrayList<>();
+        if (f != null)
+            for (String id : Stacks.componentIds()) pool.add(new NamePick.Known(id, Components.name(id), false, 0));
+        ids.update(f, pool, "", false, tr, screenW, screenH, x, w);
+    }
+
+    private void pickId(String id, String scope) {
+        if (rowFocus == null) return;
+        rowFocus.setValue(id);
+        rowFocus.moveCursorToEnd(false);
+        EditBox[] row = null;
+        for (EditBox[] r : compFields) if (r[0] == rowFocus) row = r;
+        Components.Info info = Components.of(id);
+        if (row != null && row[1].getValue().isBlank() && info != null) {
+            row[1].setValue(info.example());
+            row[1].moveCursorToEnd(false);
+            focusRow(row[1]);
+        }
+        rowsEdited();
+        syncIds();
     }
 
     private MultiLineEditBox buildNbtBox(int screenW, String text) {
@@ -107,8 +234,8 @@ public final class ItemStudio {
                 .setShowDecorations(false)
                 .build(tr, rightColW(screenW) - 8, 60, Component.literal("компоненты"));
         box.setCharacterLimit(16384);
-        box.setValue(text);
-        box.setValueListener(s -> v.components = s);
+        box.setValue(textMode ? Stacks.pretty(text) : text);
+        box.setValueListener(s -> { if (!quiet) v.components = s; });
         return box;
     }
 
@@ -131,7 +258,7 @@ public final class ItemStudio {
         String all = Stacks.print(v);
         if (all.equals(v.components)) return;
         v.components = all;
-        nbtBox.setValue(all);
+        setBox(all);
     }
 
     private void readNbt() {
@@ -191,6 +318,7 @@ public final class ItemStudio {
         modeChips = new Ui.Chips(tr, modes, lw, ROW, 3, true);
         glintChips = new Ui.Chips(tr, GLINTS, lw - glintLabelW(), ROW, 3, true);
         hideChips = new Ui.Chips(tr, HIDE_NAMES, lw - hideLabelW(), ROW, 3, true);
+        viewChips = new Ui.Chips(tr, MODES, rw, ROW, 3);
 
         int at = HEAD_H + 1 + 8;
         cardY = at;                          at += CARD_H + 4;
@@ -209,14 +337,25 @@ public final class ItemStudio {
         prevY = right + CAP;
         int avail = one ? 0 : at - prevY;
         int prevMin = squeeze == 0 ? 76 : 56;
-        prevH = one ? prevMin : Math.max(prevMin, avail * 42 / 100);
-        int tail = 8 + CAP + 3 + 11 + 3 + BTN_H;
-        nbtH = one ? NBT_HEIGHT[squeeze]
-                   : Math.max(NBT_HEIGHT[squeeze] - 20, avail - prevH - tail);
+        prevH = one ? prevMin : Math.max(prevMin, avail * 30 / 100);
         right = prevY + prevH + 8;
-        nbtY = right + CAP;                  right = nbtY + nbtH + 3;
-        nbtMsgY = right;                     right += 11 + 3;
-        nbtBtnY = right;                     right += BTN_H;
+        tagsY = right + CAP;                 right = tagsY + tagFields.size() * (ROW + 2);
+        tagsAddY = right;                    right += ADD_H + 8;
+        compY = right + HEAD_ROW;
+        if (textMode) {
+            int tail = 3 + 11 + 3 + BTN_H;
+            nbtH = one ? NBT_HEIGHT[squeeze]
+                       : Math.max(NBT_HEIGHT[squeeze] - 20, at - compY - tail);
+            nbtY = compY;                    right = nbtY + nbtH + 3;
+            nbtMsgY = right;                 right += 11 + 3;
+            nbtBtnY = right;                 right += BTN_H;
+        } else {
+            nbtY = compY;
+            nbtH = 0;
+            right = compY + compFields.size() * (ROW + 2);
+            compHintY = right;               right += 11 + 2;
+            compAddY = right;                right += ADD_H;
+        }
 
         int contentH = (one ? right : Math.max(at, right)) + 8;
         int natural = contentH + 1 + FOOT_H;
@@ -243,7 +382,18 @@ public final class ItemStudio {
         nbtBox.setX(rightX() + 4);
         nbtBox.setY(absY(nbtY) + 3);
         nbtBox.setWidth(rw - 8);
-        nbtBox.setHeight(nbtH - 6);
+        nbtBox.setHeight(Math.max(12, nbtH - 6));
+        for (int i = 0; i < tagFields.size(); i++) placeRow(tagFields.get(i), absY(tagsY) + i * (ROW + 2));
+        for (int i = 0; i < compFields.size(); i++) placeRow(compFields.get(i), absY(compY) + i * (ROW + 2));
+    }
+
+    private void placeRow(EditBox[] f, int ry) {
+        f[0].setX(rightX() + 4);
+        f[0].setY(ry + 3);
+        Ui.width(f[0], keyW() - 8);
+        f[1].setX(valX() + 4);
+        f[1].setY(ry + 3);
+        Ui.width(f[1], valW() - 8);
     }
 
     private int numW() { return (lw - 8) / 3; }
@@ -261,6 +411,8 @@ public final class ItemStudio {
     private String pickLabel() { return v.itemId.isEmpty() ? "Выбрать предмет" : "Другой предмет"; }
 
     private Ui.Cluster itemRow() {
+        if (Env.browser())
+            return new Ui.Cluster(leftX(), lw, 5, Ui.buttonW(tr, Draw.SEARCH, pickLabel()));
         return new Ui.Cluster(leftX(), lw, 5,
                 Ui.buttonW(tr, Draw.SEARCH, pickLabel()),
                 Ui.buttonW(tr, Draw.LOAD, "Взять из руки"));
@@ -281,7 +433,7 @@ public final class ItemStudio {
     }
 
     private Ui.Cluster nbtRow() {
-        return new Ui.Cluster(rightX(), rw, 4, Ui.buttonW(tr, "в столбик"),
+        return new Ui.Cluster(rightX(), rw, 4,
                 Ui.buttonW(tr, "копировать"), Ui.buttonW(tr, "очистить"));
     }
 
@@ -305,6 +457,10 @@ public final class ItemStudio {
             lastSig = sig;
             writeNbt();
         }
+        if (!v.components.equals(rowsFrom) && !textMode) {
+            syncRows();
+            relayout();
+        }
 
         Ui.dim(ctx, screenW, screenH);
         Ui.panel(ctx, x, y, w, h);
@@ -325,6 +481,10 @@ public final class ItemStudio {
 
         Ui.hairline(ctx, x + 1, footAbsY() - 1, w - 2);
         drawFooter(ctx, mouseX, mouseY);
+        if (ids.active()) {
+            ctx.nextStratum();
+            ids.render(ctx, tr, mouseX, mouseY);
+        }
     }
 
     private void drawLeft(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
@@ -348,8 +508,9 @@ public final class ItemStudio {
         Ui.Cluster items = itemRow();
         Ui.glyphButton(ctx, tr, mouseX, mouseY, items.x(0), absY(pickY), items.w(0), BTN_H,
                 Draw.SEARCH, pickLabel(), Ui.GHOST, true);
-        Ui.glyphButton(ctx, tr, mouseX, mouseY, items.x(1), absY(pickY), items.w(1), BTN_H,
-                Draw.LOAD, "Взять из руки", Ui.GHOST, held() != null);
+        if (!Env.browser())
+            Ui.glyphButton(ctx, tr, mouseX, mouseY, items.x(1), absY(pickY), items.w(1), BTN_H,
+                    Draw.LOAD, "Взять из руки", Ui.GHOST, held() != null);
 
         int cw = numW();
         String[] caps = {"КОЛИЧЕСТВО", "ПРОЧНОСТЬ", "МОДЕЛЬ"};
@@ -510,10 +671,15 @@ public final class ItemStudio {
             }
         }
 
+        drawTags(ctx, mouseX, mouseY, delta);
+        int head = absY(compY) - HEAD_ROW, chipsX = rightX() + rw - viewChips.width();
+        Ui.caption(ctx, tr, "КОМПОНЕНТЫ", rightX(), head + (ROW - Ui.TEXT_H) / 2 + 1,
+                chipsX - rightX() - 6,
+                compFields.isEmpty() || textMode ? "" : String.valueOf(compFields.size()));
+        viewChips.render(ctx, tr, mouseX, mouseY, chipsX, head, textMode ? 1 : 0, Values.color(Value.ITEM));
+        if (!textMode) { drawComps(ctx, mouseX, mouseY, delta); return; }
         String error = Stacks.error(v.components);
         int count = Stacks.componentCount(v.components);
-        Ui.caption(ctx, tr, "КОМПОНЕНТЫ", rightX(), absY(nbtY) - CAP, rw,
-                count == 0 ? "" : String.valueOf(count));
         Ui.input(ctx, rightX(), absY(nbtY), rw, nbtH, focus == NBT);
         if (error != null)
             Draw.roundOutline(ctx, rightX(), absY(nbtY), rw, nbtH, Ui.R_SM,
@@ -529,11 +695,138 @@ public final class ItemStudio {
         }
         Ui.Cluster nbt = nbtRow();
         Ui.button(ctx, tr, mouseX, mouseY, nbt.x(0), absY(nbtBtnY), nbt.w(0), BTN_H,
-                "в столбик", Ui.GHOST, !v.components.isBlank());
-        Ui.button(ctx, tr, mouseX, mouseY, nbt.x(1), absY(nbtBtnY), nbt.w(1), BTN_H,
                 "копировать", Ui.GHOST, true);
-        Ui.button(ctx, tr, mouseX, mouseY, nbt.x(2), absY(nbtBtnY), nbt.w(2), BTN_H,
+        Ui.button(ctx, tr, mouseX, mouseY, nbt.x(1), absY(nbtBtnY), nbt.w(1), BTN_H,
                 "очистить", Ui.GHOST, !v.components.isBlank());
+    }
+
+    private void drawTags(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
+        Ui.caption(ctx, tr, "ТЕГИ", rightX(), absY(tagsY) - CAP, rw,
+                tagFields.isEmpty() ? "" : String.valueOf(tagFields.size()));
+        for (int i = 0; i < tagFields.size(); i++)
+            drawRow(ctx, mouseX, mouseY, delta, tagFields.get(i), absY(tagsY) + i * (ROW + 2), Draw.EQUAL, null);
+        Ui.glyphButton(ctx, tr, mouseX, mouseY, rightX(), absY(tagsAddY), rw, ADD_H,
+                Draw.PLUS, "добавить тег", Ui.GHOST, !v.itemId.isEmpty());
+    }
+
+    private void drawComps(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
+        EditBox[] active = null;
+        for (int i = 0; i < compFields.size(); i++) {
+            EditBox[] f = compFields.get(i);
+            String err = rowError(f);
+            drawRow(ctx, mouseX, mouseY, delta, f, absY(compY) + i * (ROW + 2), null,
+                    err == null || err.isEmpty() ? null : err);
+            if (focus == ROWS && (f[0] == rowFocus || f[1] == rowFocus)) active = f;
+        }
+        String line = "", err = null;
+        if (active != null) {
+            err = rowError(active);
+            line = err != null && !err.isEmpty() ? err
+                    : Stacks.componentId(active[0].getValue()) + " — " + Stacks.hint(active[0].getValue());
+        }
+        Draw.textFit(ctx, tr, line, rightX() + 2, absY(compHintY) + 2, rw - 4,
+                err != null && !err.isEmpty() ? Theme.DANGER : Theme.TEXT_FAINT, false);
+        Components.Info info = active == null ? null : Components.of(active[0].getValue());
+        if (info != null && Ui.hit(mouseX, mouseY, rightX(), absY(compHintY), rw, Ui.TEXT_H + 4))
+            ctx.setComponentTooltipForNextFrame(tr, about(Stacks.componentId(active[0].getValue()), info),
+                    mouseX, mouseY);
+        Ui.glyphButton(ctx, tr, mouseX, mouseY, rightX(), absY(compAddY), rw, ADD_H,
+                Draw.PLUS, "добавить компонент", Ui.GHOST, !v.itemId.isEmpty());
+    }
+
+    private List<Component> about(String id, Components.Info info) {
+        int width = Math.max(160, Math.min(320, screenW - 40));
+        List<Component> out = new ArrayList<>();
+        out.add(Component.literal(id + " — " + info.name()));
+        for (String s : Ui.wrap(tr, info.about(), width, 4)) out.add(Component.literal("§7" + s));
+        for (String field : info.fields())
+            for (String s : Ui.wrap(tr, "· " + field, width, 4)) out.add(Component.literal("§8" + s));
+        for (String s : Ui.wrap(tr, "пример: " + info.example(), width, 4)) out.add(Component.literal("§3" + s));
+        return out;
+    }
+
+    private void drawRow(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, EditBox[] f,
+                         int ry, String[] link, String error) {
+        int kw = keyW();
+        Ui.input(ctx, rightX(), ry, kw, ROW, f[0] == rowFocus && focus == ROWS);
+        if (link != null)
+            Draw.glyph(ctx, link, rightX() + kw + (10 - Draw.glyphW(link)) / 2,
+                    ry + (ROW - Draw.glyphH(link)) / 2, Theme.TEXT_FAINT);
+        else
+            Draw.text(ctx, tr, ":", rightX() + kw + 4, ry + (ROW - Ui.TEXT_H) / 2, Theme.TEXT_FAINT, false);
+        Ui.input(ctx, valX(), ry, valW(), ROW, f[1] == rowFocus && focus == ROWS);
+        if (error != null)
+            Draw.roundOutline(ctx, valX(), ry, valW(), ROW, Ui.R_SM, Draw.opaque(Theme.DANGER));
+        f[0].extractRenderState(ctx, mouseX, mouseY, delta);
+        Ui.placeholder(ctx, tr, f[0]);
+        f[1].extractRenderState(ctx, mouseX, mouseY, delta);
+        Ui.placeholder(ctx, tr, f[1]);
+        Ui.iconButton(ctx, mouseX, mouseY, rightX() + rw - ROW, ry, ROW, Draw.CROSS, Ui.DANGER, true);
+    }
+
+    private boolean rowsClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
+        int m = viewChips.indexAt(mx, my, rightX() + rw - viewChips.width(), absY(compY) - HEAD_ROW);
+        if (m >= 0) {
+            if ((m == 1) != textMode) switchMode(m == 1);
+            return true;
+        }
+        if (rowHit(tagFields, absY(tagsY), click, doubled, mx, my)) return true;
+        if (!v.itemId.isEmpty() && Ui.hit(mx, my, rightX(), absY(tagsAddY), rw, ADD_H)) {
+            EditBox[] f = {rowField("", "имя тега"), rowField("", "значение")};
+            tagFields.add(f);
+            relayout();
+            focusRow(f[0]);
+            return true;
+        }
+        if (textMode) return false;
+        if (rowHit(compFields, absY(compY), click, doubled, mx, my)) return true;
+        if (!v.itemId.isEmpty() && Ui.hit(mx, my, rightX(), absY(compAddY), rw, ADD_H)) {
+            EditBox[] f = {rowField("", "minecraft:…"), rowField("", "значение")};
+            compFields.add(f);
+            relayout();
+            focusRow(f[0]);
+            syncIds();
+            return true;
+        }
+        return false;
+    }
+
+    private boolean rowHit(List<EditBox[]> rows, int top, MouseButtonEvent click, boolean doubled,
+                           int mx, int my) {
+        for (int i = 0; i < rows.size(); i++) {
+            int ry = top + i * (ROW + 2);
+            EditBox[] f = rows.get(i);
+            if (Ui.hit(mx, my, rightX() + rw - ROW, ry, ROW, ROW)) {
+                rows.remove(i);
+                f[0].setFocused(false);
+                f[1].setFocused(false);
+                if (f[0] == rowFocus || f[1] == rowFocus) { rowFocus = null; focus = NAME; focusFields(); }
+                rowsEdited();
+                relayout();
+                syncIds();
+                return true;
+            }
+            EditBox hit = Ui.hit(mx, my, rightX(), ry, keyW(), ROW) ? f[0]
+                    : Ui.hit(mx, my, valX(), ry, valW(), ROW) ? f[1] : null;
+            if (hit == null) continue;
+            focusRow(hit);
+            if (!hit.mouseClicked(click, doubled)) hit.onClick(click, doubled);
+            grab.take(hit);
+            syncIds();
+            return true;
+        }
+        return false;
+    }
+
+    private void switchMode(boolean text) {
+        readForm();
+        if (!text) v.components = Stacks.compact(v.components);
+        textMode = text;
+        if (focus == NBT || focus == ROWS) { focus = NAME; rowFocus = null; focusFields(); }
+        rowsFrom = "\0";
+        syncRows();
+        setBox(v.components);
+        relayout();
     }
 
     private static final int OK_W = 56, NO_W = 52, BTN_GAP = 6, FOOT_BTN_H = 16;
@@ -608,7 +901,7 @@ public final class ItemStudio {
             openPicker();
             return true;
         }
-        if (items.hit(1, mx, my, absY(pickY), BTN_H)) {
+        if (!Env.browser() && items.hit(1, mx, my, absY(pickY), BTN_H)) {
             ItemStack st = held();
             if (st != null) {
                 readForm();
@@ -706,7 +999,9 @@ public final class ItemStudio {
             return true;
         }
 
-        if (Ui.hit(mx, my, rightX(), absY(nbtY), rw, nbtH)) {
+        if (ids.mouseClicked(mx, my, this::pickId)) return true;
+        if (rowsClicked(click, doubled, mx, my)) return true;
+        if (textMode && Ui.hit(mx, my, rightX(), absY(nbtY), rw, nbtH)) {
             focus = NBT;
             focusFields();
             nbtBox.mouseClicked(click, doubled);
@@ -714,21 +1009,15 @@ public final class ItemStudio {
             return true;
         }
         Ui.Cluster nbt = nbtRow();
-        if (nbt.hit(0, mx, my, absY(nbtBtnY), BTN_H)) {
-            String indented = Stacks.indent(v.components);
-            if (indented.equals(v.components)) toast("нечего выпрямлять");
-            else { v.components = indented; nbtBox.setValue(indented); }
-            return true;
-        }
-        if (nbt.hit(1, mx, my, absY(nbtBtnY), BTN_H)) {
+        if (textMode && nbt.hit(0, mx, my, absY(nbtBtnY), BTN_H)) {
             String all = Stacks.print(v);
             Minecraft.getInstance().keyboardHandler.setClipboard(all);
             toast(all.isEmpty() ? "копировать нечего" : "компоненты в буфере");
             return true;
         }
-        if (nbt.hit(2, mx, my, absY(nbtBtnY), BTN_H)) {
+        if (textMode && nbt.hit(1, mx, my, absY(nbtBtnY), BTN_H)) {
             v.components = "";
-            nbtBox.setValue("");
+            setBox("");
             readNbt();
             return true;
         }
@@ -762,6 +1051,8 @@ public final class ItemStudio {
         damageField.setFocused(focus == DAMAGE);
         modelField.setFocused(focus == MODEL);
         nbtBox.setFocused(focus == NBT);
+        for (EditBox[] f : tagFields) { f[0].setFocused(f[0] == rowFocus && focus == ROWS); f[1].setFocused(f[1] == rowFocus && focus == ROWS); }
+        for (EditBox[] f : compFields) { f[0].setFocused(f[0] == rowFocus && focus == ROWS); f[1].setFocused(f[1] == rowFocus && focus == ROWS); }
     }
 
     private void openPicker() {
@@ -834,23 +1125,24 @@ public final class ItemStudio {
         if (picker != null) return picker.mouseScrolled(mx, my, amount);
         if (studio != null) return studio.mouseScrolled(mx, my, amount);
         if (enchPicker != null) return enchPicker.mouseScrolled(mx, my, amount);
-        if (Ui.hit(mx, my, rightX(), absY(nbtY), rw, nbtH))
+        if (ids.mouseScrolled(mx, my, amount)) return true;
+        if (textMode && Ui.hit(mx, my, rightX(), absY(nbtY), rw, nbtH))
             return nbtBox.mouseScrolled(mx, my, 0, amount);
         int shownLore = Math.max(1, Math.min(v.lore.size(), loreRows));
         if (maxLoreScroll() > 0 && Ui.hit(mx, my, leftX(), absY(loreY), lw,
                 shownLore * (ROW + 2))) {
             loreScroll = Math.max(0, Math.min(maxLoreScroll(),
-                    loreScroll - (int) Math.signum(amount)));
+                    loreScroll - Ui.rows(amount, 1, ROW + 2)));
             return true;
         }
         if (maxEnchScroll() > 0 && Ui.hit(mx, my, leftX(), absY(enchY), lw,
                 shownEnch() * (ROW + 2))) {
             enchScroll = Math.max(0, Math.min(maxEnchScroll(),
-                    enchScroll - (int) Math.signum(amount)));
+                    enchScroll - Ui.rows(amount, 1, ROW + 2)));
             return true;
         }
         int cw = numW();
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < 3 && !Env.touch(); i++)
             if (Ui.hit(mx, my, leftX() + i * (cw + 4), absY(numsY), cw, INPUT_H)) {
                 bump(COUNT + i, (int) Math.signum(amount));
                 return true;
@@ -880,10 +1172,18 @@ public final class ItemStudio {
         }
         int key = input.key();
         if (key == GLFW.GLFW_KEY_ESCAPE) { closed = true; return true; }
+        if (focus == ROWS && ids.keyPressed(input, this::pickId)) return true;
         if (key == GLFW.GLFW_KEY_TAB) {
-            focus = (focus + 1) % 5;
-            focusFields();
+            tab((input.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0);
+            syncIds();
             return true;
+        }
+        if (focus == ROWS && rowFocus != null && key != GLFW.GLFW_KEY_ENTER && key != GLFW.GLFW_KEY_KP_ENTER) {
+            String was = rowFocus.getValue();
+            boolean used = rowFocus.keyPressed(input);
+            if (!was.equals(rowFocus.getValue())) rowsEdited();
+            syncIds();
+            return used;
         }
         if ((key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) && focus != NBT) {
             finish();
@@ -910,6 +1210,12 @@ public final class ItemStudio {
             v.components = nbtBox.getValue();
             readNbt();
             return typed;
+        }
+        if (focus == ROWS && rowFocus != null) {
+            boolean used = rowFocus.charTyped(input);
+            rowsEdited();
+            syncIds();
+            return used;
         }
         EditBox f = widget(focus);
         boolean used = f != null && f.charTyped(input);
@@ -941,7 +1247,7 @@ public final class ItemStudio {
         v.itemDamage = Math.max(0, (int) number(damageField.getValue(), 0));
         String model = modelField.getValue().trim();
         v.modelData = model.isEmpty() ? -1 : Math.max(0, (int) number(model, -1));
-        v.components = nbtBox.getValue();
+        if (textMode) v.components = nbtBox.getValue();
     }
 
     private static double number(String s, double fallback) {
@@ -963,7 +1269,7 @@ public final class ItemStudio {
 
     private void sync() {
         syncWidgets();
-        nbtBox.setValue(v.components);
+        setBox(v.components);
         lastSig = fieldSig();
     }
 

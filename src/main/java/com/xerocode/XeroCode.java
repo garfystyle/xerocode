@@ -145,8 +145,17 @@ public final class XeroCode implements ClientModInitializer {
         Settings settings = Settings.get();
         int code = settings.code(hot);
         if (code == Settings.NONE || client.getWindow() == null) return false;
-        if (!InputConstants.isKeyDown(client.getWindow(), code)) return false;
-        return modsHeld(client) == settings.mods(hot);
+        if (!pressed(client, code)) return false;
+        return (modsHeld(client) & ~Settings.ownMod(code)) == settings.mods(hot);
+    }
+
+    private static boolean pressed(Minecraft client, int code) {
+        if (Settings.isMouse(code))
+            return GLFW.glfwGetMouseButton(client.getWindow().handle(), Settings.button(code))
+                    == GLFW.GLFW_PRESS;
+        if (down(client, code)) return true;
+        int twin = Settings.twin(code);
+        return twin != Settings.NONE && down(client, twin);
     }
 
     private static int modsHeld(Minecraft client) {
@@ -174,6 +183,9 @@ public final class XeroCode implements ClientModInitializer {
         Pickers.load();
         Mapping.load();
         Placeholders.load();
+        Menus.load();
+        Symbols.load();
+        Components.load();
 
         Tape.register();
         LevelRenderEvents.START_MAIN.register(ctx -> {
@@ -285,6 +297,10 @@ public final class XeroCode implements ClientModInitializer {
             boolean againRaw = keyDown(client, Settings.Hot.RESTART);
             if (againRaw && !againWasDown && client.gui.screen() == null) restartWorld(client);
             againWasDown = againRaw;
+            boolean lineRaw = keyDown(client, Settings.Hot.EDIT_LINE);
+            if (lineRaw && !lineWasDown && client.gui.screen() == null) LineEdit.pressed(client);
+            lineWasDown = lineRaw;
+            LineEdit.tick(client);
             restartTick(client);
             boolean inDev = inDev(client);
             if (inDev) worldModeNow = "dev";
@@ -318,8 +334,10 @@ public final class XeroCode implements ClientModInitializer {
         Settings settings = Settings.get();
         int code = settings.code(hot);
         if (code == Settings.NONE || settings.mods(hot) == 0
-                || modsHeld(client) != settings.mods(hot)) return;
-        String key = InputConstants.Type.KEYSYM.getOrCreate(code).getName();
+                || (modsHeld(client) & ~Settings.ownMod(code)) != settings.mods(hot)) return;
+        String key = Settings.isMouse(code)
+                ? InputConstants.Type.MOUSE.getOrCreate(Settings.button(code)).getName()
+                : InputConstants.Type.KEYSYM.getOrCreate(code).getName();
         for (net.minecraft.client.KeyMapping kb : client.options.keyMappings) {
             if (!kb.saveString().equals(key)) continue;
             while (kb.consumeClick()) { }
@@ -348,7 +366,7 @@ public final class XeroCode implements ClientModInitializer {
 
     private int restartStage, restartWait, restartTries;
     private String restartMode = "", restartWorldKey = "";
-    private boolean againWasDown;
+    private boolean againWasDown, lineWasDown;
 
     public static final String RESTART = "restart";
 

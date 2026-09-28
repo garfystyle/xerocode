@@ -145,6 +145,11 @@ public final class Script {
         public double x, y;
         public final String id;
         public final List<Node> chain = new ArrayList<>();
+        public boolean folded;
+
+        public boolean foldable() { return chain.size() > 1; }
+
+        public boolean hides() { return folded && foldable(); }
 
         public Root(double x, double y) { this(x, y, newId()); }
 
@@ -206,6 +211,15 @@ public final class Script {
     public double viewX = 60, viewY = 50, viewZoom = 1;
 
     public transient boolean fitOnOpen;
+    public transient boolean scratch;
+    public transient String scratchLabel = "";
+
+    public static Script scratch(String label) {
+        Script s = new Script();
+        s.scratch = true;
+        s.scratchLabel = label;
+        return s;
+    }
 
     public transient String plot = "";
 
@@ -244,6 +258,7 @@ public final class Script {
             ro.addProperty("id", r.id);
             ro.addProperty("x", r.x);
             ro.addProperty("y", r.y);
+            if (r.hides()) ro.addProperty("f", true);
             ro.add("chain", writeChain(r.chain));
             arr.add(ro);
         }
@@ -270,6 +285,7 @@ public final class Script {
             Root rt = new Root(ro.get("x").getAsDouble(), ro.get("y").getAsDouble(),
                     ro.has("id") ? ro.get("id").getAsString() : null);
             rt.chain.addAll(readChain(ro.getAsJsonArray("chain")));
+            rt.folded = ro.has("f") && ro.get("f").isJsonPrimitive() && ro.get("f").getAsBoolean();
             s.roots.add(rt);
         }
         return s;
@@ -286,7 +302,7 @@ public final class Script {
             h = h * 31 + Double.hashCode(r.x);
             h = h * 31 + Double.hashCode(r.y);
             h = chainHash(h, r.chain);
-            h = foldHash(h, r.chain);
+            h = foldHash(h * 31 + (r.hides() ? 1 : 0), r.chain);
         }
         return h;
     }
@@ -297,6 +313,10 @@ public final class Script {
             if (!n.body.isEmpty()) h = foldHash(h, n.body);
         }
         return h;
+    }
+
+    public static int viewHash(Root r) {
+        return foldHash(rootHash(r) * 31 + (r.hides() ? 1 : 0), r.chain);
     }
 
     public static boolean unfoldTo(List<Node> chain, Node target) {
@@ -332,6 +352,7 @@ public final class Script {
     }
 
     public void save() {
+        if (scratch) return;
         JsonObject root = toJson();
         try {
             Path p = file(plot);
@@ -345,6 +366,7 @@ public final class Script {
     }
 
     public Path backup() {
+        if (scratch) return null;
         try {
             Path from = file(plot);
             if (!Files.exists(from)) return null;
@@ -445,6 +467,8 @@ public final class Script {
         for (Node n : chain) {
             JsonObject o = new JsonObject();
             o.addProperty("a", Catalog.keyOf(n.action));
+            if (Catalog.namesakes(n.action).size() > 1 && n.action.subcategory != null)
+                o.addProperty("u", n.action.subcategory);
             String sid = Mapping.loaded() ? serverId(n.action) : null;
             if (sid != null) o.addProperty("sid", sid);
             if (!n.values.isEmpty()) {
@@ -507,8 +531,25 @@ public final class Script {
             if (a != null) return a;
         }
         Mapping.Act act = Mapping.action(sid);
-        Catalog.Action a = act == null ? null : Catalog.byKey(act.key);
+        Catalog.Action a = Mapping.catalogAction(act);
         return a != null ? a : Mapping.event(sid);
+    }
+
+    private static Catalog.Action namesake(Catalog.Action a, JsonObject o, String sid) {
+        if (o.has("u")) return Catalog.namesake(a, o.get("u").getAsString());
+        if (o.has("v") && o.get("v").isJsonObject()) {
+            java.util.Set<String> keys = o.getAsJsonObject("v").keySet();
+            Catalog.Action best = null;
+            int most = 0;
+            for (Catalog.Action other : Catalog.namesakes(a)) {
+                int hit = 0;
+                for (Catalog.Arg arg : other.args) if (keys.contains(arg.purpose)) hit++;
+                if (hit > most) { most = hit; best = other; }
+            }
+            if (best != null) return best;
+        }
+        Catalog.Action bySid = sid == null ? null : Mapping.catalogAction(Mapping.action(sid));
+        return bySid != null && Catalog.namesakes(a).contains(bySid) ? bySid : a;
     }
 
     private static int argIndex(Node n, String key, int[] remap) {
@@ -525,7 +566,7 @@ public final class Script {
 
     private static int settingIndex(Node n, String key) {
         int num = plainIndex(key);
-        if (num >= 0) return num < n.settings().size() ? num : -1;
+        if (num >= 0) return num < n.settings().size() || num < n.dynMarkerKeys.size() ? num : -1;
         return n.settingIndex(key);
     }
 
@@ -555,6 +596,7 @@ public final class Script {
             Catalog.Action a = Catalog.byKey(key);
             if (a == null && sid != null)
                 a = byServerId(sid, key.startsWith(Catalog.ELSE_CATEGORY + "|"));
+            if (a != null && Catalog.namesakes(a).size() > 1) a = namesake(a, o, sid);
             if (a == null) {
                 a = Catalog.unknownAction(sid == null ? key : sid);
                 lost(key);

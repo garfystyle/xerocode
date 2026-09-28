@@ -31,6 +31,8 @@ public final class BlockView {
     }
 
     public static void shadow(GuiGraphicsExtractor ctx, Layout.Box box) {
+        if (box.tailH > 0)
+            Draw.shadow(ctx, box.x + 3, box.y + box.totalH, box.w - 6, box.tailH - 1, 1);
         Draw.shadow(ctx, box.x, box.y + box.hatH, box.w, box.headerH - box.hatH, 1);
         if (box.node.wraps()) Draw.shadow(ctx, box.x, box.armY(), box.w, Layout.ARM_H, 1);
     }
@@ -84,6 +86,7 @@ public final class BlockView {
 
         int y0 = box.y + box.hatH;
         int span = Math.max(1, box.totalH - box.hatH - 1);
+        if (box.tailH > 0) tail(ctx, tr, box, hovered);
 
         if (wraps) {
             int armY = box.armY();
@@ -130,6 +133,21 @@ public final class BlockView {
                     lightHead ? 0x7A5300 : 0xFFE066);
 
         for (Layout.Chip chip : box.chips) chip(ctx, tr, box, chip, look);
+    }
+
+    private static void tail(GuiGraphicsExtractor ctx, Font tr, Layout.Box box, boolean hovered) {
+        int base = color(box.node);
+        int x = box.x + 3, w = box.w - 6;
+        int top = box.y + box.totalH - 1, h = box.tailH;
+        int face = Draw.opaque(Draw.shade(base, hovered ? -0.16f : -0.26f));
+        Draw.blockShape(ctx, x, top, w, h, 0, 0, face,
+                Draw.opaque(Draw.shade(base, hovered ? -0.26f : -0.36f)), box.border);
+        int ink = Layout.ink(Draw.isLight(face));
+        int gy = top + 1 + (h - 1 - Draw.glyphH(Draw.CARET_RIGHT)) / 2;
+        Draw.glyph(ctx, Draw.CARET_RIGHT, x + 6, gy, Draw.argb(0xCC, ink));
+        Draw.textFit(ctx, tr, "ещё " + Ui.plural(box.tail, "блок", "блока", "блоков"),
+                x + 6 + Draw.glyphW(Draw.CARET_RIGHT) + 4, top + 1 + (h - 1 - Ui.TEXT_H) / 2,
+                w - 20, Draw.argb(0xDD, ink), false);
     }
 
     private static void foldStrip(GuiGraphicsExtractor ctx, Font tr, Layout.Box box) {

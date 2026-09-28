@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.xerocode.Env;
 import com.xerocode.Catalog;
 import com.xerocode.Stacks;
 import org.lwjgl.glfw.GLFW;
@@ -17,8 +18,8 @@ public final class ItemPicker extends PickerPanel {
     public interface Done { void apply(ItemStack stack); }
 
     private static final int TAB_H = 18;
-    private static final int CELL = 18;
-    private static final int GRID_MIN = 9 * CELL + 8;
+    private final int cell = Env.touch() ? 26 : 18;
+    private final int gridMin = 9 * cell + 8;
 
     private record Rail(String name, ItemStack icon, List<Stacks.Entry> entries) {}
 
@@ -61,12 +62,12 @@ public final class ItemPicker extends PickerPanel {
         int measured = tr.width("Мой инвентарь") + 46;
         for (Rail r : rails) measured = Math.max(measured, tr.width(r.name()) + 46);
         int rail = railW(panelW, measured);
-        int det = Math.min(DET_W, panelW - rail - Math.min(GRID_MIN, panelW * 45 / 100));
+        int det = Math.min(DET_W, panelW - rail - Math.min(gridMin, panelW * 45 / 100));
         det = det < 130 ? 0 : det;
-        cols = Math.max(3, (panelW - rail - det - 10) / CELL);
-        rows = Math.max(3, Math.min(20,
-                (Ui.fitH(screenH, 1000) - HEAD_H - FOOT_H - 8) / CELL));
-        place(panelW, HEAD_H + 1 + 4 + rows * CELL + 4 + FOOT_H, rail, det, "найти предмет…");
+        cols = Math.max(3, (panelW - rail - det - 10) / cell);
+        rows = Math.max(3, Math.min(Env.touch() ? 60 : 20,
+                (Ui.fitH(screenH, 1000) - HEAD_H - FOOT_H - 8) / cell));
+        place(panelW, HEAD_H + 1 + 4 + rows * cell + 4 + FOOT_H, rail, det, "найти предмет…");
         scroll = Math.max(0, Math.min(maxScroll(), scroll));
     }
 
@@ -78,7 +79,7 @@ public final class ItemPicker extends PickerPanel {
     protected int searchMaxW() { return 220; }
 
     @Override
-    protected int bodyH() { return rows * CELL + 8; }
+    protected int bodyH() { return rows * cell + 8; }
 
     private int gridX() { return railX() + railW + 1 + 4; }
     private int gridY() { return bodyY() + 4; }
@@ -152,22 +153,23 @@ public final class ItemPicker extends PickerPanel {
 
     @Override
     protected void drawBody(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
-        int gx = gridX(), gy = gridY(), gw = cols * CELL, gh = rows * CELL;
+        int gx = gridX(), gy = gridY(), gw = cols * cell, gh = rows * cell;
         Draw.round(ctx, gx - 3, gy - 3, gw + 6, gh + 6, Ui.R_SM, Draw.opaque(Ui.WELL));
         int selectedIndex = indexOfSelected();
         for (int row = 0; row < rows; row++) {
             for (int col = 0; col < cols; col++) {
                 int i = (scroll + row) * cols + col;
                 if (i >= shown.size()) break;
-                int cx = gx + col * CELL, cy = gy + row * CELL;
+                int cx = gx + col * cell, cy = gy + row * cell;
                 if (i == selectedIndex) {
-                    Draw.round(ctx, cx, cy, CELL, CELL, 3, Draw.opaque(Draw.shade(accent, -0.55f)));
-                    Draw.roundOutline(ctx, cx, cy, CELL, CELL, 3, Draw.opaque(accent));
+                    Draw.round(ctx, cx, cy, cell, cell, 3, Draw.opaque(Draw.shade(accent, -0.55f)));
+                    Draw.roundOutline(ctx, cx, cy, cell, cell, 3, Draw.opaque(accent));
                 } else if (i == hovered) {
-                    Draw.round(ctx, cx, cy, CELL, CELL, 3, Draw.opaque(Ui.BTN_HOVER));
+                    Draw.round(ctx, cx, cy, cell, cell, 3, Draw.opaque(Ui.BTN_HOVER));
                 }
                 ItemStack st = shown.get(i).stack();
-                ctx.item(st, cx + 1, cy + 1);
+                if (cell == 18) ctx.item(st, cx + 1, cy + 1);
+                else Draw.item(ctx, st, cx + 1, cy + 1, cell - 2);
                 if (st.getCount() != 1) ctx.itemDecorations(tr, st, cx + 1, cy + 1);
             }
         }
@@ -176,7 +178,7 @@ public final class ItemPicker extends PickerPanel {
                     Theme.TEXT_FAINT, false);
         if (maxScroll() > 0) {
             int gridRows = (shown.size() + cols - 1) / cols;
-            bar.draw(ctx, gx + gw + 1, gy, gh, gridRows * CELL, gh, scroll * CELL, lastMx, lastMy);
+            bar.draw(ctx, gx + gw + 1, gy, gh, gridRows * cell, gh, scroll * cell, lastMx, lastMy);
         }
     }
 
@@ -207,7 +209,7 @@ public final class ItemPicker extends PickerPanel {
     @Override
     protected String footerHint() {
         Stacks.Entry it = focused();
-        return it == null ? "стрелки — выбрать, Enter — подтвердить"
+        return it == null ? (Env.touch() ? "" : "стрелки — выбрать, Enter — подтвердить")
                 : shown.size() + " из " + pool().size() + " · " + it.name();
     }
 
@@ -224,15 +226,15 @@ public final class ItemPicker extends PickerPanel {
     @Override
     protected int indexAt(double mx, double my) {
         int gx = gridX(), gy = gridY();
-        if (mx < gx || mx >= gx + cols * CELL || my < gy || my >= gy + rows * CELL) return -1;
-        int col = (int) ((mx - gx) / CELL), row = (int) ((my - gy) / CELL);
+        if (mx < gx || mx >= gx + cols * cell || my < gy || my >= gy + rows * cell) return -1;
+        int col = (int) ((mx - gx) / cell), row = (int) ((my - gy) / cell);
         int i = (scroll + row) * cols + col;
         return i >= 0 && i < shown.size() ? i : -1;
     }
 
     @Override
     protected boolean bodyClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
-        if (bar.grabbed(mx, my, CELL, maxScroll(), v -> scroll = v)) return true;
+        if (bar.grabbed(mx, my, cell, maxScroll(), v -> scroll = v)) return true;
         int i = indexAt(mx, my);
         if (i < 0) return false;
         selected = shown.get(i);
@@ -241,13 +243,13 @@ public final class ItemPicker extends PickerPanel {
     }
 
     public boolean mouseScrolled(double mx, double my, double amount) {
-        scroll = Math.max(0, Math.min(maxScroll(), scroll - (int) Math.signum(amount) * 2));
+        scroll = Math.max(0, Math.min(maxScroll(), scroll - Ui.rows(amount, 2, cell)));
         return true;
     }
 
     @Override
     public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
-        if (bar.dragged(click.y(), CELL, maxScroll(), v -> scroll = v)) return true;
+        if (bar.dragged(click.y(), cell, maxScroll(), v -> scroll = v)) return true;
         return super.mouseDragged(click, dx, dy);
     }
 

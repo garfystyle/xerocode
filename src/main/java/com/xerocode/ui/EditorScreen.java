@@ -16,6 +16,7 @@ import com.xerocode.Functions;
 import com.xerocode.History;
 import com.xerocode.Importer;
 import com.xerocode.LineEdit;
+import com.xerocode.Localized;
 import com.xerocode.Mapping;
 import com.xerocode.Script;
 import com.xerocode.Settings;
@@ -1058,7 +1059,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             collectVars(r.chain, mine, seen);
             if (!r.chain.isEmpty() && r.chain.get(0).declares())
                 for (Value p : Functions.parametersOf(r.chain.get(0)))
-                    note(seen, p.name, "local", mine);
+                    note(seen, p.name, "line", mine);
         }
         List<NamePick.Known> out = new ArrayList<>(seen.size());
         for (Map.Entry<String, int[]> e : seen.entrySet()) {
@@ -1872,6 +1873,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             Value p = hoverChip.value;
             lines.add(Component.literal(p == null || p.name.isBlank() ? "параметр без имени" : p.name));
             if (p != null) {
+                for (String line : paramAbout(p)) lines.add(Component.literal("§7" + line));
                 lines.add(Component.literal("§8принимает: §7" + p.paramNote()));
                 if (Value.ENUM.equals(p.typeKey)) {
                     StringBuilder sb = new StringBuilder();
@@ -1883,6 +1885,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 }
             }
             lines.add(Component.literal(Env.touch() ? "§8тап — правка, 2 пальца — удалить" : "§8ЛКМ — правка, ПКМ — удалить"));
+            if (!Env.touch() && p != null && !p.name.isBlank() && declaresParams(hoverBox, hoverChip))
+                lines.add(Component.literal("§8Shift+ПКМ — взять как строчную переменную"));
             if (!chipValues(hoverBox, hoverChip).isEmpty())
                 lines.add(Component.literal("§8" + copyHint()));
         } else if (hoverChip.isCondition()) {
@@ -2747,9 +2751,25 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 });
     }
 
+    private static boolean declaresParams(Layout.Box box, Layout.Chip chip) {
+        return chip.isCell() && chip.argIndex == Catalog.FN_PARAMS && Layout.chipNode(box.node).declares();
+    }
+
+    private List<String> paramAbout(Value p) {
+        List<String> out = new ArrayList<>();
+        String raw = Localized.text(p.paramDesc);
+        if (raw.isBlank()) return out;
+        String plain = McText.plain(raw, Localized.parsing(p.paramDesc));
+        for (String part : plain.replace("\\n", "\n").split("\n")) {
+            if (out.size() >= 6) break;
+            out.addAll(describe(part));
+        }
+        return out.size() > 6 ? new ArrayList<>(out.subList(0, 6)) : out;
+    }
+
     private boolean paramVariable(Layout.Box box, Layout.Chip chip) {
         Script.Node n = Layout.chipNode(box.node);
-        if (!chip.isCell() || chip.argIndex != Catalog.FN_PARAMS || !n.declares()) return false;
+        if (!declaresParams(box, chip)) return false;
         List<Value> params = n.values.get(Catalog.FN_PARAMS);
         if (params == null || chip.cell >= params.size()) return false;
         Value param = params.get(chip.cell);

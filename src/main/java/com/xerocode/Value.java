@@ -154,7 +154,7 @@ public final class Value {
         if (unknownRaw != null) h = h * 31 + unknownRaw.hashCode();
         h = h * 31 + text.hashCode();
         h = h * 31 + parsing.hashCode();
-        if (emptyText()) h = h * 31 + 1;
+        if (emptyKept()) h = h * 31 + 1;
         h = h * 31 + Double.hashCode(number);
         h = h * 31 + numberText.hashCode();
         h = h * 31 + Double.hashCode(x);
@@ -218,10 +218,24 @@ public final class Value {
             case POTION -> potion.isEmpty();
             case ITEM -> itemId.isEmpty();
             case BLOCK -> block.isEmpty();
-            case ARRAY -> filled() == 0;
-            case MAP -> filled() == 0 && keys.stream().noneMatch(k -> !k.isBlank());
+            case ARRAY -> filled() == 0 && !present;
+            case MAP -> filled() == 0 && keys.stream().allMatch(Value::isBlank) && !present;
             default -> false;
         };
+    }
+
+    public boolean emptyKept() {
+        if (!present) return false;
+        return switch (type) {
+            case TEXT -> text.isEmpty();
+            case ARRAY -> filled() == 0;
+            case MAP -> filled() == 0 && keys.stream().allMatch(Value::isBlank);
+            default -> false;
+        };
+    }
+
+    public static boolean keepsEmpty(String type) {
+        return TEXT.equals(type) || ARRAY.equals(type) || MAP.equals(type);
     }
 
     public boolean hasIcon() {
@@ -267,8 +281,8 @@ public final class Value {
             case POTION -> potion.isEmpty() ? "эффект не выбран" : Pickers.potionName(potion);
             case ITEM -> itemId.isEmpty() ? "предмет не выбран" : Stacks.plainName(this);
             case BLOCK -> block.isEmpty() ? "блок не выбран" : Blocks.name(block);
-            case ARRAY -> "список";
-            case MAP -> "словарь";
+            case ARRAY -> filled() == 0 ? "пустой список" : "список";
+            case MAP -> filled() == 0 && keys.stream().allMatch(Value::isBlank) ? "пустой словарь" : "словарь";
             default -> Values.kindName(type);
         };
     }
@@ -482,6 +496,7 @@ public final class Value {
                     arr.add(it.isHole() ? new JsonObject() : it.toJson());
                 }
                 o.add("values", arr);
+                if (emptyKept()) o.addProperty(KEEP, true);
             }
             case MAP -> {
                 JsonObject m = new JsonObject();
@@ -492,6 +507,7 @@ public final class Value {
                             val.isHole() ? new JsonObject() : val.toJson());
                 }
                 o.add("values", m);
+                if (emptyKept()) o.addProperty(KEEP, true);
             }
             default -> { }
         }
@@ -509,7 +525,7 @@ public final class Value {
         }
         if (o.has("text")) v.text = o.get("text").getAsString();
         if (o.has("parsing")) v.parsing = o.get("parsing").getAsString();
-        if (TEXT.equals(v.type) && o.has(KEEP)) v.present = true;
+        if (keepsEmpty(v.type) && o.has(KEEP)) v.present = true;
         if (o.has("number")) {
             try {
                 v.number = o.get("number").getAsDouble();
@@ -638,7 +654,7 @@ public final class Value {
         boolean typed = type != null && type.isJsonPrimitive() && !type.getAsString().isEmpty();
         if (!typed) return blank();
         Value v = fromJson(o);
-        if (TEXT.equals(v.type)) v.present = true;
+        if (keepsEmpty(v.type)) v.present = true;
         return v;
     }
 

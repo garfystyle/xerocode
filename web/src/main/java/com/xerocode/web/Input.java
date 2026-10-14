@@ -9,6 +9,7 @@ public final class Input {
     private static String clipboard = "";
     private static Object focusOwner;
     private static boolean focusWanted, focusDrawn;
+    private static int focusSerial;
     private static double caretX, caretY;
     private static String selText = "", allText = "";
     private static final StringBuilder rects = new StringBuilder();
@@ -60,6 +61,7 @@ public final class Input {
 
     public static void textFocus(Object owner, boolean on) {
         if (on) {
+            if (owner != focusOwner) focusSerial++;
             focusOwner = owner;
             focusWanted = true;
         } else if (focusOwner == owner) {
@@ -95,7 +97,8 @@ public final class Input {
         int scale = Minecraft.getInstance().getWindow().getGuiScale();
         boolean on = focusWanted && focusDrawn;
         focusDrawn = false;
-        Js.textFocus(on, caretX * scale, caretY * scale, rects.toString(), scale, selText, allText);
+        Js.textFocus(on, caretX * scale, caretY * scale, rects.toString(), scale, selText, allText,
+                focusSerial);
         rects.setLength(0);
         selText = "";
         allText = "";

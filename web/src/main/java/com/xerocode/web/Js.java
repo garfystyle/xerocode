@@ -79,10 +79,10 @@ public final class Js {
     @JSBody(script = "return XC.clipboard();")
     public static native String clipboard();
 
-    @JSBody(params = {"on", "x", "y", "rects", "scale", "sel", "all"},
-            script = "XC.textFocus(on, x, y, rects, scale, sel, all);")
+    @JSBody(params = {"on", "x", "y", "rects", "scale", "sel", "all", "focus"},
+            script = "XC.textFocus(on, x, y, rects, scale, sel, all, focus);")
     public static native void textFocus(boolean on, double x, double y, String rects, int scale,
-                                        String sel, String all);
+                                        String sel, String all, int focus);
 
     @JSBody(script = "return XC.touch();")
     public static native boolean touch();

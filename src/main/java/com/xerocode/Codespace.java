@@ -216,6 +216,7 @@ public final class Codespace {
         private final List<BlockPos> lines;
         private final JsonArray handlers = new JsonArray();
         private final ItemStack slotBefore;
+        private final int selectedBefore;
         private final Vec3 origin;
         private final long startedAt = System.currentTimeMillis();
         private final Memo memo;
@@ -257,6 +258,7 @@ public final class Codespace {
             LocalPlayer player = client.player;
             this.slotBefore = player == null
                     ? ItemStack.EMPTY : player.getInventory().getItem(SLOT).copy();
+            this.selectedBefore = player == null ? SLOT : player.getInventory().getSelectedSlot();
             this.origin = player == null ? Vec3.ZERO : player.position();
             if (this.memo.fits(lines.size())) {
                 index = this.memo.next;
@@ -510,6 +512,7 @@ public final class Codespace {
                 player.getInventory().setItem(SLOT, slotBefore);
                 if (client.gameMode != null)
                     client.gameMode.handleCreativeModeItemAdd(slotBefore, 36 + SLOT);
+                player.getInventory().setSelectedSlot(selectedBefore);
             }
             if (client.level != world) return;
             ClientPacketListener net = client.getConnection();

@@ -71,7 +71,7 @@ public final class SettingsPanel {
         List<KeyGroup> groups = new ArrayList<>(List.of(
                 new KeyGroup("ОСНОВНОЕ", List.of(Hot.OPEN, Hot.SETTINGS, Hot.MODE, Hot.SAVE,
                         Hot.UPLOAD, Hot.UNDO, Hot.REDO)),
-                new KeyGroup("ПРАВКА", List.of(Hot.QUICK_ADD, Hot.COPY, Hot.COPY_ONE, Hot.CUT,
+                new KeyGroup("ПРАВКА", List.of(Hot.QUICK_ADD, Hot.COPY, Hot.COPY_ONE, Hot.CUT, Hot.CUT_ONE,
                         Hot.PASTE, Hot.DUPLICATE, Hot.DUP_ONE, Hot.DELETE, Hot.DEL_STACK, Hot.SELECT)),
                 new KeyGroup("НАВИГАЦИЯ", List.of(Hot.SEARCH, Hot.FIND, Hot.FIT, Hot.PREV_LINE,
                         Hot.NEXT_LINE, Hot.GO_DEF, Hot.GO_BACK, Hot.FOLD, Hot.FOLD_ALL,

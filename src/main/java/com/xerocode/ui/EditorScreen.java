@@ -108,6 +108,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private int soloKey = Settings.NONE;
     private Settings.Hot pendHot;
+    private Layout.Box pressOne;
     private Layout.Box pendBox;
     private Layout.Chip pendChip;
     private int pendButton = -1;
@@ -210,10 +211,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         boolean lit = chest != null || overPlus(mouseX, mouseY);
         int top = Draw.mix(Theme.ACCENT, 0xFFFFFF, lit ? 0.28f : 0.16f);
         int bottom = Draw.mix(Theme.ACCENT, 0x000000, lit ? 0.12f : 0.22f);
-        if (Settings.shadows()) {
-            Draw.round(ctx, px, py + 3, pw, PLUS_H, r, Theme.SHADOW_SOFT);
-            Draw.round(ctx, px, py + 2, pw, PLUS_H, r, Theme.SHADOW);
-        }
+        Draw.shadow(ctx, px, py, pw, PLUS_H, r, 0);
         Draw.round(ctx, px, py, pw, PLUS_H, r, Draw.opaque(Draw.mix(Theme.ACCENT, 0x000000, 0.45f)));
         Draw.pillGrad(ctx, px + 1, py + 1, pw - 2, PLUS_H - 2, Draw.opaque(top), Draw.opaque(bottom));
         Draw.rect(ctx, px + r - 4, py + 1, pw - 2 * r + 8, 1, Draw.argb(0x46, 0xFFFFFF));
@@ -2169,8 +2167,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private static boolean aimed(Settings.Hot hot) {
         return switch (hot) {
-            case DELETE, DEL_STACK, COPY, COPY_ONE, CUT, DUPLICATE, DUP_ONE, STASH, FOLD, FOLD_STACK,
-                 GO_DEF -> true;
+            case DELETE, DEL_STACK, COPY, COPY_ONE, CUT, CUT_ONE, DUPLICATE, DUP_ONE, STASH, FOLD,
+                 FOLD_STACK, GO_DEF -> true;
             default -> false;
         };
     }
@@ -2277,6 +2275,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (button == 0 && (add || sub)) {
             Layout.Box box = grabAt();
             if (box != null) {
+                if ((mods & GLFW.GLFW_MOD_CONTROL) != 0 && !add) {
+                    pressOne = box;
+                    pressX = mx;
+                    pressY = my;
+                    return true;
+                }
                 if (sub) unpick(box);
                 else togglePicked(box);
                 return true;
@@ -2302,6 +2306,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             }
             Layout.Chip chip = button <= 1 ? box.chipAt(mouseCanvasX, mouseCanvasY) : null;
             if (chip != null) {
+                if (button == 1 && add && paramVariable(box, chip)) return true;
                 if (button == 0 && !chipValues(box, chip).isEmpty()) {
                     pressBox = box;
                     pressChip = chip;
@@ -2636,6 +2641,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 Settings.Hot.COPY_ONE, () -> copyBox(box, false));
         m.row(Draw.CUT, tail ? "Вырезать стопку" : "Вырезать",
                 Settings.Hot.CUT, () -> cutBox(box));
+        if (tail) m.row(Draw.CUT, "Вырезать блок",
+                Settings.Hot.CUT_ONE, () -> cutOne(box));
         m.row(Draw.PASTE, "Вставить под блок", Settings.Hot.PASTE,
                 () -> pasteAt(box)).on(Clip.has());
         m.row(Draw.DUPLICATE, tail ? "Дублировать стопку" : "Дублировать",
@@ -2740,6 +2747,35 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 });
     }
 
+    private boolean paramVariable(Layout.Box box, Layout.Chip chip) {
+        Script.Node n = Layout.chipNode(box.node);
+        if (!chip.isCell() || chip.argIndex != Catalog.FN_PARAMS || !n.declares()) return false;
+        List<Value> params = n.values.get(Catalog.FN_PARAMS);
+        if (params == null || chip.cell >= params.size()) return false;
+        Value param = params.get(chip.cell);
+        if (param.name.isBlank()) { toast("у параметра нет имени"); return true; }
+        Value line = Value.of(Value.VARIABLE);
+        line.name = param.name;
+        line.scope = "line";
+        take(box, chip, List.of(line), false);
+        toast("строчная переменная «" + param.name + "» — " + Ui.click() + " по слоту");
+        return true;
+    }
+
+    private void startDragOne(Layout.Box box) {
+        closeOverlays();
+        heldRoot = box.root;
+        pushUndo();
+        drag = new ArrayList<>();
+        drag.add(box.owner.remove(box.index));
+        if (box.root != null && box.root.chain.isEmpty()) script.roots.remove(box.root);
+        dragOffX = mouseCanvasX - box.x;
+        dragOffY = mouseCanvasY - box.y;
+        dragFromPalette = false;
+        dragMoved = false;
+        dragSnapshot = null;
+    }
+
     private void startDrag(Layout.Box box) {
         closeOverlays();
         heldRoot = box.root;
@@ -2823,6 +2859,22 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (drag != null || carry != null) return;
         if (hoverBox == null) { toast("наведись на блок — скопирую его"); return; }
         copyBox(hoverBox, wholeStack);
+    }
+
+    private void cutOne(Layout.Box box) {
+        List<Script.Node> chain = chainOf(box, false);
+        Clip.copy(chain);
+        pushUndo();
+        box.owner.remove(box.index);
+        if (box.root != null && box.root.chain.isEmpty()) script.roots.remove(box.root);
+        toast("блок вырезан · " + blocksText(chain));
+    }
+
+    private void cutOneHovered() {
+        if (drag != null || carry != null) return;
+        if (hoverBox == null) { toast("наведись на блок — вырежу только его"); return; }
+        cutOne(hoverBox);
+        hoverBox = null;
     }
 
     private void cutHovered() {
@@ -3208,7 +3260,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Set<Script.Node> taken = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Layout.Box b : layout().boxes) {
             if (taken.contains(b.node)) continue;
-            if (b.x + b.w < x0 || b.x > x1 || b.bottom() < y0 || b.y > y1) continue;
+            if (!b.touches(x0, y0, x1, y1)) continue;
             out.add(b);
             tailNodes(b.owner, b.index, taken);
         }
@@ -3237,9 +3289,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void lineAction(int i) {
         if (script.roots.isEmpty()) return;
         Script.Root first = Finder.ordered(script).get(0);
-        switch (i) {
-            case 0 -> handToWorld(first.chain);
-            case 1 -> {
+        switch (LineEdit.hasPlace(script) ? i : i + 1) {
+            case 0 -> putBack(first.chain);
+            case 1 -> handToWorld(first.chain);
+            case 2 -> {
                 Clip.copyRoots(copies(script.roots));
                 toast("строка скопирована · " + Ui.plural(Script.blocksIn(script.roots), "блок", "блока", "блоков"));
             }
@@ -3259,6 +3312,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private void handToWorld(List<Script.Node> chain) {
         String why = LineEdit.toHand(chain);
+        if (why != null) { toast(why); return; }
+        onClose();
+    }
+
+    private void putBack(List<Script.Node> chain) {
+        String why = LineEdit.putBack(script, chain);
         if (why != null) { toast(why); return; }
         onClose();
     }
@@ -3325,10 +3384,18 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private static final String[][] MODULE_ICONS = {Draw.CHECK, Draw.CROSS};
     private static final String[] LINE_ACTS = {"В руку", "Копировать", "В полотно"};
     private static final String[][] LINE_ICONS = {Draw.LOAD, Draw.COPY, Draw.CANVAS};
+    private static final String[] PLACE_ACTS = {"На место", "В руку", "Копировать", "В полотно"};
+    private static final String[][] PLACE_ICONS = {Draw.UPLOAD, Draw.LOAD, Draw.COPY, Draw.CANVAS};
 
-    private String[] barActs() { return script.scratch ? LINE_ACTS : MODULE_ACTS; }
+    private String[] barActs() {
+        if (!script.scratch) return MODULE_ACTS;
+        return LineEdit.hasPlace(script) ? PLACE_ACTS : LINE_ACTS;
+    }
 
-    private String[][] barIcons() { return script.scratch ? LINE_ICONS : MODULE_ICONS; }
+    private String[][] barIcons() {
+        if (!script.scratch) return MODULE_ICONS;
+        return LineEdit.hasPlace(script) ? PLACE_ICONS : LINE_ICONS;
+    }
 
     private boolean barShown() { return drag == null && (modulePick() || script.scratch); }
 
@@ -3414,7 +3481,36 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private static final int POCKET_W = 152, POCKET_H = 34, POCKET_EDGE = 10;
 
     private int pocketW() {
-        return Math.min(POCKET_W, Math.max(36, canvasRight() - canvasLeft() - 40));
+        int room = canvasRight() - canvasLeft() - (trashShown() ? 3 * POCKET_EDGE : 40);
+        return Math.min(POCKET_W, Math.max(36, trashShown() ? room / 2 : room));
+    }
+
+    private boolean trashShown() { return drag != null && Settings.chests(); }
+
+    private int trashX() { return canvasLeft() + POCKET_EDGE; }
+
+    private boolean overTrash(double mx, double my) {
+        return trashShown() && Ui.hit(mx, my, trashX(), pocketY(), pocketW(), POCKET_H);
+    }
+
+    private void drawTrash(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
+        if (!trashShown()) return;
+        int px = trashX(), py = pocketY(), pw = pocketW();
+        boolean hot = overTrash(mouseX, mouseY);
+        Draw.shadow(ctx, px, py, pw, POCKET_H, Ui.R);
+        Draw.card(ctx, px, py, pw, POCKET_H, Ui.R,
+                Draw.argb(hot ? 0xFF : 0xE0,
+                        hot ? Draw.mix(Ui.PANEL, Theme.DANGER, 0.22f) : Ui.PANEL),
+                Draw.opaque(hot ? Theme.DANGER : Ui.BORDER));
+        int gx = px + 11, gy = py + (POCKET_H - Draw.glyphH(Draw.TRASH)) / 2;
+        Draw.glyph(ctx, Draw.TRASH, gx, gy, hot ? Theme.DANGER : Theme.TEXT_DIM);
+        int tx = gx + Draw.glyphW(Draw.TRASH) + 8;
+        int room = px + pw - 9 - tx;
+        if (room < 34) return;
+        Draw.textFit(ctx, font, "УДАЛИТЬ", tx, py + 8, room,
+                hot ? Theme.TEXT : Theme.TEXT_DIM, false);
+        Draw.textFit(ctx, font, hot ? "отпусти — удалю" : "перетащи сюда", tx, py + 19,
+                room, Theme.TEXT_FAINT, false);
     }
 
     private int pocketX() { return canvasRight() - pocketW() - POCKET_EDGE; }
@@ -3429,6 +3525,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private void drawPocket(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (drag == null) return;
+        drawTrash(ctx, mouseX, mouseY);
         int px = pocketX(), py = pocketY(), pw = pocketW();
         boolean hot = overPocket(mouseX, mouseY);
         Draw.shadow(ctx, px, py, pw, POCKET_H, Ui.R);
@@ -3456,6 +3553,13 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             snap = null;
             dragSnapshot = null;
             stash(chain, "убрано в рюкзак");
+            return;
+        }
+        if (overTrash(mx, my)) {
+            toast(dragFromPalette ? "отменено" : "удалено · " + blocksText(drag));
+            drag = null;
+            snap = null;
+            dragSnapshot = null;
             return;
         }
         if (mx < canvasLeft()) {
@@ -3805,8 +3909,15 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         changeHint = true;
         boolean far = Math.abs(click.x() - pressX) >= GRAB_SLOP || Math.abs(click.y() - pressY) >= GRAB_SLOP;
         if (far) {
+            if (pendHot == Settings.Hot.GO_DEF && pendButton == 0 && pendBox != null) pressOne = pendBox;
             pendHot = null;
             emptyPress = false;
+            if (pressOne != null) {
+                Layout.Box one = pressOne;
+                pressOne = null;
+                pendBox = null;
+                startDragOne(one);
+            }
         }
         if (menu != null && menu.mouseDragged(click.y())) return true;
         if (blockMenu != null && blockMenu.mouseDragged(click.y())) return true;
@@ -3875,6 +3986,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (settings != null) { settings.mouseReleased(); return true; }
         if (banding) { applyBand(); return true; }
         if (moving) { finishMove(); return true; }
+        if (pressOne != null) {
+            Layout.Box one = pressOne;
+            pressOne = null;
+            unpick(one);
+            return true;
+        }
         if (pendHot != null && click.button() == pendButton) {
             panning = false;
             runPending();
@@ -4169,6 +4286,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             case CUT -> {
                 if (!copyChip(true)) { if (picked.isEmpty()) cutHovered(); else cutPicked(); }
             }
+            case CUT_ONE -> { if (picked.isEmpty()) cutOneHovered(); else cutPicked(); }
             case PASTE -> { if (!pasteChip()) pasteClip(); }
             case DELETE -> { if (picked.isEmpty()) deleteHovered(); else deletePicked(); }
             case DEL_STACK -> { if (picked.isEmpty()) deleteStackHovered(); else deletePicked(); }

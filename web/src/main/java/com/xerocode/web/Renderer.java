@@ -192,6 +192,10 @@ public final class Renderer implements VertexConsumer {
         prepared.visit(new Font.GlyphVisitor() {
             @Override
             public void glyph(int g, float x, float y, int color, int shadowColor, Style style, boolean shadow) {
+                if (g < 0) {
+                    sprite(pose, -1 - g, x, y, color, text.scissor);
+                    return;
+                }
                 boolean bold = style.isBold();
                 boolean italic = style.isItalic();
                 if (shadow) {
@@ -208,6 +212,19 @@ public final class Renderer implements VertexConsumer {
                 rect(pose, x0, y0, x1, y1, color);
             }
         });
+    }
+
+    private void sprite(Matrix3x2fc pose, int index, float x, float y, int color, ScreenRectangle scissor) {
+        int texture = com.xerocode.ui.SpriteText.texture();
+        if (texture <= 0) return;
+        float[] uv = com.xerocode.ui.SpriteText.uv(index);
+        float side = com.xerocode.ui.SpriteText.advance();
+        state(texture, false, BLEND_ALPHA, scissor);
+        corner(pose, x, y, uv[0], uv[2], color);
+        corner(pose, x, y + side, uv[0], uv[3], color);
+        corner(pose, x + side, y + side, uv[1], uv[3], color);
+        corner(pose, x + side, y, uv[1], uv[2], color);
+        state(fontTexture, true, BLEND_ALPHA, scissor);
     }
 
     private void glyphQuad(Matrix3x2fc pose, int g, float x, float y, int color, boolean bold, boolean italic) {

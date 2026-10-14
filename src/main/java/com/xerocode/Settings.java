@@ -51,6 +51,7 @@ public final class Settings {
         COPY     ("copy",      "Копировать стопку",    GLFW.GLFW_KEY_C,      CTRL),
         COPY_ONE ("copyOne",   "Копировать блок",      GLFW.GLFW_KEY_C,      CTRL | SHIFT),
         CUT      ("cut",       "Вырезать стопку",      GLFW.GLFW_KEY_X,      CTRL),
+        CUT_ONE  ("cutOne",    "Вырезать блок",        GLFW.GLFW_KEY_X,      CTRL | SHIFT),
         PASTE    ("paste",     "Вставить",             GLFW.GLFW_KEY_V,      CTRL),
         DUPLICATE("duplicate", "Дублировать стопку",   GLFW.GLFW_KEY_D,      CTRL),
         DUP_ONE  ("dupOne",    "Дублировать блок",     GLFW.GLFW_KEY_D,      CTRL | SHIFT),

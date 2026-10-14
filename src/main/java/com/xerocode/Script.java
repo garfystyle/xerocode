@@ -616,7 +616,8 @@ public final class Script {
                 }
             });
             readSlots(o, "m", n, k -> settingIndex(n, k),
-                    (el, idx) -> n.markers.put(idx, el.getAsString()));
+                    (el, idx) -> n.markers.put(idx,
+                            Mapping.currentOption(n.action, idx, el.getAsString())));
             readSlots(o, "mv", n, k -> settingIndex(n, k),
                     (el, idx) -> n.markerVars.put(idx, Value.fromJson(el.getAsJsonObject())));
             if (o.has("c") && o.get("c").isJsonObject()) {

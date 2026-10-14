@@ -525,6 +525,7 @@ public final class Importer {
     private static Value read(JsonObject value) {
         try {
             Value v = Value.fromJson(value);
+            if (Value.TEXT.equals(v.type)) v.present = true;
             scrub(v);
             return v;
         } catch (RuntimeException e) {

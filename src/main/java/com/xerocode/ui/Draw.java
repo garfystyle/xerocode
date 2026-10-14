@@ -221,13 +221,57 @@ public final class Draw {
     }
 
     public static void shadow(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int r) {
+        shadow(ctx, x, y, w, h, r, 1);
+    }
+
+    public static void shadow(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int r, int dx) {
         if (w <= 0 || h <= 0 || !com.xerocode.Settings.shadows()) return;
-        int core = Theme.SHADOW, soft = Theme.SHADOW_SOFT;
-        int i = Math.max(0, r - 1);
-        rect(ctx, x + w, y + 2 + i, 1, h - i, core);
-        rect(ctx, x + 1 + i, y + h, w - i - 1, 2, core);
-        rect(ctx, x + w, y + h + 2, 1, 1, soft);
-        rect(ctx, x + 1 + i, y + h + 2, w - i - 1, 1, soft);
+        int[] run = null;
+        int from = y + 2;
+        for (int row = y + 2; row <= y + h + 3; row++) {
+            int[] now = row < y + h + 3 ? shadowRow(x, y, w, h, Math.max(0, r), dx, row) : null;
+            if (run != null && java.util.Arrays.equals(run, now)) continue;
+            if (run != null) {
+                shadowRun(ctx, run, 0, from, row, Theme.SHADOW);
+                shadowRun(ctx, run, 4, from, row, Theme.SHADOW_SOFT);
+            }
+            run = now;
+            from = row;
+        }
+    }
+
+    private static int[] shadowRow(int x, int y, int w, int h, int r, int dx, int row) {
+        int[] body = span(x, y, w, h, r, row);
+        int[] core = span(x + dx, y + 2, w, h, r, row);
+        int[] soft = span(x + dx, y + 3, w, h, r, row);
+        int[] covered = body[0] >= body[1] ? core : core[0] >= core[1] ? body
+                : new int[]{Math.min(body[0], core[0]), Math.max(body[1], core[1])};
+        int[] out = new int[8];
+        cut(core, body, out, 0);
+        cut(soft, covered, out, 4);
+        return out;
+    }
+
+    private static int[] span(int x, int y, int w, int h, int r, int row) {
+        if (row < y || row >= y + h) return new int[]{0, 0};
+        int dy = row - y;
+        return new int[]{x + insetLeft(r, r, h, dy), x + w - insetRight(r, r, h, dy)};
+    }
+
+    private static void cut(int[] a, int[] b, int[] out, int at) {
+        if (a[0] >= a[1]) return;
+        if (b[0] >= b[1] || b[1] <= a[0] || b[0] >= a[1]) {
+            out[at] = a[0];
+            out[at + 1] = a[1];
+            return;
+        }
+        if (a[0] < b[0]) { out[at] = a[0]; out[at + 1] = b[0]; }
+        if (b[1] < a[1]) { out[at + 2] = b[1]; out[at + 3] = a[1]; }
+    }
+
+    private static void shadowRun(GuiGraphicsExtractor ctx, int[] run, int at, int from, int to, int argb) {
+        for (int k = at; k < at + 4; k += 2)
+            if (run[k + 1] > run[k]) rect(ctx, run[k], from, run[k + 1] - run[k], to - from, argb);
     }
 
     public static void blockShape(GuiGraphicsExtractor ctx, int x, int y, int w, int h,

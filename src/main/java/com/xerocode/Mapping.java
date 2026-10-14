@@ -18,9 +18,11 @@ public final class Mapping {
     public static final class Setting {
         public final int index;
         public final Map<String, String> options;
-        Setting(int index, Map<String, String> options) {
+        final Map<String, String> legacy;
+        Setting(int index, Map<String, String> options, Map<String, String> legacy) {
             this.index = index;
             this.options = options;
+            this.legacy = legacy;
         }
         public String option(String serverId) {
             return options.get(serverId.toLowerCase(Locale.ROOT));
@@ -97,7 +99,12 @@ public final class Mapping {
                         Map<String, String> options = new HashMap<>();
                         JsonObject e = so.getAsJsonObject("e");
                         for (String key : e.keySet()) options.put(key, e.get(key).getAsString());
-                        settings.put(arg, new Setting(so.get("i").getAsInt(), options));
+                        Map<String, String> legacy = new HashMap<>();
+                        if (so.has("x")) {
+                            JsonObject x = so.getAsJsonObject("x");
+                            for (String label : x.keySet()) legacy.put(label, x.get(label).getAsString());
+                        }
+                        settings.put(arg, new Setting(so.get("i").getAsInt(), options, legacy));
                     }
                 }
                 Set<String> plural = new HashSet<>();
@@ -163,6 +170,18 @@ public final class Mapping {
         String id = actionId(action);
         if (id == null) return elseCondAct(action);
         return ACTIONS.get(id);
+    }
+
+    public static String currentOption(Catalog.Action action, int index, String label) {
+        Act act = loaded() ? forExport(action) : null;
+        if (act == null) return label;
+        for (Setting s : act.settings.values()) {
+            if (s.index != index) continue;
+            String id = s.legacy.get(label);
+            String now = id == null ? null : s.options.get(id);
+            return now == null ? label : now;
+        }
+        return label;
     }
 
     private static final Map<String, String> ELSE_IF = new HashMap<>();

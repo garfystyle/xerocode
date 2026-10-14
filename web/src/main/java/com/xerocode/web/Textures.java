@@ -10,13 +10,17 @@ public final class Textures {
     }
 
     private static final Map<Identifier, Integer> HANDLES = new HashMap<>();
+    private static final Map<String, String> SITE = Map.of(
+            "minecraft:textures/block/oak_sign.png", "sign");
 
     private Textures() {}
 
     public static int handle(Identifier id) {
         if (id == null) return 0;
         Integer h = HANDLES.get(id);
-        return h == null ? 0 : h;
+        if (h != null) return h;
+        String named = SITE.get(id.toString());
+        return named == null ? 0 : Js.texture(named);
     }
 
     public static void loadUrl(Identifier id, String url, Size done) {

@@ -273,6 +273,13 @@ public final class McText {
             String body = closing ? lower.substring(1) : lower;
             String name = body.contains(":") ? body.substring(0, body.indexOf(':')) : body;
 
+            if (!closing && "sprite".equals(name) && body.contains(":")) {
+                push(out, buf, style);
+                out.add(sprite(tag, s.substring(i, close + 1), style));
+                i = close + 1;
+                continue;
+            }
+
             if (!closing && ("gradient".equals(name) || "rainbow".equals(name))) {
                 int end = matchingClose(s, close + 1, name);
                 String inner = s.substring(close + 1, end < 0 ? s.length() : end);
@@ -299,6 +306,39 @@ public final class McText {
             i = close + 1;
         }
         push(out, buf, style);
+        return out;
+    }
+
+    private static Run sprite(String tag, String raw, Style style) {
+        String body = tag.endsWith("/") ? tag.substring(0, tag.length() - 1) : tag;
+        List<String> args = tagArgs(body);
+        args.remove(0);
+        String atlas, id;
+        switch (args.size()) {
+            case 1 -> { atlas = ""; id = args.get(0); }
+            case 2 -> { atlas = args.get(0); id = args.get(1); }
+            case 3 -> { atlas = args.get(0) + ":" + args.get(1); id = args.get(2); }
+            default -> { atlas = args.get(0) + ":" + args.get(1); id = args.get(2) + ":" + args.get(3); }
+        }
+        return SpriteText.run(atlas.trim(), id.trim(), raw, style);
+    }
+
+    private static List<String> tagArgs(String tag) {
+        List<String> out = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        char quote = 0;
+        for (int k = 0; k < tag.length(); k++) {
+            char ch = tag.charAt(k);
+            if (quote != 0) {
+                if (ch == quote) quote = 0;
+                else cur.append(ch);
+                continue;
+            }
+            if (ch == '\'' || ch == '"') { quote = ch; continue; }
+            if (ch == ':') { out.add(cur.toString()); cur.setLength(0); continue; }
+            cur.append(ch);
+        }
+        out.add(cur.toString());
         return out;
     }
 
@@ -443,7 +483,7 @@ public final class McText {
 
     public static String writePlain(List<Run> runs) {
         StringBuilder sb = new StringBuilder();
-        for (Run r : runs) sb.append(r.text());
+        for (Run r : runs) if (SpriteText.tagOf(r.style()) == null) sb.append(r.text());
         return sb.toString();
     }
 
@@ -506,8 +546,14 @@ public final class McText {
                                 Function<TextColor, String> colour, Function<Deco, String> deco) {
         StringBuilder sb = new StringBuilder();
         Style prev = Style.EMPTY;
+        boolean mini = "<reset>".equals(reset);
         for (Run r : runs) {
             Style now = r.style();
+            String sprite = SpriteText.tagOf(now);
+            if (sprite != null) {
+                if (mini) sb.append(sprite);
+                continue;
+            }
             if (dropped(prev, now)) { sb.append(reset); prev = Style.EMPTY; }
             TextColor pc = prev.getColor(), nc = now.getColor();
             if (nc != null && (pc == null || pc.getValue() != nc.getValue())) {
@@ -546,7 +592,12 @@ public final class McText {
     private static String writeJson(List<Run> runs) {
         try {
             MutableComponent t = Component.empty();
-            for (Run r : runs) t.append(Component.literal(r.text()).setStyle(r.style()));
+            for (Run r : runs) {
+                Component sprite = SpriteText.component(r.style());
+                if (sprite != null) t.append(sprite);
+                else if (SpriteText.tagOf(r.style()) == null)
+                    t.append(Component.literal(r.text()).setStyle(r.style()));
+            }
             JsonElement el = ComponentSerialization.CODEC.encodeStart(JsonOps.INSTANCE, t).result().orElse(null);
             if (el != null) return el.toString();
         } catch (Throwable ignored) { }

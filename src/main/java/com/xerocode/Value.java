@@ -31,8 +31,11 @@ public final class Value {
 
     public String type;
 
+    public static final String KEEP = "keep", AUTO = "auto_slot";
+
     public String text = "";
     public String parsing = "legacy";
+    public boolean present;
 
     public double number;
     public String numberText = "";
@@ -115,7 +118,8 @@ public final class Value {
 
     public Value copy() {
         Value v = new Value(type);
-        v.text = text; v.parsing = parsing; v.number = number; v.numberText = numberText;
+        v.text = text; v.parsing = parsing; v.present = present;
+        v.number = number; v.numberText = numberText;
         v.x = x; v.y = y; v.z = z; v.yaw = yaw; v.pitch = pitch;
         v.name = name; v.scope = scope; v.valueType = valueType; v.typeKey = typeKey;
         v.required = required; v.gameValue = gameValue; v.selection = selection;
@@ -150,6 +154,7 @@ public final class Value {
         if (unknownRaw != null) h = h * 31 + unknownRaw.hashCode();
         h = h * 31 + text.hashCode();
         h = h * 31 + parsing.hashCode();
+        if (emptyText()) h = h * 31 + 1;
         h = h * 31 + Double.hashCode(number);
         h = h * 31 + numberText.hashCode();
         h = h * 31 + Double.hashCode(x);
@@ -205,7 +210,7 @@ public final class Value {
 
     public boolean isBlank() {
         return switch (type) {
-            case TEXT -> text.isEmpty();
+            case TEXT -> text.isEmpty() && !present;
             case VARIABLE, PARAMETER -> name.isBlank();
             case GAME_VALUE -> gameValue.isEmpty();
             case SOUND -> sound.isEmpty();
@@ -231,6 +236,10 @@ public final class Value {
 
     public boolean isHole() {
         return isBlank() && !ARRAY.equals(type) && !MAP.equals(type);
+    }
+
+    public boolean emptyText() {
+        return TEXT.equals(type) && present && text.isEmpty();
     }
 
     public static String num(double d) {
@@ -344,7 +353,11 @@ public final class Value {
         JsonObject o = new JsonObject();
         o.addProperty("type", type);
         switch (type) {
-            case TEXT -> { o.addProperty("text", text); o.addProperty("parsing", parsing); }
+            case TEXT -> {
+                o.addProperty("text", text);
+                o.addProperty("parsing", parsing);
+                if (emptyText()) o.addProperty(KEEP, true);
+            }
             case NUMBER -> {
                 if (numberText.isBlank()) o.addProperty("number", number);
                 else o.addProperty("number", numberText);
@@ -365,6 +378,7 @@ public final class Value {
                 o.addProperty("description",
                         paramDesc.isBlank() ? Localized.EMPTY : paramDesc);
                 o.addProperty("name", name);
+                if (slotsRaw.isBlank()) o.addProperty(AUTO, true);
                 switch (typeKey) {
                     case PLURAL -> {
                         o.addProperty("value_type", valueType);
@@ -495,6 +509,7 @@ public final class Value {
         }
         if (o.has("text")) v.text = o.get("text").getAsString();
         if (o.has("parsing")) v.parsing = o.get("parsing").getAsString();
+        if (TEXT.equals(v.type) && o.has(KEEP)) v.present = true;
         if (o.has("number")) {
             try {
                 v.number = o.get("number").getAsDouble();
@@ -523,6 +538,10 @@ public final class Value {
         else if (o.has("slot")) v.slotsRaw = o.get("slot").getAsString();
         if (o.has("description_slots")) v.descriptionSlotsRaw = o.get("description_slots").getAsString();
         else if (o.has("description_slot")) v.descriptionSlotsRaw = o.get("description_slot").getAsString();
+        if (PARAMETER.equals(v.type) && o.has(AUTO)) {
+            v.slotsRaw = "";
+            v.descriptionSlotsRaw = "";
+        }
         if (o.has("elements")) v.readElements(o.get("elements").getAsString());
         if (o.has("game_value")) v.gameValue = o.get("game_value").getAsString();
         if (o.has("sound")) v.sound = o.get("sound").getAsString();
@@ -617,7 +636,10 @@ public final class Value {
         JsonObject o = e.getAsJsonObject();
         JsonElement type = o.get("type");
         boolean typed = type != null && type.isJsonPrimitive() && !type.getAsString().isEmpty();
-        return typed ? fromJson(o) : blank();
+        if (!typed) return blank();
+        Value v = fromJson(o);
+        if (TEXT.equals(v.type)) v.present = true;
+        return v;
     }
 
     public static Value fromLegacy(String s, String argType) {

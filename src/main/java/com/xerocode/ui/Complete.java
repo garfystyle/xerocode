@@ -98,9 +98,11 @@ public final class Complete {
 
     private void place() {
         int textW = MIN_W;
-        for (Placeholders.Item it : hits)
+        for (Placeholders.Item it : hits) {
             textW = Math.max(textW, tr.width(it.insert())
                     + tr.width(Placeholders.categoryName(it.category())) + 22);
+            if (!it.description().isBlank()) textW = MAX_W;
+        }
         w = Math.min(Math.min(MAX_W, Math.max(40, screenW - 4)), textW);
 
         int rows = Math.min(ROWS, hits.size());
@@ -111,7 +113,10 @@ public final class Complete {
 
         int below = field.getY() + field.getHeight() + 2;
         int space = Math.max(screenH - 2 - below, field.getY() - 4) - PAD * 2 - listH - 2;
-        wrapDesc(hits.get(sel).description(), w - PAD * 2 - 2, Math.max(DESC_LINES, space / 9));
+        String about = hits.get(sel).description().trim();
+        int cut = about.indexOf('\n');
+        wrapDesc(cut > 0 ? about.substring(0, cut) : about, w - PAD * 2 - 2,
+                Math.min(DESC_LINES, Math.max(1, space / 9)));
         h = PAD * 2 + listH + (desc.isEmpty() ? 0 : 2 + desc.size() * 9);
 
         x = Math.max(2, Math.min(field.getX() - 3, screenW - w - 2));

@@ -1,5 +1,6 @@
 package net.minecraft.client.gui;
 
+import com.xerocode.ui.SpriteText;
 import com.xerocode.web.Glyphs;
 import java.util.List;
 import net.minecraft.client.StringSplitter;
@@ -15,7 +16,8 @@ public class Font {
     private final StringSplitter splitter;
 
     public Font() {
-        splitter = new StringSplitter((cp, style) -> Glyphs.advance(cp, style.isBold()));
+        splitter = new StringSplitter((cp, style) -> SpriteText.index(cp) >= 0
+                ? SpriteText.advance() : Glyphs.advance(cp, style.isBold()));
     }
 
     public int width(String str) { return (int) Math.ceil(splitter.stringWidth(str)); }
@@ -105,6 +107,14 @@ public class Font {
         public boolean accept(int position, Style style, int cp) {
             boolean bold = style.isBold();
             int textColor = style.getColor() != null ? (color & 0xFF000000) | style.getColor().getValue() : color;
+            int sprite = SpriteText.index(cp);
+            if (sprite >= 0) {
+                int side = SpriteText.advance();
+                mark(x, y, x + side, y + side);
+                items.add(new Object[]{-1 - sprite, x, y, textColor, 0, style});
+                x += side;
+                return true;
+            }
             int shadowColor;
             Integer custom = style.getShadowColor();
             if (custom != null) {

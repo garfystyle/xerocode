@@ -8,8 +8,6 @@ import com.xerocode.ui.ImportScreen;
 import com.xerocode.ui.LocationPick;
 import com.xerocode.ui.Tape;
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
-import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
@@ -28,7 +26,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
 import net.minecraft.world.InteractionResult;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
@@ -222,6 +219,7 @@ public final class XeroCode implements ClientModInitializer {
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
             String text = message.getString();
             Codespace.serverSaid(text);
+            LinePut.serverSaid(text);
             if (overlay) return;
             Publish.noteChat(text);
             restartHeard(text);
@@ -250,8 +248,6 @@ public final class XeroCode implements ClientModInitializer {
             script.save();
         });
 
-        HudElementRegistry.attachElementAfter(VanillaHudElements.SLEEP,
-                Identifier.fromNamespaceAndPath("xerocode", "location_pick"), (ctx, tick) -> LocationPick.render(ctx));
         LevelRenderEvents.COLLECT_SUBMITS.register(LocationPick::renderWorld);
 
         UseBlockCallback.EVENT.register((player, world, hand, hit) ->

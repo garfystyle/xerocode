@@ -8,6 +8,8 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.zip.Deflater;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
@@ -30,6 +32,10 @@ public final class LineEdit {
         public String said() { return "этаж " + floor + " · линия " + line; }
     }
 
+    private record Spot(Where at, JsonObject original) {}
+
+    private static final Map<Script, Spot> SPOTS = new WeakHashMap<>();
+
     private static Codespace.Scan reading;
     private static Where readingAt;
     private static ItemStack given;
@@ -37,7 +43,7 @@ public final class LineEdit {
     private static String fallback = "";
 
     public static Where where(BlockPos pos) {
-        int floor = Math.floorDiv(pos.getY() - Codespace.FIRST_Y, Codespace.FLOOR_H);
+        int floor = Math.floorDiv(pos.getY() - Codespace.FIRST_Y + 1, Codespace.FLOOR_H);
         int line = Math.floorDiv(pos.getZ(), Codespace.LINE_STEP);
         if (floor < 0 || floor >= Codespace.FLOORS) return null;
         int z = line * Codespace.LINE_STEP;
@@ -59,7 +65,7 @@ public final class LineEdit {
         return null;
     }
 
-    private static void say(Minecraft client, String text, boolean bad) {
+    static void say(Minecraft client, String text, boolean bad) {
         client.gui.hud.setOverlayMessage(Component.literal(text)
                 .withStyle(bad ? ChatFormatting.RED : ChatFormatting.AQUA), false);
     }
@@ -67,7 +73,7 @@ public final class LineEdit {
     public static void pressed(Minecraft client) {
         if (client.player == null || client.level == null) return;
         if (!Codespace.inDev(client.level)) { say(client, "строку можно взять только в /dev", true); return; }
-        if (reading != null) return;
+        if (reading != null || LinePut.busy()) return;
         String raw = Codespace.template(client.player.getMainHandItem());
         if (raw != null) {
             JsonObject handler = decode(raw);
@@ -83,6 +89,7 @@ public final class LineEdit {
     }
 
     public static void tick(Minecraft client) {
+        LinePut.tick(client);
         if (reading != null && reading.state == Codespace.State.RUNNING) reading.tick();
         if (reading != null && reading.state != Codespace.State.RUNNING) {
             Codespace.Scan done = reading;
@@ -126,6 +133,7 @@ public final class LineEdit {
             return;
         }
         scratch.fitOnOpen = true;
+        if (at != null) SPOTS.put(scratch, new Spot(at, handler.deepCopy()));
         client.gui.setScreen(new EditorScreen(scratch));
         if (res.unknownCount > 0) say(client, "не разобрано блоков: " + res.unknownCount, true);
     }
@@ -153,8 +161,30 @@ public final class LineEdit {
         JsonArray handlers = Exporter.export(one).json().getAsJsonArray("handlers");
         if (handlers.isEmpty()) return null;
         JsonObject h = handlers.get(0).getAsJsonObject();
-        h.remove("position");
+        h.addProperty("position", 0);
         return h;
+    }
+
+    public static ItemStack stack(JsonObject handler, String title) {
+        ItemStack stack = new ItemStack(Items.ENDER_CHEST);
+        CompoundTag bukkit = new CompoundTag();
+        bukkit.putString(TEMPLATE_KEY, encode(handler));
+        CompoundTag data = new CompoundTag();
+        data.put("PublicBukkitValues", bukkit);
+        stack.set(DataComponents.CUSTOM_DATA, CustomData.of(data));
+        stack.set(DataComponents.CUSTOM_NAME, Component.literal("Шаблон: " + title)
+                .withStyle(s -> s.withItalic(false).withColor(ChatFormatting.AQUA)));
+        return stack;
+    }
+
+    public static boolean hasPlace(Script scratch) {
+        return SPOTS.containsKey(scratch);
+    }
+
+    public static String putBack(Script scratch, List<Script.Node> chain) {
+        Spot spot = SPOTS.get(scratch);
+        if (spot == null) return "неизвестно, откуда строка — возьми её в руку";
+        return LinePut.start(Minecraft.getInstance(), spot.at(), handlerOf(chain), spot.original());
     }
 
     public static String toHand(List<Script.Node> chain) {
@@ -164,14 +194,7 @@ public final class LineEdit {
         JsonObject handler = handlerOf(chain);
         if (handler == null) return "строка начинается с события, функции или процесса";
         String title = chain.get(0).declares() ? Functions.nameOf(chain.get(0)) : chain.get(0).action.name;
-        ItemStack stack = new ItemStack(Items.ENDER_CHEST);
-        CompoundTag bukkit = new CompoundTag();
-        bukkit.putString(TEMPLATE_KEY, encode(handler));
-        CompoundTag data = new CompoundTag();
-        data.put("PublicBukkitValues", bukkit);
-        stack.set(DataComponents.CUSTOM_DATA, CustomData.of(data));
-        stack.set(DataComponents.CUSTOM_NAME, Component.literal("Шаблон: " + title)
-                .withStyle(s -> s.withItalic(false).withColor(ChatFormatting.AQUA)));
+        ItemStack stack = stack(handler, title);
         int slot = player.getInventory().getSelectedSlot();
         player.getInventory().setItem(slot, stack);
         client.gameMode.handleCreativeModeItemAdd(stack, 36 + slot);

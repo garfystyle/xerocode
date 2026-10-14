@@ -82,7 +82,7 @@ public final class Exporter {
 
     private static JsonArray declarationValues(Script.Node head) {
         JsonArray values = new JsonArray();
-        JsonArray params = cells(head.values.get(Catalog.FN_PARAMS));
+        JsonArray params = cells(slotted(head.values.get(Catalog.FN_PARAMS)));
         if (!params.isEmpty()) values.add(entry("parameters", array(params)));
 
         localized(head, Catalog.FN_DISPLAY, values);
@@ -263,6 +263,71 @@ public final class Exporter {
         return array(cells(list, slotted));
     }
 
+    private static final int CHEST_ROWS = 6, ROW = 9;
+
+    static List<Value> slotted(List<Value> params) {
+        if (params == null) return null;
+        Set<Integer> used = new java.util.HashSet<>();
+        boolean[] kept = new boolean[params.size()];
+        for (int i = 0; i < params.size(); i++) {
+            Value p = params.get(i);
+            if (!placeable(p)) { kept[i] = true; continue; }
+            if (p.slotsRaw.isBlank()) continue;
+            List<Integer> own = numbers(p.slotsRaw);
+            own.addAll(numbers(p.descriptionSlotsRaw));
+            if (own.stream().anyMatch(used::contains)) continue;
+            used.addAll(own);
+            kept[i] = true;
+        }
+        List<Value> out = new ArrayList<>(params.size());
+        for (int i = 0; i < params.size(); i++) {
+            Value p = params.get(i);
+            if (kept[i]) {
+                out.add(p);
+                continue;
+            }
+            boolean label = !Value.ENUM.equals(p.typeKey);
+            int at = freeSlot(used, label);
+            if (at < 0) { out.add(p); continue; }
+            Value c = p.copy();
+            boolean plural = Value.PLURAL.equals(c.typeKey);
+            used.add(at);
+            c.slotsRaw = plural ? "[" + at + "]" : String.valueOf(at);
+            if (label) {
+                used.add(at + ROW);
+                c.descriptionSlotsRaw = plural ? "[" + (at + ROW) + "]" : String.valueOf(at + ROW);
+            }
+            out.add(c);
+        }
+        return out;
+    }
+
+    private static boolean placeable(Value p) {
+        return p != null && Value.PARAMETER.equals(p.type) && !p.isBlank();
+    }
+
+    private static int freeSlot(Set<Integer> used, boolean label) {
+        for (int row = 0; row < CHEST_ROWS; row += 2)
+            for (int col = 0; col < ROW; col++) {
+                int at = row * ROW + col;
+                if (!used.contains(at) && !(label && used.contains(at + ROW))) return at;
+            }
+        return -1;
+    }
+
+    private static List<Integer> numbers(String raw) {
+        List<Integer> out = new ArrayList<>();
+        if (raw == null) return out;
+        for (String part : raw.replace("[", " ").replace("]", " ").split("[,\\s]+")) {
+            if (part.isEmpty()) continue;
+            try {
+                int n = Integer.parseInt(part.trim());
+                if (n >= 0) out.add(n);
+            } catch (NumberFormatException ignored) { }
+        }
+        return out;
+    }
+
     private static JsonArray cells(List<Value> list) {
         return cells(list, false);
     }
@@ -400,7 +465,10 @@ public final class Exporter {
                 return o;
             }
             default -> {
-                return v.toJson();
+                JsonObject o = v.toJson();
+                o.remove(Value.KEEP);
+                o.remove(Value.AUTO);
+                return o;
             }
         }
     }

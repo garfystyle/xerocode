@@ -26,6 +26,12 @@ public final class GenAssets {
         try (ZipFile zip = new ZipFile(jar.toFile())) {
             FontGen.run(zip, res, site);
             ItemGen.run(zip, assets, Path.of(args[4]), res, site);
+            SpriteGen.run(zip, res, site);
+            try (java.io.InputStream in = zip.getInputStream(
+                    zip.getEntry("assets/minecraft/textures/block/oak_sign.png"))) {
+                java.nio.file.Files.copy(in, site.resolve("sign.png"),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
             unicode(Path.of("../src/main/resources/assets/xerocode/symbols.json"), res);
         }
     }

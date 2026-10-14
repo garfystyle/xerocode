@@ -116,6 +116,7 @@
     for (var ch of t) if (ch !== SENT && ch !== '\n' && ch !== '\r') queue.push(['c', ch.codePointAt(0)]);
   }
   typer.addEventListener('input', function (e) {
+    if (barWanted) { barWanted = false; placeBar(); }
     if (e.isComposing) return;
     var type = e.inputType || '';
     var t = typer.value;
@@ -211,7 +212,7 @@
       if (document.activeElement === typer && keyboardShown()) return;
       if (document.activeElement === typer) typer.blur();
       typer.focus({ preventScroll: true });
-    } else if (!textOn && document.activeElement === typer) typer.blur();
+    } else if (document.activeElement === typer) typer.blur();
   }
   canvas.addEventListener('touchstart', function (e) {
     e.preventDefault();
@@ -229,6 +230,12 @@
         tmode = 'peek';
         t0.moved = false;
         if (navigator.vibrate) navigator.vibrate(12);
+        if (inText([t0.x, t0.y])) {
+          t0.text = true;
+          queue.push(['d', t0.x, t0.y, 0, 0, 1]); queue.push(['r', t0.x, t0.y, 0, 0]);
+          tapKeyboard([t0.x, t0.y]);
+          askBar(true);
+        }
       }, LONG);
     } else if (n === 2 && (tmode === 'wait' || tmode === 'drag' || tmode === 'peek')) {
       clearTimeout(longTimer);
@@ -281,15 +288,18 @@
         clearTimeout(longTimer);
         tmode = 'done';
         if (!cancelled) {
+          var again = textOn && keyboardShown() && inFocused([t0.x, t0.y]);
           queue.push(['d', t0.x, t0.y, 0, 0, 1]); queue.push(['r', t0.x, t0.y, 0, 0]);
           tapKeyboard([t0.x, t0.y]);
+          if (again) askBar(!barWanted);
+          else if (barWanted) askBar(false);
         }
       } else if (tmode === 'drag') {
         tmode = 'done';
         queue.push(['r', p[0], p[1], 0, 0]);
       } else if (tmode === 'peek') {
         tmode = 'done';
-        if (!cancelled && !t0.moved) queue.push(['h', t0.x, t0.y]);
+        if (!cancelled && !t0.moved && !t0.text) queue.push(['h', t0.x, t0.y]);
         t0.keep = !cancelled;
       }
     }
@@ -366,6 +376,18 @@
     }).observe(canvas, { box: 'device-pixel-content-box' });
   } catch (e) {}
   var shift = 0, caretCss = 0, selNow = '', allNow = '';
+  var barWanted = false, barAskedAt = 0, focusSeen = -1, caretDev = [0, 0];
+  function askBar(on) { barWanted = on; barAskedAt = Date.now(); placeBar(); }
+  function inFocused(p) {
+    for (var i = 0; i + 3 < textRects.length; i += 4) {
+      var x = textRects[i] * textScale, y = textRects[i + 1] * textScale;
+      var w = textRects[i + 2] * textScale, h = textRects[i + 3] * textScale;
+      var hasCaret = caretDev[0] >= x - 2 && caretDev[0] <= x + w + 2
+        && caretDev[1] + 2 >= y && caretDev[1] + 2 < y + h;
+      if (hasCaret && p[0] >= x && p[0] < x + w && p[1] >= y && p[1] < y + h) return true;
+    }
+    return false;
+  }
   var bar = document.getElementById('textbar');
   function say(msg) {
     var d = document.createElement('div'); d.className = 'toast'; d.textContent = msg;
@@ -381,9 +403,10 @@
   }
   function barAct(a) {
     if (a === 'all') combo(65);
-    else if (a === 'copy') { var t = selNow || allNow; if (t) copyOut(t); }
-    else if (a === 'cut') { if (selNow) { copyOut(selNow); combo(88); } }
+    else if (a === 'copy') { var t = selNow || allNow; if (t) copyOut(t); askBar(false); }
+    else if (a === 'cut') { if (selNow) { copyOut(selNow); combo(88); } askBar(false); }
     else if (a === 'paste') {
+      askBar(false);
       if (navigator.clipboard && navigator.clipboard.readText) {
         navigator.clipboard.readText().then(function (t) { clip = t || ''; combo(86); },
           function () { if (clip) combo(86); else say('браузер не дал буфер'); });
@@ -408,7 +431,7 @@
   }
   function placeBar() {
     if (!bar) return;
-    var show = textOn && touchNow;
+    var show = textOn && touchNow && barWanted;
     bar.style.display = show ? 'flex' : 'none';
     if (!show) return;
     var top = caretCss - shift - 52;
@@ -471,8 +494,8 @@
       step(0.1, 'хранилище…');
       openDb().then(function () {
         step(0.3, 'шрифт и иконки…');
-        var up = { font: 4, items16: 4, items48: 1, particles: 1 };
-        var later = { items48: true, particles: true };
+        var up = { font: 4, items16: 4, items48: 1, particles: 1, sprites: 1, sign: 1 };
+        var later = { items48: true, particles: true, sprites: true, sign: true };
         return Promise.all(Object.keys(up).map(function (n) {
           var job = loadAtlas(n, up[n]);
           return later[n] ? null : job;
@@ -487,7 +510,7 @@
               g.drawImage(img, 0, 0, c.width, c.height);
               src = c;
             }
-            named[n] = uploadTexture(src, n !== 'particles');
+            named[n] = uploadTexture(src, n !== 'particles' && n !== 'sprites' && n !== 'sign');
           });
         }
       }).then(function () {
@@ -545,15 +568,18 @@
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).catch(function () {});
     },
     clipboard: function () { return clip; },
-    textFocus: function (on, x, y, rects, scale, sel, all) {
+    textFocus: function (on, x, y, rects, scale, sel, all, focus) {
       selNow = sel || ''; allNow = all || '';
+      caretDev = [x, y];
+      var fresh = Date.now() - barAskedAt < 700;
+      if (focus !== focusSeen) { focusSeen = focus; if (!fresh) barWanted = false; }
+      if (!on && !fresh) barWanted = false;
       var k = dpr();
       caretCss = y / k;
       typer.style.left = (x / k) + 'px'; typer.style.top = Math.max(0, y / k - shift) + 'px';
       textRects = rects ? rects.split(',').map(Number) : [];
       textScale = scale;
       if (touchNow) {
-        if (on && !textOn && document.activeElement !== typer) typer.focus({ preventScroll: true });
         if (!on && textOn && document.activeElement === typer) typer.blur();
         if (on && !textOn) canvas.style.height = canvas.clientHeight + 'px';
         if (!on && textOn) canvas.style.height = '';

@@ -16,11 +16,14 @@ import com.xerocode.Values;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -29,6 +32,7 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.item.ItemStack;
 
@@ -56,6 +60,16 @@ public final class ValueEditor {
 
     private static final String[][] COORD_CAPS = {
             {"X", "Y", "Z"}, {"X", "Y", "Z", "yaw", "pitch"}};
+    private static final String[] XYZ = COORD_CAPS[0];
+    private static final int STEP_H = 14, STEP_GAP = 2, STEP_PX = 6, STEP_PX_COARSE = 10;
+    private static final double[] LINEAR = {0.01, 0.1, 1}, ANGLE = {0.1, 1, 15};
+    private static final double[] WHOLE = {1, 1, 10}, PLAIN = {0.1, 1, 10};
+    private static final double[] NUDGE = {1, 0.1, 0.01}, TURN = {45, 90};
+    private static final Set<String> WHOLE_CAPS =
+            Set.of("СКОЛЬКО", "ДЛИТЕЛЬНОСТЬ В ТИКАХ", "УРОВЕНЬ", "КОЛИЧЕСТВО");
+    private static final String UNIFORM = "равномерно";
+    private static final String[][] ANGLE_TIPS = {
+            {"Горизонтальный поворот", "от −360 до 360"}, {"Вертикальный наклон", "от −90 до 90"}};
 
     private static List<Values.Kind> kinds() { return Values.KINDS; }
 
@@ -107,6 +121,7 @@ public final class ValueEditor {
     private final Complete complete = new Complete();
     private final NamePick names = new NamePick();
     private TextStudio studio;
+    private TextLines lines;
     private ColorPick colors;
     private PickerPanel picker;
     private ItemPicker itemPicker;
@@ -129,6 +144,8 @@ public final class ValueEditor {
     private int scrubField = -1;
     private double scrubFrom, scrubX0;
     private boolean scrubbing;
+    private final Set<String> uniform = new HashSet<>();
+    private final Map<String, Integer> stepCols = new HashMap<>();
     private final Map<Integer, Map<String, Value>> remembered = new java.util.HashMap<>();
 
     public interface Cell { void apply(Value value); }
@@ -340,6 +357,7 @@ public final class ValueEditor {
         if (itemPicker != null) itemPicker.resize(sw, sh);
         if (itemStudio != null) itemStudio.resize(sw, sh);
         if (studio != null) studio.resize(sw, sh);
+        if (lines != null) lines.resize(sw, sh);
         menu = null;
         colors = null;
         readForm();
@@ -395,6 +413,12 @@ public final class ValueEditor {
     private void cap(String text)          { parts.add(new Part(null, text, formH, CAP)); formH += CAP; }
     private void part(String id, int h)    { parts.add(new Part(id, null, formH, h)); formH += h; }
     private void gap()                     { formH += GAP; }
+
+    private void textInput(String id, String caption, String value, String hint) {
+        fieldRows.add(new FieldRow(id, fields.size(), new String[]{caption}));
+        fields.add(field(value, hint));
+        part(id, 9 + FIELD_H);
+    }
 
     private void inputs(String id, String[] caps, String... values) {
         fieldRows.add(new FieldRow(id, fields.size(), caps));
@@ -512,6 +536,8 @@ public final class ValueEditor {
             }
             case Value.PARAMETER -> {
                 nameField(v, "имя параметра", "ИМЯ ПАРАМЕТРА");
+                textInput("pdesc", "ОПИСАНИЕ", Localized.text(v.paramDesc), "подсказка в сундуке вызова");
+                gap();
                 cap("ВИД ПАРАМЕТРА");
                 kindChips = new Ui.Chips(tr, PARAM_KIND_NAMES, inner(), CTRL_H - 2, 3);
                 part("pkinds", kindChips.height());
@@ -538,7 +564,8 @@ public final class ValueEditor {
                 cap(loc ? "КООРДИНАТЫ" : "НАПРАВЛЕНИЕ");
                 if (loc) inputs("coords", COORD_CAPS[1], Value.num(v.x), Value.num(v.y),
                         Value.num(v.z), Value.num(v.yaw), Value.num(v.pitch));
-                else inputs("coords", COORD_CAPS[0], Value.num(v.x), Value.num(v.y), Value.num(v.z));
+                else inputs("coords", XYZ, Value.num(v.x), Value.num(v.y), Value.num(v.z));
+                part("coords+", STEP_H + 4);
                 if (loc && node != null) {
                     gap();
                     part("world", BTN_H);
@@ -576,8 +603,9 @@ public final class ValueEditor {
                 Pickers.Entry pe = Pickers.particle(v.particle);
                 if (pe != null && pe.has(Pickers.MOTION)) {
                     gap();
-                    inputs("motion", new String[]{"ДВИЖЕНИЕ X", "Y", "Z"},
-                            Value.num(v.mx), Value.num(v.my), Value.num(v.mz));
+                    cap("ДВИЖЕНИЕ");
+                    inputs("motion", XYZ, Value.num(v.mx), Value.num(v.my), Value.num(v.mz));
+                    part("motion+", STEP_H + 4);
                 }
                 if (pe != null && pe.has(Pickers.SIZE)) {
                     gap();
@@ -665,6 +693,7 @@ public final class ValueEditor {
         }
         if (!fields.isEmpty()) {
             focus(0);
+            selectAll(fields.get(0));
             syncComplete();
         }
     }
@@ -900,7 +929,7 @@ public final class ValueEditor {
 
     private void drawFieldRow(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, FieldRow r) {
         if (r == null) return;
-        boolean axes = "coords".equals(r.id());
+        boolean axes = stepRow(r);
         boolean drag = scrubbable(r);
         int cw = colW(r), ry = py(r.id());
         for (int i = 0; i < r.count(); i++) {
@@ -917,15 +946,210 @@ public final class ValueEditor {
                         Ui.R_SM - 1, 0, 0, Ui.R_SM - 1, Draw.opaque(ink));
             fields.get(r.from() + i).extractRenderState(ctx, mouseX, mouseY, delta);
             Ui.placeholder(ctx, tr, fields.get(r.from() + i));
+            if (angle(r, i) && Ui.hit(mouseX, mouseY, cx, ry, cw, 9 + FIELD_H)) {
+                String[] tip = ANGLE_TIPS[i - 3];
+                ctx.setComponentTooltipForNextFrame(tr, List.of(Component.literal(tip[0]),
+                        Component.literal(tip[1]).withColor(Theme.TEXT_DIM)), mouseX, mouseY);
+            }
         }
+        if (stepRow(r)) {
+            drawSteps(ctx, mouseX, mouseY, r);
+            drawUniform(ctx, mouseX, mouseY, r);
+        }
+    }
+
+    private static boolean stepRow(FieldRow r) {
+        return r != null && ("coords".equals(r.id()) || "motion".equals(r.id()));
+    }
+
+    private static boolean angle(FieldRow r, int col) {
+        return r != null && "coords".equals(r.id()) && col >= 3;
+    }
+
+    private FieldRow rowAt(int field) {
+        for (FieldRow r : fieldRows)
+            if (field >= r.from() && field < r.from() + r.count()) return r;
+        return null;
+    }
+
+    private int stepCol(FieldRow r) {
+        if (focus >= r.from() && focus < r.from() + r.count()) return focus - r.from();
+        return Math.min(r.count() - 1, stepCols.getOrDefault(r.id(), 0));
+    }
+
+    private int nudgeW(double d) { return Math.max(18, tr.width(Value.num(d)) + 10); }
+
+    private int nudgeX(FieldRow r, int col, double[] steps) {
+        int gw = -STEP_GAP;
+        for (double d : steps) gw += nudgeW(d) + STEP_GAP;
+        int at = colX(r, col) + colW(r) / 2 - gw / 2;
+        return Math.max(x + PAD, Math.min(x + PAD + inner() - gw, at));
+    }
+
+    private int nudgeY(FieldRow r) { return py(r.id() + "+") + 3; }
+
+    private void drawSteps(GuiGraphicsExtractor ctx, int mouseX, int mouseY, FieldRow r) {
+        int col = stepCol(r);
+        double[] steps = angle(r, col) ? TURN : NUDGE;
+        int bx = nudgeX(r, col, steps), by = nudgeY(r);
+        for (double d : steps) {
+            int bw = nudgeW(d);
+            String label = Value.num(d);
+            if (Ui.button(ctx, tr, mouseX, mouseY, bx, by, bw, STEP_H, label, Ui.GHOST))
+                ctx.setComponentTooltipForNextFrame(tr, List.of(Component.literal(
+                        Ui.click() + " +" + label + " · " + Ui.rmb() + " −" + label)), mouseX, mouseY);
+            bx += bw + STEP_GAP;
+        }
+    }
+
+    private int uniformW() { return tr.width(UNIFORM) + 18; }
+
+    private int uniformX() { return x + PAD + inner() - uniformW(); }
+
+    private int uniformY(FieldRow r) { return py(r.id()) - CAP; }
+
+    private void drawUniform(GuiGraphicsExtractor ctx, int mouseX, int mouseY, FieldRow r) {
+        boolean on = uniform.contains(r.id());
+        int ux = uniformX(), uy = uniformY(r), uw = uniformW();
+        boolean hov = Ui.hit(mouseX, mouseY, ux - 2, uy - 2, uw + 2, CAP + 2);
+        Draw.text(ctx, tr, UNIFORM, ux, uy, on || hov ? Theme.TEXT : Theme.TEXT_FAINT, false);
+        int kw = 12, kh = 6, kx = ux + uw - kw, ky = uy + 1;
+        Draw.pill(ctx, kx, ky, kw, kh, Draw.opaque(on ? current().color() : 0x39414F));
+        Draw.round(ctx, on ? kx + kw - 5 : kx + 1, ky + 1, 4, kh - 2, 2,
+                Draw.opaque(on ? 0xFFFFFF : 0x8A93A6));
+        if (hov) ctx.setComponentTooltipForNextFrame(tr, List.of(Component.literal(
+                "одно значение на X, Y и Z")), mouseX, mouseY);
+    }
+
+    private boolean stepsClicked(MouseButtonEvent click, int mx, int my) {
+        for (FieldRow r : fieldRows) {
+            if (!stepRow(r)) continue;
+            if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT
+                    && Ui.hit(mx, my, uniformX() - 2, uniformY(r) - 2, uniformW() + 2, CAP + 2)) {
+                if (!uniform.remove(r.id())) {
+                    uniform.add(r.id());
+                    int col = stepCol(r);
+                    spread(r.from() + (col < 3 ? col : 0));
+                }
+                return true;
+            }
+            int col = stepCol(r);
+            double[] steps = angle(r, col) ? TURN : NUDGE;
+            int bx = nudgeX(r, col, steps), by = nudgeY(r);
+            for (double d : steps) {
+                int bw = nudgeW(d);
+                if (Ui.hit(mx, my, bx, by, bw, STEP_H)) {
+                    int field = r.from() + col;
+                    if (focus != field) focus(field);
+                    double sign = click.button() == GLFW.GLFW_MOUSE_BUTTON_RIGHT ? -1 : 1;
+                    double now = parse(fields.get(field).getValue());
+                    setNumber(field, Math.round((now + sign * d) * 1e6) / 1e6);
+                    return true;
+                }
+                bx += bw + STEP_GAP;
+            }
+        }
+        return false;
+    }
+
+    private void setNumber(int field, double value) {
+        if (field < 0 || field >= fields.size()) return;
+        EditBox f = fields.get(field);
+        f.setValue(Value.num(clampAngle(field, value)));
+        f.moveCursorToEnd(false);
+        spread(field);
+    }
+
+    private double clampAngle(int field, double value) {
+        FieldRow r = rowAt(field);
+        if (r == null || !angle(r, field - r.from())) return value;
+        double lim = field - r.from() == 3 ? 360 : 90;
+        return Math.max(-lim, Math.min(lim, value));
+    }
+
+    private void spread(int field) {
+        FieldRow r = rowAt(field);
+        if (r == null || !uniform.contains(r.id()) || field - r.from() > 2) return;
+        String text = fields.get(field).getValue();
+        for (int k = 0; k < 3; k++) {
+            EditBox o = fields.get(r.from() + k);
+            if (r.from() + k == field || o.getValue().equals(text)) continue;
+            o.setValue(text);
+            o.moveCursorToEnd(false);
+        }
+    }
+
+    private void settle(int field) {
+        if (field < 0 || field >= fields.size()) return;
+        FieldRow r = rowAt(field);
+        if (r == null || !angle(r, field - r.from())) return;
+        String typed = fields.get(field).getValue().trim();
+        if (!isNumber(typed)) return;
+        double now = parse(typed), fit = clampAngle(field, now);
+        if (fit != now) fields.get(field).setValue(Value.num(fit));
+    }
+
+    private static void selectAll(EditBox f) {
+        f.moveCursorToEnd(false);
+        f.setHighlightPos(0);
+    }
+
+    private static boolean ctrlHeld() {
+        return held(GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_RIGHT_CONTROL);
+    }
+
+    private static boolean shiftHeld() {
+        return held(GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_RIGHT_SHIFT);
+    }
+
+    private double[] stepsOf(int field) {
+        FieldRow r = rowAt(field);
+        if (r == null) return PLAIN;
+        int col = field - r.from();
+        if (angle(r, col)) return ANGLE;
+        if (WHOLE_CAPS.contains(r.caps()[col])) return WHOLE;
+        return LINEAR;
+    }
+
+    private double step(int field) {
+        double[] t = stepsOf(field);
+        return shiftHeld() ? t[0] : ctrlHeld() ? t[2] : t[1];
+    }
+
+    private static double snap(double from, int n, double step) {
+        if (n == 0) return from;
+        double base = n > 0 ? Math.floor(from / step + 1e-9) : Math.ceil(from / step - 1e-9);
+        return Math.round((base + n) * step * 1e6) / 1e6;
+    }
+
+    private int numberCapY() { return py("input") - CAP; }
+
+    private int wheelField(double mx, double my) {
+        for (FieldRow r : fieldRows) {
+            if (!scrubbable(r)) continue;
+            int cw = colW(r), ry = py(r.id());
+            for (int i = 0; i < r.count(); i++)
+                if (Ui.hit(mx, my, colX(r, i), ry, cw, 9 + FIELD_H)) return r.from() + i;
+        }
+        if (Value.NUMBER.equals(current().type) && has("input")
+                && Ui.hit(mx, my, x + PAD, numberCapY(), inner(), CAP + FIELD_H)) return 0;
+        return -1;
     }
 
     private void focus(int i) {
         if (fields.isEmpty()) return;
         complete.reset();
+        int was = focus;
         focus = Math.max(0, Math.min(fields.size() - 1, i));
-        for (int k = 0; k < fields.size(); k++) fields.get(k).setFocused(k == focus);
+        if (was != focus) settle(was);
+        for (int k = 0; k < fields.size(); k++) {
+            EditBox f = fields.get(k);
+            f.setFocused(k == focus);
+            if (k != focus) f.setHighlightPos(f.getCursorPosition());
+        }
         fields.get(focus).moveCursorToStart(false);
+        FieldRow r = rowAt(focus);
+        if (r != null) stepCols.put(r.id(), focus - r.from());
     }
 
     public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
@@ -970,6 +1194,11 @@ public final class ValueEditor {
             names.render(ctx, tr, mouseX, mouseY);
         }
         drawDraggedSlot(ctx);
+        if (lines != null) {
+            ctx.nextStratum();
+            Ui.dim(ctx, screenW, screenH);
+            lines.render(ctx, mouseX, mouseY, delta);
+        }
     }
 
     private void drawHeader(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
@@ -1122,9 +1351,14 @@ public final class ValueEditor {
     }
 
     private void drawCaptions(GuiGraphicsExtractor ctx) {
-        for (Part p : parts)
-            if (p.caption() != null)
-                Ui.caption(ctx, tr, p.caption(), x + PAD, formY() + p.dy(), inner());
+        for (int i = 0; i < parts.size(); i++) {
+            Part p = parts.get(i);
+            if (p.caption() == null) continue;
+            String next = i + 1 < parts.size() ? parts.get(i + 1).id() : null;
+            boolean toggled = next != null && stepRow(rowOf(next));
+            Ui.caption(ctx, tr, p.caption(), x + PAD, formY() + p.dy(),
+                    toggled ? inner() - uniformW() - 6 : inner());
+        }
     }
 
     private void drawForm(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
@@ -1137,10 +1371,15 @@ public final class ValueEditor {
                     modeChips.render(ctx, tr, mouseX, mouseY, x + PAD, py("mode"),
                             parsingIndex(v.parsing), Values.color(Value.TEXT));
                 if (has("preview")) drawPreview(ctx, v);
-                Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, py("studio"), full, BTN_H,
-                        Draw.WINDOW, "Расширенный редактор", Ui.GHOST, true);
+                int half = (full - GAP) / 2;
+                Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, py("studio"), half, BTN_H,
+                        Draw.WINDOW, "Расширенный", Ui.GHOST, true);
+                Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD + half + GAP, py("studio"),
+                        full - half - GAP, BTN_H, Draw.LINES, "Многострочный", Ui.GHOST, true);
             }
             case Value.NUMBER -> {
+                if (Ui.hit(mouseX, mouseY, x + PAD, numberCapY(), full, CAP))
+                    ctx.requestCursor(CursorTypes.RESIZE_EW);
                 Ui.iconButton(ctx, mouseX, mouseY, x + PAD, py("input"), FIELD_H,
                         Draw.MINUS, Ui.GHOST, true);
                 Ui.iconButton(ctx, mouseX, mouseY, x + PAD + full - FIELD_H, py("input"),
@@ -1166,6 +1405,7 @@ public final class ValueEditor {
             }
             case Value.PARAMETER -> {
                 drawInput(ctx, mouseX, mouseY, delta, 0);
+                drawFieldRow(ctx, mouseX, mouseY, delta, rowOf("pdesc"));
                 int accent = Values.color(Value.PARAMETER);
                 if (kindChips != null)
                     kindChips.render(ctx, tr, mouseX, mouseY, x + PAD, py("pkinds"),
@@ -1622,9 +1862,38 @@ public final class ValueEditor {
 
     public boolean contains(double mx, double my) {
         if (nested != null || picker != null || studio != null || colors != null
-                || itemPicker != null || itemStudio != null) return true;
+                || itemPicker != null || itemStudio != null || lines != null) return true;
         if (menu != null && menu.contains(mx, my)) return true;
         return mx >= x && mx < x + w && my >= y && my < y + h;
+    }
+
+    private void breakLine(EditBox f) {
+        String text = f.getValue();
+        int at = Math.max(0, Math.min(text.length(), f.getCursorPosition()));
+        String picked = f.getHighlighted();
+        int from = at, to = at;
+        if (!picked.isEmpty()) {
+            int start = text.indexOf(picked, Math.max(0, at - picked.length()));
+            if (start >= 0) { from = start; to = start + picked.length(); }
+        }
+        openLines(current(), text.substring(0, from) + TextLines.BREAK + text.substring(to),
+                from + TextLines.BREAK.length());
+    }
+
+    private static String describe(String data, String text) {
+        if (text.equals(Localized.text(data))) return data;
+        com.google.gson.JsonObject translations = Localized.translations(data);
+        if (text.isEmpty() && translations.isEmpty()) return "";
+        return Localized.data(text, Localized.parsing(data), translations);
+    }
+
+    private void openLines(Value v, String text, int cursor) {
+        readForm();
+        lines = new TextLines(tr, screenW, screenH, text, cursor, Values.color(Value.TEXT), joined -> {
+            v.text = joined;
+            fields.get(0).setValue(joined);
+            fields.get(0).moveCursorToEnd(false);
+        });
     }
 
     private void openStudio(Value v) {
@@ -1762,6 +2031,11 @@ public final class ValueEditor {
         if (studio != null) {
             studio.mouseClicked(click, doubled);
             if (studio.isClosed()) studio = null;
+            return true;
+        }
+        if (lines != null) {
+            lines.mouseClicked(click, doubled);
+            if (lines.isClosed()) lines = null;
             return true;
         }
         if (itemPicker != null) {
@@ -1918,6 +2192,7 @@ public final class ValueEditor {
         Value v = current();
         int full = inner();
         boolean shift = (click.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
+        if (stepsClicked(click, mx, my)) return true;
 
         switch (v.type) {
             case Value.TEXT -> {
@@ -1934,9 +2209,22 @@ public final class ValueEditor {
                     }
                     return true;
                 }
-                if (rowHit("studio", mx, my)) { openStudio(v); return true; }
+                if (rowHit("studio", mx, my)) {
+                    if (mx < x + PAD + (full - GAP) / 2 + GAP / 2) openStudio(v);
+                    else openLines(v, v.text, v.text.length());
+                    return true;
+                }
             }
             case Value.NUMBER -> {
+                if (Ui.hit(mx, my, x + PAD, numberCapY(), full, CAP)
+                        && !formula(fields.get(0).getValue())) {
+                    scrubField = 0;
+                    scrubFrom = parse(fields.get(0).getValue());
+                    scrubX0 = click.x();
+                    scrubbing = false;
+                    focus(0);
+                    return true;
+                }
                 int step = shift ? 10 : 1;
                 if (Ui.hit(mx, my, x + PAD, py("input"), FIELD_H, FIELD_H)) { bump(-step); return true; }
                 if (Ui.hit(mx, my, x + PAD + full - FIELD_H, py("input"), FIELD_H, FIELD_H)) {
@@ -1959,6 +2247,7 @@ public final class ValueEditor {
             }
             case Value.PARAMETER -> {
                 if (clickField(click, doubled, mx, my, 0)) return true;
+                if (rowFieldClicked(click, doubled, mx, my)) return true;
                 int ki = chip(kindChips, mx, my, "pkinds");
                 if (ki >= 0) {
                     String picked = PARAM_KINDS.get(ki);
@@ -2160,6 +2449,7 @@ public final class ValueEditor {
         if (picker != null) return picker.mouseDragged(click, dx, dy);
         if (colors != null) return colors.mouseDragged(click, dx, dy);
         if (studio != null) return studio.mouseDragged(click, dx, dy);
+        if (lines != null) return lines.mouseDragged(click, dx, dy);
         if (itemPicker != null) return itemPicker.mouseDragged(click, dx, dy);
         if (itemStudio != null) return itemStudio.mouseDragged(click, dx, dy);
         if (menu != null && menu.mouseDragged(click.y())) return true;
@@ -2190,13 +2480,8 @@ public final class ValueEditor {
             scrubbing = true;
             fields.get(scrubField).moveCursorToEnd(false);
         }
-        double step = held(GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_RIGHT_CONTROL) ? 1.0
-                : held(GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_RIGHT_SHIFT) ? 0.01 : 0.05;
-        double v = scrubFrom + dx * step;
-        v = Math.round(v * 1000.0) / 1000.0;
-        EditBox f = fields.get(scrubField);
-        f.setValue(Value.num(v));
-        f.moveCursorToEnd(false);
+        int n = (int) (dx / (ctrlHeld() ? STEP_PX_COARSE : STEP_PX));
+        setNumber(scrubField, snap(scrubFrom, n, step(scrubField)));
         return true;
     }
 
@@ -2230,6 +2515,7 @@ public final class ValueEditor {
         if (picker != null) return picker.mouseScrolled(mx, my, amount);
         if (colors != null) return colors.mouseScrolled(mx, my, amount);
         if (studio != null) return studio.mouseScrolled(mx, my, amount);
+        if (lines != null) return lines.mouseScrolled(mx, my, amount);
         if (itemPicker != null) return itemPicker.mouseScrolled(mx, my, amount);
         if (itemStudio != null) return itemStudio.mouseScrolled(mx, my, amount);
         if (menu != null) return menu.mouseScrolled(mx, my, amount);
@@ -2250,9 +2536,11 @@ public final class ValueEditor {
                     listScroll - Ui.rows(amount, 1, ROW_H + 2)));
             return true;
         }
-        if (Value.NUMBER.equals(current().type) && !Env.touch()
-                && Ui.hit(mx, my, x + PAD, py("input"), inner(), FIELD_H)) {
-            bump(Math.signum(amount));
+        int wheel = Env.touch() || amount == 0 ? -1 : wheelField(mx, my);
+        if (wheel >= 0) {
+            if (!formula(fields.get(wheel).getValue()))
+                setNumber(wheel, snap(parse(fields.get(wheel).getValue()), amount > 0 ? 1 : -1,
+                        step(wheel)));
             return true;
         }
         if (pane.max() > 0 && contains(mx, my)) {
@@ -2284,6 +2572,11 @@ public final class ValueEditor {
             if (studio.isClosed()) studio = null;
             return true;
         }
+        if (lines != null) {
+            lines.keyPressed(input);
+            if (lines.isClosed()) lines = null;
+            return true;
+        }
         if (itemPicker != null) {
             itemPicker.keyPressed(input);
             if (itemPicker.isClosed()) { itemPicker = null; rebuildIfNeeded(); }
@@ -2307,8 +2600,18 @@ public final class ValueEditor {
             return true;
         }
         if (key == GLFW.GLFW_KEY_ESCAPE) { cancelled = true; closed = true; return true; }
-        if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {
-            if (fields.size() > 1 && focus < fields.size() - 1) { focus(focus + 1); return true; }
+        boolean enter = key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER;
+        if (enter && (input.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0
+                && Value.TEXT.equals(current().type) && focus == 0 && !fields.isEmpty()) {
+            breakLine(fields.get(0));
+            return true;
+        }
+        if (enter) {
+            if (fields.size() > 1 && focus < fields.size() - 1) {
+                focus(focus + 1);
+                selectAll(fields.get(focus));
+                return true;
+            }
             if (canAdd() && sel == values.size() - 1 && !current().isBlank()) {
                 readForm();
                 values.add(Value.of(Values.defaultKind(arg.type)));
@@ -2323,6 +2626,7 @@ public final class ValueEditor {
         if (key == GLFW.GLFW_KEY_TAB && fields.size() > 1) {
             boolean back = (input.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
             focus(Math.floorMod(focus + (back ? -1 : 1), fields.size()));
+            selectAll(fields.get(focus));
             return true;
         }
         if (fields.isEmpty()) return true;
@@ -2336,6 +2640,7 @@ public final class ValueEditor {
         if (picker != null) return picker.charTyped(input);
         if (colors != null) return colors.charTyped(input);
         if (studio != null) return studio.charTyped(input);
+        if (lines != null) return lines.charTyped(input);
         if (itemPicker != null) return itemPicker.charTyped(input);
         if (itemStudio != null) return itemStudio.charTyped(input);
         if (menu != null) return true;
@@ -2346,6 +2651,7 @@ public final class ValueEditor {
     }
 
     private void afterTyping() {
+        spread(focus);
         syncComplete();
     }
 
@@ -2402,11 +2708,17 @@ public final class ValueEditor {
                 if (formula(typed)) v.numberText = typed.trim();
                 else { v.number = parse(typed); v.numberText = ""; }
             }
-            case Value.VARIABLE, Value.PARAMETER -> v.name = fields.get(0).getValue().trim();
+            case Value.VARIABLE -> v.name = fields.get(0).getValue().trim();
+            case Value.PARAMETER -> {
+                v.name = fields.get(0).getValue().trim();
+                FieldRow d = rowOf("pdesc");
+                if (d != null) v.paramDesc = describe(v.paramDesc, fields.get(d.from()).getValue());
+            }
             case Value.LOCATION -> {
                 v.x = parse(fields.get(0).getValue()); v.y = parse(fields.get(1).getValue());
-                v.z = parse(fields.get(2).getValue()); v.yaw = parse(fields.get(3).getValue());
-                v.pitch = parse(fields.get(4).getValue());
+                v.z = parse(fields.get(2).getValue());
+                v.yaw = Math.max(-360, Math.min(360, parse(fields.get(3).getValue())));
+                v.pitch = Math.max(-90, Math.min(90, parse(fields.get(4).getValue())));
             }
             case Value.VECTOR -> {
                 v.x = parse(fields.get(0).getValue()); v.y = parse(fields.get(1).getValue());

@@ -192,6 +192,15 @@ public final class Layout {
             return mx >= x && mx < x + w && my >= y && my < bottom();
         }
 
+        public boolean touches(double x0, double y0, double x1, double y1) {
+            if (x + w < x0 || x > x1 || bottom() < y0 || y > y1) return false;
+            if (!node.wraps() || folded) return true;
+            int arm = armY();
+            if (y <= y1 && y + headerH >= y0) return true;
+            if (arm <= y1 && bottom() >= y0) return true;
+            return x <= x1 && x + INDENT >= x0 && y + headerH <= y1 && arm >= y0;
+        }
+
         public Chip chipAt(double mx, double my) {
             if (!contains(mx, my)) return null;
             for (Chip c : chips) if (c.hit(mx, my)) return c;

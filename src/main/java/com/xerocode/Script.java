@@ -561,13 +561,18 @@ public final class Script {
         }
         for (int i = 0; i < args.size(); i++)
             if (key.equals(args.get(i).purpose)) return i;
-        return n.dynKeys.indexOf(key);
+        if (!n.dynKeys.isEmpty()) return n.dynKeys.indexOf(key);
+        int renamed = Mapping.renamedArg(n.action, key);
+        return renamed < args.size() ? renamed : -1;
     }
 
     private static int settingIndex(Node n, String key) {
         int num = plainIndex(key);
         if (num >= 0) return num < n.settings().size() || num < n.dynMarkerKeys.size() ? num : -1;
-        return n.settingIndex(key);
+        int index = n.settingIndex(key);
+        if (index >= 0 || !n.dynMarkerKeys.isEmpty()) return index;
+        int renamed = Mapping.renamedSetting(n.action, key);
+        return renamed < n.action.settings.size() ? renamed : -1;
     }
 
     private static void readSlots(JsonObject o, String field, Node n, ToIntFunction<String> index,
@@ -631,7 +636,7 @@ public final class Script {
             if (o.has("r") && o.get("r").isJsonObject()) n.raw = o.getAsJsonObject("r");
             if (n.cond == null && Mapping.loaded() && Mapping.hasConditional(n.action))
                 Importer.adoptConditional(n);
-            out.add(n);
+            out.add(Upgrade.node(n));
         }
         return out;
     }

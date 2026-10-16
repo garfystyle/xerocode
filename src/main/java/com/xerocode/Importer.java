@@ -317,7 +317,7 @@ public final class Importer {
                     unknown(result, "условие " + condId + " у «Иначе»");
                 }
                 readOperations(op, node.body, result);
-                into.add(node);
+                into.add(Upgrade.node(node));
                 result.blocks++;
                 continue;
             }
@@ -358,7 +358,7 @@ public final class Importer {
             }
             readValues(op, holder, valueAct, valueAction);
             readOperations(op, node.body, result);
-            into.add(node);
+            into.add(Upgrade.node(node));
             result.blocks++;
         }
     }

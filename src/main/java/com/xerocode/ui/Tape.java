@@ -26,7 +26,8 @@ public final class Tape {
 
     public static void register() {
         ResourceLoader.get(PackType.CLIENT_RESOURCES).registerReloadListener(
-                Identifier.fromNamespaceAndPath("xerocode", "tape"),
+                Identifier.fromNamespaceAndPath("xerocode",
+                        "tape_" + Integer.toHexString(System.identityHashCode(Tape.class))),
                 (ResourceManagerReloadListener) manager -> epoch++);
     }
 

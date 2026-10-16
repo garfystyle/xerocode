@@ -172,12 +172,37 @@ tasks.register('gzipSite') {
     }
 }
 
+tasks.register('packSite') {
+    dependsOn 'gzipSite'
+    def www = layout.buildDirectory.dir('www').get().asFile
+    def script = file('src/tools/pack.py')
+    doLast {
+        def packed = false
+        for (String py : ['python3', 'python']) {
+            try {
+                def run = providers.exec {
+                    commandLine py, script.path, www.path
+                    environment 'PYTHONIOENCODING', 'utf-8'
+                    ignoreExitValue = true
+                }
+                if (run.result.get().exitValue == 0) {
+                    logger.lifecycle(run.standardOutput.asText.get().readLines().last())
+                    packed = true
+                    break
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (!packed) logger.lifecycle('без brotli и webp: нужен python с brotli и Pillow')
+    }
+}
+
 def deployHost = providers.gradleProperty('webHost').orElse('root@2.27.249.33')
 def deployKey = providers.gradleProperty('webKey').orElse(System.getProperty('user.home') + '/.ssh/xerocode_ed25519')
 
 tasks.register('deployWeb', Exec) {
     group = 'publishing'
-    dependsOn 'gzipSite'
+    dependsOn 'packSite'
     def www = layout.buildDirectory.dir('www').get().asFile
     def remote = 'set -e; cd /usr/local/xerocode; rm -rf www.new www.old; mkdir www.new; tar xzf - -C www.new; ' +
             'chown -R root:wheel www.new; chmod -R a+rX,go-w www.new; ' +

@@ -48,6 +48,10 @@ public final class XeroCode {
 
     public static void canvasClosed() {}
 
+    public static void offerUpdate(EditorScreen editor) {}
+
+    public static String updateNote() { return ""; }
+
     public static void openCanvas(Minecraft client) {
         if (!Catalog.loaded()) Catalog.load();
         Settings settings = Settings.get();

@@ -76,6 +76,7 @@ public final class Catalog {
         public final int baseColor;
         public final List<String> subNames = new ArrayList<>();
         public final List<List<Action>> subActions = new ArrayList<>();
+        final List<Action> everything = new ArrayList<>();
         Category(String name, String kind, String block, int color) {
             this.name = name; this.kind = kind; this.block = block;
             this.color = color; this.baseColor = color;
@@ -213,6 +214,7 @@ public final class Catalog {
                         a.category = cat;
                         a.subcategory = sn.isJsonNull() ? null : sn.getAsString();
                         if (!a.deprecated) list.add(a);
+                        cat.everything.add(a);
                         BY_KEY.put(key(cat.name, a.name), a);
                         BY_KEY.put(keyOf(a), a);
                         NAMESAKES.computeIfAbsent(keyOf(a), k -> new ArrayList<>()).add(a);
@@ -531,23 +533,31 @@ public final class Catalog {
 
     public record Slots(int size, int cols, int hotbar, String title) {}
 
-    private static final Map<String, Slots> SLOTTED = Map.of(
+    private record Slotted(String arg, Slots slots) {}
+
+    private static final Map<String, Slotted> SLOTTED = Map.of(
             key("Действие над игроком", "Установить предметы"),
-            new Slots(36, 9, 9, "ИНВЕНТАРЬ ИГРОКА"),
+            new Slotted(null, new Slots(36, 9, 9, "ИНВЕНТАРЬ ИГРОКА")),
             key("Действие над игроком", "Установить содержимое Эндер-сундука"),
-            new Slots(27, 9, 0, "ЭНДЕР-СУНДУК"),
+            new Slotted(null, new Slots(27, 9, 0, "ЭНДЕР-СУНДУК")),
             key("Действие над игроком", "Показать меню"),
-            new Slots(27, 9, 0, "МЕНЮ"),
+            new Slotted(null, new Slots(27, 9, 0, "МЕНЮ")),
             key("Действие над игроком", "Расширить меню"),
-            new Slots(27, 9, 0, "МЕНЮ"),
+            new Slotted(null, new Slots(27, 9, 0, "МЕНЮ")),
             key("Действие над миром", "Установить предметы в контейнере"),
-            new Slots(27, 9, 0, "КОНТЕЙНЕР"),
+            new Slotted(null, new Slots(27, 9, 0, "КОНТЕЙНЕР")),
             key("Действие над миром", "Установить предметы события"),
-            new Slots(36, 9, 0, "ПРЕДМЕТЫ СОБЫТИЯ"));
+            new Slotted(null, new Slots(36, 9, 0, "ПРЕДМЕТЫ СОБЫТИЯ")),
+            key("Действие над миром", "Добавить рецепт крафта"),
+            new Slotted("Ингредиенты", new Slots(9, 3, 0, "ВЕРСТАК")));
 
     public static Slots slots(Action action, int argIndex) {
-        if (action == null || action.category == null || argIndex != 0) return null;
-        return SLOTTED.get(keyOf(action));
+        if (action == null || action.category == null || argIndex < 0) return null;
+        Slotted s = SLOTTED.get(keyOf(action));
+        if (s == null) return null;
+        if (s.arg() == null) return argIndex == 0 ? s.slots() : null;
+        return argIndex < action.args.size() && s.arg().equals(action.args.get(argIndex).purpose)
+                ? s.slots() : null;
     }
 
     private static final List<String> UNPAIRED = List.of("Местоположение", "Блок", "Предмет", "Эффект частиц");

@@ -21,6 +21,7 @@ import com.xerocode.Mapping;
 import com.xerocode.Script;
 import com.xerocode.Settings;
 import com.xerocode.Stacks;
+import com.xerocode.Upgrade;
 import com.xerocode.Value;
 import com.xerocode.Values;
 import com.xerocode.XeroCode;
@@ -689,11 +690,20 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             fitView();
             status = "";
         }
+        List<String> said = new ArrayList<>();
+        String updated = XeroCode.updateNote();
+        if (!updated.isEmpty()) said.add(updated);
         List<String> lost = Script.lostOnLoad();
         if (!lost.isEmpty()) {
             Script.forgetLost();
-            toast("при загрузке полотна потеряно: " + String.join(", ", lost));
+            said.add("при загрузке полотна потеряно: " + String.join(", ", lost));
         }
+        List<String> upgraded = Upgrade.done();
+        if (!upgraded.isEmpty()) {
+            Upgrade.forget();
+            said.add("блоки, убранные сервером, заменены: " + String.join(", ", upgraded));
+        }
+        if (!said.isEmpty()) toast(String.join(" · ", said));
         if (editor != null) editor.resize(width, height);
         if (finder != null) finder.resize(width, canvasBottom());
         if (settings != null) settings.resize(width, height);
@@ -708,6 +718,11 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     @Override
     public boolean isPauseScreen() { return false; }
+
+    @Override
+    public void tick() {
+        if (!overlayOpen() && !busy()) XeroCode.offerUpdate(this);
+    }
 
     @Override
     public boolean shouldCloseOnEsc() { return !Env.browser(); }

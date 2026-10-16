@@ -37,6 +37,7 @@ public final class Mapping {
         public boolean container;
         public String sub;
         public final Set<String> plural;
+        final Map<String, String> renamed = new HashMap<>();
 
         public final Map<Integer, String> argNames = new HashMap<>();
         public final Map<Integer, String> settingNames = new HashMap<>();
@@ -59,6 +60,13 @@ public final class Mapping {
     }
 
     public record Sel(String id, String name) {}
+
+    public record Rule(String to, boolean invert, Map<String, String> set,
+                       Map<String, String> args) {
+        public String argId(String old) { return args.getOrDefault(old, old); }
+    }
+
+    private static final Map<String, Rule> UPGRADES = new HashMap<>();
 
     private static final Map<String, List<Sel>> SELECTIONS = new HashMap<>();
 
@@ -113,7 +121,19 @@ public final class Mapping {
                 act.selections = o.has("t") ? o.get("t").getAsString() : family(act.key);
                 act.container = o.has("c");
                 act.sub = o.has("u") ? o.get("u").getAsString() : null;
+                if (o.has("l")) act.renamed.putAll(strings(o.getAsJsonObject("l")));
                 ACTIONS.put(id, act);
+            }
+
+            if (root.has("upgrade")) {
+                JsonObject up = root.getAsJsonObject("upgrade");
+                for (String id : up.keySet()) {
+                    JsonObject u = up.getAsJsonObject(id);
+                    UPGRADES.put(id, new Rule(u.get("to").getAsString(),
+                            u.has("invert") && u.get("invert").getAsBoolean(),
+                            u.has("set") ? strings(u.getAsJsonObject("set")) : Map.of(),
+                            u.has("args") ? strings(u.getAsJsonObject("args")) : Map.of()));
+                }
             }
 
             if (root.has("selections")) {
@@ -136,6 +156,28 @@ public final class Mapping {
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] failed to read mapping.json", e);
         }
+    }
+
+    private static Map<String, String> strings(JsonObject o) {
+        Map<String, String> out = new HashMap<>();
+        for (String k : o.keySet()) out.put(k, o.get(k).getAsString());
+        return out;
+    }
+
+    public static Rule upgrade(String id) { return id == null ? null : UPGRADES.get(id); }
+
+    public static int renamedArg(Catalog.Action action, String label) {
+        Act act = loaded() ? forExport(action) : null;
+        String id = act == null ? null : act.renamed.get(label);
+        Integer index = id == null ? null : act.args.get(id);
+        return index == null ? -1 : index;
+    }
+
+    public static int renamedSetting(Catalog.Action action, String label) {
+        Act act = loaded() ? forExport(action) : null;
+        String id = act == null ? null : act.renamed.get(label);
+        Setting s = id == null ? null : act.settings.get(id);
+        return s == null ? -1 : s.index;
     }
 
     public static Catalog.Action event(String id) {
@@ -196,18 +238,17 @@ public final class Mapping {
         Map<String, List<String>> byCondKey = new HashMap<>();
         ACTIONS.forEach((id, act) ->
                 byCondKey.computeIfAbsent(act.key, k -> new ArrayList<>()).add(id));
-        for (List<Catalog.Action> list : cat.subActions)
-            for (Catalog.Action a : list) {
-                if (a == Catalog.ELSE || a.subcategory == null) continue;
-                int cut = a.subcategory.indexOf(" / ");
-                String from = cut < 0 ? a.subcategory : a.subcategory.substring(0, cut);
-                String condKey = Catalog.key(from, a.name);
-                List<String> ids = byCondKey.get(condKey);
-                if (ids == null || ids.isEmpty()) continue;
-                String id = EXPORT_ACTIONS.get(condKey);
-                ELSE_IF.put(Catalog.keyOf(a), ids.contains(id) ? id : ids.get(0));
-                for (String sid : ids) ELSE_BY_ID.putIfAbsent(sid, a);
-            }
+        for (Catalog.Action a : cat.everything) {
+            if (a == Catalog.ELSE || a.subcategory == null) continue;
+            int cut = a.subcategory.indexOf(" / ");
+            String from = cut < 0 ? a.subcategory : a.subcategory.substring(0, cut);
+            String condKey = Catalog.key(from, a.name);
+            List<String> ids = byCondKey.get(condKey);
+            if (ids == null || ids.isEmpty()) continue;
+            String id = EXPORT_ACTIONS.get(condKey);
+            ELSE_IF.put(Catalog.keyOf(a), ids.contains(id) ? id : ids.get(0));
+            for (String sid : ids) ELSE_BY_ID.putIfAbsent(sid, a);
+        }
     }
 
     public static String elseCondId(Catalog.Action action) {

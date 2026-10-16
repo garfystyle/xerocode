@@ -7,6 +7,7 @@ import com.xerocode.ui.CoverScreen;
 import com.xerocode.ui.ImportScreen;
 import com.xerocode.ui.LocationPick;
 import com.xerocode.ui.Tape;
+import com.xerocode.ui.UpdateScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
@@ -49,6 +50,8 @@ public final class XeroCode implements ClientModInitializer {
 
     private static Script script;
     private static XeroCode INSTANCE;
+    private static volatile boolean retired;
+    private static String offered = "", announced = "", updated = "";
     private boolean openWasDown;
     private boolean playWasDown, buildWasDown;
     private Boolean narratorWas;
@@ -186,6 +189,7 @@ public final class XeroCode implements ClientModInitializer {
 
         Tape.register();
         LevelRenderEvents.START_MAIN.register(ctx -> {
+            if (retired) return;
             Minecraft mc = Minecraft.getInstance();
             if (holdScreen <= 0 || holding == null || mc.gui.screen() != null) return;
             if (picking()) return;
@@ -193,6 +197,7 @@ public final class XeroCode implements ClientModInitializer {
         });
 
         ClientLevelEvents.AFTER_CLIENT_LEVEL_CHANGE.register((client, world) -> {
+            if (retired) return;
             switchWorld(client, world);
             dropCover(client, "измерение сменилось");
             if (waitingDev > 0 && Codespace.inDev(world) && holding == null) allowed(client);
@@ -200,6 +205,7 @@ public final class XeroCode implements ClientModInitializer {
         });
 
         ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) -> {
+            if (retired) return true;
             if (!overlay && Download.heard(message)) return false;
             if (waitingDev <= 0 || overlay) return true;
             String text = message.getString();
@@ -217,6 +223,7 @@ public final class XeroCode implements ClientModInitializer {
         });
 
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
+            if (retired) return;
             String text = message.getString();
             Codespace.serverSaid(text);
             LinePut.serverSaid(text);
@@ -234,6 +241,7 @@ public final class XeroCode implements ClientModInitializer {
         });
 
         ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
+            if (retired) return;
             if (holdScreen <= 0 || holding == null || restoring || picking()) return;
             if (screen == holding || screen instanceof ImportScreen) return;
             restoring = true;
@@ -242,31 +250,41 @@ public final class XeroCode implements ClientModInitializer {
         });
 
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+            if (retired) return;
             Collab.stop();
             if (script == null) return;
             if (client.gui.screen() instanceof EditorScreen editor) editor.rememberView();
             script.save();
         });
 
-        LevelRenderEvents.COLLECT_SUBMITS.register(LocationPick::renderWorld);
+        LevelRenderEvents.COLLECT_SUBMITS.register(ctx -> {
+            if (!retired) LocationPick.renderWorld(ctx);
+        });
 
         UseBlockCallback.EVENT.register((player, world, hand, hit) ->
-                LocationPick.active() && world.isClientSide() ? InteractionResult.FAIL : InteractionResult.PASS);
+                !retired && LocationPick.active() && world.isClientSide()
+                        ? InteractionResult.FAIL : InteractionResult.PASS);
         AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) ->
-                LocationPick.active() && world.isClientSide() ? InteractionResult.FAIL : InteractionResult.PASS);
+                !retired && LocationPick.active() && world.isClientSide()
+                        ? InteractionResult.FAIL : InteractionResult.PASS);
 
         AttackEntityCallback.EVENT.register((player, world, hand, entity, hit) ->
-                LocationPick.interceptHands(world));
+                retired ? InteractionResult.PASS : LocationPick.interceptHands(world));
         UseEntityCallback.EVENT.register((player, world, hand, entity, hit) ->
-                LocationPick.interceptHands(world));
+                retired ? InteractionResult.PASS : LocationPick.interceptHands(world));
         UseItemCallback.EVENT.register((player, world, hand) ->
-                LocationPick.interceptHands(world));
+                retired ? InteractionResult.PASS : LocationPick.interceptHands(world));
 
-        ClientTickEvents.START_CLIENT_TICK.register(LocationPick::startTick);
-
-        ClientTickEvents.START_CLIENT_TICK.register(this::stealHotkeys);
+        ClientTickEvents.START_CLIENT_TICK.register(client -> {
+            if (retired) return;
+            LocationPick.startTick(client);
+            stealHotkeys(client);
+        });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (retired) return;
+            Release.check();
+            announce(client);
             Backstage.guard(client);
             Codespace.watch();
             Collab.tick();
@@ -317,6 +335,77 @@ public final class XeroCode implements ClientModInitializer {
             if (holdScreen > 0) hold(client);
             wasInDev = inDev;
         });
+
+        Swap.clean();
+        Release.check();
+    }
+
+    public static void retire() {
+        if (retired) return;
+        Minecraft mc = Minecraft.getInstance();
+        try {
+            if (script != null) script.save();
+            Collab.stop();
+            Audio.release();
+            Backstage.restore(mc);
+            if (LocationPick.active()) LocationPick.cancel();
+        } catch (Throwable e) {
+            LOG.warn("[xerocode] прежняя версия закрылась не чисто", e);
+        }
+        if (INSTANCE != null) {
+            INSTANCE.holding = null;
+            INSTANCE.holdScreen = 0;
+            INSTANCE.cover = null;
+            INSTANCE.coverDone = null;
+            INSTANCE.waitingDev = 0;
+            INSTANCE.pending = 0;
+        }
+        retired = true;
+    }
+
+    public static void revive() { retired = false; }
+
+    public static void resumed(String from, String trouble, boolean editor) {
+        Minecraft mc = Minecraft.getInstance();
+        if (INSTANCE != null) INSTANCE.wasInDev = inDev(mc);
+        updated = "XeroCode обновлён: " + from + " → " + Release.current()
+                + (trouble.isEmpty() ? "" : " · " + trouble);
+        if (editor && mc.level != null) {
+            open(mc);
+            return;
+        }
+        mc.gui.hud.getChat().addClientSystemMessage(Component.literal(updated)
+                .withStyle(ChatFormatting.GREEN));
+        updated = "";
+    }
+
+    public static String updateNote() {
+        String note = updated;
+        updated = "";
+        return note;
+    }
+
+    public static void offerUpdate(EditorScreen editor) {
+        Release.News news = Release.news();
+        if (retired || news == null || news.version().equals(offered)) return;
+        if (INSTANCE != null && (INSTANCE.holdScreen > 0 || INSTANCE.cover != null
+                || INSTANCE.waitingDev > 0)) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.gui.screen() != editor) return;
+        offered = news.version();
+        mc.gui.setScreen(new UpdateScreen(news, editor));
+    }
+
+    private static void announce(Minecraft client) {
+        Release.News news = Release.news();
+        if (news == null || client.player == null) return;
+        String version = news.version();
+        if (version.equals(announced) || version.equals(offered)) return;
+        if (client.gui.screen() instanceof EditorScreen) return;
+        announced = version;
+        client.gui.hud.getChat().addClientSystemMessage(Component.literal("XeroCode " + version
+                + " — вышло обновление. Что нового и «Обновить» — в редакторе ("
+                + Settings.get().label(Settings.Hot.OPEN) + ")").withStyle(ChatFormatting.AQUA));
     }
 
     private void stealHotkeys(Minecraft client) {
@@ -624,6 +713,7 @@ public final class XeroCode implements ClientModInitializer {
     }
 
     private static void preload() {
+        if (Swap.swapped()) return;
         try {
             ModContainer mod = FabricLoader.getInstance().getModContainer("xerocode").orElse(null);
             if (mod == null) return;

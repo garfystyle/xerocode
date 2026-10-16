@@ -474,10 +474,50 @@
     textures[id] = t;
     return id;
   }
-  function loadImage(url) {
-    return new Promise(function (ok, bad) {
-      var img = new Image(); img.crossOrigin = 'anonymous';
-      img.onload = function () { ok(img); }; img.onerror = bad; img.src = url;
+  var RETRY = [700, 1800, 4000, 8000];
+  function pause(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
+  function again(job, tries, i) {
+    i = i || 0;
+    return job().catch(function (e) {
+      if (i >= tries - 1) throw e;
+      return pause(RETRY[Math.min(i, RETRY.length - 1)]).then(function () { return again(job, tries, i + 1); });
+    });
+  }
+  function loadImage(url, tries) {
+    return again(function () {
+      return new Promise(function (ok, bad) {
+        var img = new Image(); img.crossOrigin = 'anonymous';
+        img.onload = function () { ok(img); };
+        img.onerror = function () { bad(new Error(url)); };
+        img.src = url;
+      });
+    }, tries || 1);
+  }
+  function loadCode(url, progress) {
+    return again(function () {
+      return fetch(url, { cache: 'no-cache' }).then(function (r) {
+        if (!r.ok) throw new Error(url + ' ' + r.status);
+        var total = +r.headers.get('X-Size') || 0;
+        if (!r.body || !r.body.getReader) return r.blob();
+        var reader = r.body.getReader(), parts = [], got = 0;
+        function pump() {
+          return reader.read().then(function (c) {
+            if (c.done) return new Blob(parts, { type: 'text/javascript' });
+            parts.push(c.value); got += c.value.length;
+            progress(got, total);
+            return pump();
+          });
+        }
+        return pump();
+      });
+    }, 5).then(function (blob) {
+      return new Promise(function (ok, bad) {
+        var s = document.createElement('script');
+        s.src = URL.createObjectURL(blob);
+        s.onload = function () { ok(); };
+        s.onerror = function () { bad(new Error(url)); };
+        document.head.appendChild(s);
+      });
     });
   }
 
@@ -491,17 +531,24 @@
       function step(p, t) { bar.style.width = (p * 100) + '%'; st.textContent = t || ''; }
       if (!gl) { step(0, 'Браузер не поддерживает WebGL2'); return; }
       setupGl(); resizeCanvas();
-      step(0.1, 'хранилище…');
+      var codeShare = 0, waiting = 'хранилище…';
+      function show(text) { step(0.05 + 0.9 * codeShare, text || waiting); }
+      show();
+      var code = loadCode('xerocode.js', function (got, total) {
+        codeShare = total ? Math.min(1, got / total) : 0;
+        show('код сайта… ' + Math.round(got / 1024) + (total ? ' из ' + Math.round(total / 1024) : '') + ' КБ');
+      }).then(function () { codeShare = 1; show(); });
       openDb().then(function () {
-        step(0.3, 'шрифт и иконки…');
+        waiting = 'шрифт и иконки…';
         var up = { font: 4, items16: 4, items48: 1, particles: 1, sprites: 1, sign: 1 };
         var later = { items48: true, particles: true, sprites: true, sign: true };
-        return Promise.all(Object.keys(up).map(function (n) {
-          var job = loadAtlas(n, up[n]);
-          return later[n] ? null : job;
-        }));
-        function loadAtlas(n, k) {
-          return loadImage('assets/' + n + '.png').then(function (img) {
+        return Promise.all([code].concat(Object.keys(up).map(function (n) {
+          if (!later[n]) return loadAtlas(n, up[n], 5);
+          loadAtlas(n, up[n], 6).catch(function (e) { console.error('не загрузилось', e); });
+          return null;
+        })));
+        function loadAtlas(n, k, tries) {
+          return loadImage('assets/' + n + '.png', tries).then(function (img) {
             var src = img;
             if (k > 1) {
               var c = document.createElement('canvas');
@@ -521,7 +568,7 @@
         readyCbs.forEach(function (f) { f(); });
         readyCbs = [];
         canvas.focus(); if (!coarse) focusTyper();
-      }).catch(function (e) { step(0, 'Ошибка загрузки: ' + e); console.error(e); });
+      }).catch(function (e) { step(0, 'Не загрузилось (' + e.message + ') — обнови страницу'); console.error(e); });
     },
     ready: function (f) { if (isReady) f(); else readyCbs.push(f); },
     nextFrame: function (f) { requestAnimationFrame(function () { f(); }); },

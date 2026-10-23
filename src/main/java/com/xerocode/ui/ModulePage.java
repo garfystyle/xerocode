@@ -86,7 +86,7 @@ public final class ModulePage implements ModulesScreen.Panel {
         drawPreview(ctx, q[0], q[1], q[2], q[3], mouseX, mouseY);
     }
 
-    private String starsText() { return String.valueOf(module.stars); }
+    private String starsText() { return String.valueOf(ModuleActions.stars(module)); }
 
     private int starsInner() { return Draw.glyphW(Draw.STAR) + 4 + tr.width(starsText()); }
 
@@ -143,7 +143,8 @@ public final class ModulePage implements ModulesScreen.Panel {
         int sw = starsW(), sx = starsX(), sy = starsY();
         Draw.round(ctx, sx, sy, sw, STARS_H, 6, Draw.argb(overStars(mouseX, mouseY) ? 0xCC : 0x88, 0x000000));
         int at = sx + (sw - starsInner()) / 2;
-        Draw.glyph(ctx, Draw.STAR, at, sy + (STARS_H - Draw.glyphH(Draw.STAR)) / 2, 0xF2C94C);
+        Draw.glyph(ctx, Draw.STAR, at, sy + (STARS_H - Draw.glyphH(Draw.STAR)) / 2,
+                ModuleActions.starred(module) ? ModuleArt.STAR_ON : ModuleArt.STAR_OFF);
         Draw.text(ctx, tr, starsText(), at + Draw.glyphW(Draw.STAR) + 4,
                 sy + (STARS_H - Ui.TEXT_H) / 2, 0xD8DEE9, false);
     }
@@ -272,7 +273,8 @@ public final class ModulePage implements ModulesScreen.Panel {
     public boolean click(MouseButtonEvent click, boolean doubled) {
         double mx = click.x(), my = click.y();
         if (overStars(mx, my)) {
-            owner.starOfficial(module);
+            if (ModuleActions.starred(module)) owner.toast("звезда уже стоит");
+            else owner.starOfficial(module);
             return true;
         }
         int[] q = stageRect();

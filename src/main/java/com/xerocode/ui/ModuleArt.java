@@ -1,6 +1,7 @@
 package com.xerocode.ui;
 
 import com.xerocode.Modules;
+import com.xerocode.ModuleActions;
 import com.xerocode.Stacks;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -15,6 +16,7 @@ import net.minecraft.world.item.ItemStack;
 
 public final class ModuleArt {
     public static final int CARD_H = 140, CARD_BANNER = 46, CARD_MIN = 170;
+    public static final int STAR_ON = 0xF2C94C, STAR_OFF = 0x8A93A3;
     public static final int CARD_BTN_H = 16, CARD_INSET = 8;
     private static final int PATTERNS = 6, CACHE_MAX = 6000;
     private static final int OTHER_COLOR = 0x7A8496;
@@ -184,18 +186,24 @@ public final class ModuleArt {
         if (acts) return;
         int by = y + CARD_H - 20;
         int right = stat(ctx, tr, x + w - 8, by, Draw.GRAB, m.installs, Theme.TEXT_FAINT);
-        right = stat(ctx, tr, right - 6, by, Draw.STAR, m.stars, Theme.TEXT_FAINT);
+        right = stat(ctx, tr, right - 6, by, Draw.STAR, ModuleActions.stars(m), Theme.TEXT_FAINT,
+                ModuleActions.starred(m) ? STAR_ON : Theme.TEXT_FAINT);
         String left = m.open ? m.when() : "код закрыт";
         Draw.textFit(ctx, tr, left, tx, by, right - tx - 8, Theme.TEXT_FAINT, false);
     }
 
     public static int stat(GuiGraphicsExtractor ctx, Font tr, int right, int y,
                            String[] icon, int value, int ink) {
+        return stat(ctx, tr, right, y, icon, value, ink, ink);
+    }
+
+    public static int stat(GuiGraphicsExtractor ctx, Font tr, int right, int y,
+                           String[] icon, int value, int ink, int iconInk) {
         String text = String.valueOf(value);
         int tw = tr.width(text);
         Draw.text(ctx, tr, text, right - tw, y, ink, false);
         int gx = right - tw - 3 - Draw.glyphW(icon);
-        Draw.glyph(ctx, icon, gx, y, ink);
+        Draw.glyph(ctx, icon, gx, y, iconInk);
         return gx;
     }
 

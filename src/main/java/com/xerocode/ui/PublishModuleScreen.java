@@ -2,14 +2,13 @@ package com.xerocode.ui;
 
 import com.xerocode.ModulePublish;
 import com.xerocode.Modules;
+import com.xerocode.Veil;
 import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.network.chat.Component;
-import net.minecraft.ChatFormatting;
 
 final class PublishModuleScreen extends DialogScreen {
     private static final String TITLE = "МОДУЛЬ JUSTMC";
@@ -29,6 +28,7 @@ final class PublishModuleScreen extends DialogScreen {
     private boolean ok;
     private int category = Modules.CATEGORIES.size() - 1;
     private boolean makePublic = true;
+    private String running;
 
     PublishModuleScreen(Screen parent, List<Integer> positions) {
         super(360);
@@ -60,7 +60,10 @@ final class PublishModuleScreen extends DialogScreen {
     }
 
     @Override
-    protected String title() { return result == null ? TITLE : ok ? DONE_TITLE : FAIL_TITLE; }
+    protected String title() {
+        if (running != null) return "ВЫКЛАДЫВАЮ " + id.getValue().trim();
+        return result == null ? TITLE : ok ? DONE_TITLE : FAIL_TITLE;
+    }
 
     @Override
     protected int accent() { return result != null && !ok ? Theme.DANGER : Theme.ACCENT; }
@@ -75,6 +78,7 @@ final class PublishModuleScreen extends DialogScreen {
 
     @Override
     protected int bodyH() {
+        if (running != null) return ROW * 2 + GAP;
         if (result != null)
             return (paragraphRows(result, bodyW()) + (ok ? paragraphRows(TIP, bodyW()) + 1 : 0)) * ROW + GAP + BTN_H;
         return paragraphRows(how(), bodyW()) * ROW + GAP + FIELD_H + 5 + ROW + ROW_H + 4 + ROW_H + GAP + BTN_H;
@@ -82,6 +86,12 @@ final class PublishModuleScreen extends DialogScreen {
 
     @Override
     protected void drawBody(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
+        if (running != null) {
+            Draw.textFit(ctx, font, running, x, y, w, Theme.TEXT, false);
+            Draw.textFit(ctx, font, "мод сам выделяет строки и сохраняет модуль — несколько секунд", x, y + ROW,
+                    w, Theme.TEXT_FAINT, false);
+            return;
+        }
         if (result != null) {
             int rows = paragraph(ctx, result, x, y, w, ok ? Theme.TEXT : Theme.DANGER);
             if (ok) paragraph(ctx, TIP, x, y + (rows + 1) * ROW, w, Theme.TEXT_DIM);
@@ -112,6 +122,7 @@ final class PublishModuleScreen extends DialogScreen {
 
     @Override
     protected boolean onClick(double mx, double my) {
+        if (running != null) return true;
         if (result != null) {
             if (hitPrimary(mx, my, CLOSE)) onClose();
             return true;
@@ -155,6 +166,7 @@ final class PublishModuleScreen extends DialogScreen {
 
     @Override
     protected boolean onEnter() {
+        if (running != null) return true;
         if (result != null) onClose();
         else publish();
         return true;
@@ -173,8 +185,7 @@ final class PublishModuleScreen extends DialogScreen {
                 new ModulePublish.Report() {
             @Override
             public void step(String text) {
-                mc.gui.hud.setOverlayMessage(Component.literal("модуль " + name + " · " + text)
-                        .withStyle(ChatFormatting.AQUA), false);
+                running = text;
             }
 
             @Override
@@ -185,7 +196,15 @@ final class PublishModuleScreen extends DialogScreen {
         if (!refused.isEmpty()) {
             note = refused;
             failed = true;
+            return;
         }
+        if (running == null) running = "начинаю";
+        Veil.show(this);
+    }
+
+    @Override
+    protected void onEscape() {
+        if (running == null) onClose();
     }
 
     @Override

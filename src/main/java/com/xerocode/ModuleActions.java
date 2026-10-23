@@ -35,14 +35,14 @@ public final class ModuleActions {
     private static final Pattern ID = Pattern.compile("^ID: (\\S+/\\S+)$");
     private static final Pattern STATS = Pattern.compile("(\\d+) ☆\\s+(\\d+) ↓");
 
-    private enum Step { MENU, DIALOG, RESULTS, ANSWER }
+    private enum Step { MENU, DIALOG, RESULTS, ANSWER, INSTALL }
 
     private static final class Job {
         final Modules.Module module;
         final boolean star;
         final Screen home;
         final BiConsumer<Boolean, String> done;
-        final long startedAt = System.currentTimeMillis();
+        long startedAt = System.currentTimeMillis();
         Step step = Step.MENU;
         int ticks, pages;
         boolean asked;
@@ -57,6 +57,7 @@ public final class ModuleActions {
 
     private static Job job;
     private static Map<String, String> ids;
+    private static Map<String, Integer> stars;
 
     private ModuleActions() {}
 
@@ -75,12 +76,26 @@ public final class ModuleActions {
 
     public static void install(Modules.Module m, Screen home, BiConsumer<Boolean, String> done) {
         String id = idOf(m);
-        if (id != null) {
-            load(id);
-            done.accept(true, "ставлю " + id);
+        if (id == null) {
+            start(new Job(m, false, home, done));
             return;
         }
-        start(new Job(m, false, home, done));
+        if (job != null) {
+            done.accept(false, "подожди — меню /module ещё занято");
+            return;
+        }
+        Job next = new Job(m, false, home, done);
+        job = next;
+        load(id);
+        next.startedAt = System.currentTimeMillis();
+        next(next, Step.INSTALL);
+    }
+
+    public static boolean starred(Modules.Module m) { return starMarks().containsKey(m.id); }
+
+    public static int stars(Modules.Module m) {
+        Integer base = starMarks().get(m.id);
+        return base == null ? m.stars : Math.max(m.stars, base + 1);
     }
 
     private static void start(Job next) {
@@ -95,7 +110,8 @@ public final class ModuleActions {
             return;
         }
         job = next;
-        mc.gui.setScreen(null);
+        if (next.home != null) Veil.show(next.home);
+        else mc.gui.setScreen(null);
         net.sendCommand("module");
     }
 
@@ -103,7 +119,8 @@ public final class ModuleActions {
         Job j = job;
         if (j == null) return;
         if (++j.ticks > (j.step == Step.ANSWER ? ANSWER_TICKS : STEP_TICKS)) {
-            finish(mc, false, j.step == Step.ANSWER ? "сервер не ответил про звезду" : "меню /module не ответило");
+            if (j.step == Step.INSTALL) finish(mc, true, "ставлю " + idOf(j.module));
+            else finish(mc, false, j.step == Step.ANSWER ? "сервер не ответил про звезду" : "меню /module не ответило");
             return;
         }
         Screen screen = mc.gui.screen();
@@ -139,9 +156,11 @@ public final class ModuleActions {
                 remember(j.module.id, id);
                 if (!j.star) {
                     mc.player.closeContainer();
-                    job = null;
+                    Veil.lift();
+                    if (j.home != null) mc.gui.setScreen(j.home);
                     load(id);
-                    j.done.accept(true, "ставлю " + id);
+                    j.startedAt = System.currentTimeMillis();
+                    next(j, Step.INSTALL);
                     return;
                 }
                 click(mc, menu, slot, ContainerInput.QUICK_MOVE);
@@ -151,9 +170,20 @@ public final class ModuleActions {
                 for (String line : Publish.answersSince(j.startedAt)) {
                     String low = line.toLowerCase(Locale.ROOT);
                     if (low.contains("звезд")) {
-                        finish(mc, !low.contains("нельзя") && !low.contains("не удалось"), line);
+                        boolean ok = !low.contains("нельзя") && !low.contains("не удалось");
+                        if (ok) markStar(j.module);
+                        finish(mc, ok, ok ? "звезда стоит" : line);
                         return;
                     }
+                }
+            }
+            case INSTALL -> {
+                for (String line : Publish.answersSince(j.startedAt)) {
+                    String low = line.toLowerCase(Locale.ROOT);
+                    if (!low.contains("модул")) continue;
+                    boolean ok = low.contains("подключ") || low.contains("установ") || low.contains("обновл");
+                    finish(mc, ok && !low.contains("не ") && !low.contains("нельзя"), line);
+                    return;
                 }
             }
         }
@@ -167,9 +197,44 @@ public final class ModuleActions {
     private static void finish(Minecraft mc, boolean ok, String said) {
         Job j = job;
         job = null;
+        Veil.lift();
         if (mc.player != null && mc.player.containerMenu != mc.player.inventoryMenu) mc.player.closeContainer();
-        mc.gui.setScreen(j.home);
+        if (j.home != null) mc.gui.setScreen(j.home);
         j.done.accept(ok, said);
+    }
+
+    private static Map<String, Integer> starMarks() {
+        if (stars != null) return stars;
+        stars = new HashMap<>();
+        try {
+            Path file = starsFile();
+            if (file.toFile().isFile()) {
+                JsonObject root = Json.read(file);
+                JsonObject mine = root.has(me()) && root.get(me()).isJsonObject() ? root.getAsJsonObject(me()) : null;
+                if (mine != null) for (String k : mine.keySet()) stars.put(k, mine.get(k).getAsInt());
+            }
+        } catch (Exception e) {
+            XeroCode.LOG.warn("[xerocode] звёзды модулей не читаются: {}", e.toString());
+        }
+        return stars;
+    }
+
+    private static void markStar(Modules.Module m) {
+        starMarks().put(m.id, m.stars);
+        try {
+            Path file = starsFile();
+            JsonObject root = file.toFile().isFile() ? Json.read(file) : new JsonObject();
+            JsonObject mine = new JsonObject();
+            for (Map.Entry<String, Integer> e : starMarks().entrySet()) mine.addProperty(e.getKey(), e.getValue());
+            root.add(me(), mine);
+            Json.write(file, root);
+        } catch (Exception e) {
+            XeroCode.LOG.warn("[xerocode] звёзды модулей не записались: {}", e.toString());
+        }
+    }
+
+    private static Path starsFile() {
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode").resolve("module-stars.json");
     }
 
     private static void load(String id) {

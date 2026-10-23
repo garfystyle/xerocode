@@ -12,6 +12,10 @@ public final class ModuleActions {
 
     public static String me() { return ""; }
 
+    public static boolean starred(Modules.Module m) { return false; }
+
+    public static int stars(Modules.Module m) { return m.stars; }
+
     public static String idOf(Modules.Module m) { return null; }
 
     public static void star(Modules.Module m, Screen home, BiConsumer<Boolean, String> done) {

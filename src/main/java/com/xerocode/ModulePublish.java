@@ -113,7 +113,6 @@ public final class ModulePublish {
         }
         inv.setSelectedSlot(next.slot);
         net.send(new ServerboundSetCarriedItemPacket(next.slot));
-        mc.gui.setScreen(null);
         job = next;
         report.step("снимаю старое выделение");
         return "";
@@ -143,7 +142,6 @@ public final class ModulePublish {
                 } else if (j.ticks > CLEAR_TICKS) next(j, Step.MOVE);
             }
             case MOVE -> {
-                if (screen != null) return;
                 BlockPos head = j.heads.get(j.index);
                 if (near(player, head)) {
                     next(j, Step.PICK);
@@ -299,6 +297,7 @@ public final class ModulePublish {
     private static void finish(Minecraft mc, boolean ok, String said) {
         Job j = job;
         job = null;
+        Veil.lift();
         LocalPlayer player = mc.player;
         if (player != null) {
             if (player.containerMenu != player.inventoryMenu) player.closeContainer();

@@ -244,6 +244,7 @@ public final class XeroCode implements ClientModInitializer {
 
         ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
             if (retired) return;
+            Veil.attach(screen);
             if (holdScreen <= 0 || holding == null || restoring || picking()) return;
             if (screen == holding || screen instanceof ImportScreen) return;
             restoring = true;
@@ -297,6 +298,7 @@ public final class XeroCode implements ClientModInitializer {
             ServerAsk.tick(client);
             ModuleActions.tick(client);
             ModulePublish.tick(client);
+            Veil.tick(client);
             if (cover != null) {
                 if (client.gui.screen() == null) client.gui.setScreen(cover);
                 var now = client.gameMode == null ? null

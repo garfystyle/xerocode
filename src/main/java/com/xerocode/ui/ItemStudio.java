@@ -21,7 +21,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 
-public final class ItemStudio {
+public final class ItemStudio implements Overlay {
     public interface Done { void apply(Value value); }
 
     private static final int PAD = 10;
@@ -829,26 +829,23 @@ public final class ItemStudio {
         relayout();
     }
 
-    private static final int OK_W = 56, NO_W = 52, BTN_GAP = 6, FOOT_BTN_H = 16;
+    private static final int OK_W = 56, NO_W = 52, FOOT_BTN_H = 16;
 
     private int footBtnY() { return footAbsY() + (FOOT_H - FOOT_BTN_H) / 2; }
-    private int okX()      { return x + w - PAD - OK_W; }
-    private int cancelX()  { return okX() - BTN_GAP - NO_W; }
 
     private void drawFooter(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int fy = footBtnY();
         String hint = System.currentTimeMillis() - flashAt < 1800 ? flash : Stacks.summary(v);
         if (hint.isEmpty()) hint = "Enter — готово, Esc — отмена";
         Draw.textFit(ctx, tr, hint, x + PAD, fy + 4,
-                inner() - (OK_W + BTN_GAP + NO_W + 6), Theme.TEXT_FAINT, false);
-        Ui.button(ctx, tr, mouseX, mouseY, okX(), fy, OK_W, FOOT_BTN_H, "Готово", Ui.ACCENT);
-        Ui.button(ctx, tr, mouseX, mouseY, cancelX(), fy, NO_W, FOOT_BTN_H, "Отмена", Ui.GHOST);
+                inner() - (OK_W + Ui.FOOT_GAP + NO_W + 6), Theme.TEXT_FAINT, false);
+        Ui.okCancel(ctx, tr, mouseX, mouseY, x + w - PAD, fy, OK_W, NO_W, FOOT_BTN_H);
     }
 
     private boolean footClicked(int mx, int my) {
-        int fy = footBtnY();
-        if (Ui.hit(mx, my, okX(), fy, OK_W, FOOT_BTN_H)) { finish(); return true; }
-        if (Ui.hit(mx, my, cancelX(), fy, NO_W, FOOT_BTN_H)) { closed = true; return true; }
+        int hit = Ui.okCancelAt(mx, my, x + w - PAD, footBtnY(), OK_W, NO_W, FOOT_BTN_H);
+        if (hit == Ui.FOOT_OK) { finish(); return true; }
+        if (hit == Ui.FOOT_CANCEL) { closed = true; return true; }
         return false;
     }
 

@@ -110,12 +110,8 @@ public final class Download {
         POOL.execute(() -> {
             try {
                 take(secure);
-            } catch (Exception first) {
-                try {
-                    take(link);
-                } catch (Exception second) {
-                    fail(Net.reason(second, WHO));
-                }
+            } catch (Exception e) {
+                fail(Net.reason(e, WHO));
             }
         });
     }

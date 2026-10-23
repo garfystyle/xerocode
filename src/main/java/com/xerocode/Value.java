@@ -7,6 +7,7 @@ import com.google.gson.JsonParser;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public final class Value {
     public static final String TEXT = "text", NUMBER = "number", LOCATION = "location",
@@ -441,7 +442,7 @@ public final class Value {
                 if (e != null && e.has(Pickers.TO_COLOR))
                     o.addProperty("to_color", 0xFF000000 | (toColor & 0xFFFFFF));
                 if (e != null && e.has(Pickers.SIZE)) o.addProperty("size", size);
-                if (e != null && e.has(Pickers.MATERIAL)) o.addProperty("material", material);
+                if (e != null && e.has(Pickers.MATERIAL)) o.addProperty("material", bukkitMaterial(material));
             }
             case POTION -> {
                 o.addProperty("potion", potion);
@@ -574,7 +575,7 @@ public final class Value {
         if (o.has("color")) v.color = o.get("color").getAsInt() & 0xFFFFFF;
         if (o.has("to_color")) v.toColor = o.get("to_color").getAsInt() & 0xFFFFFF;
         if (o.has("size")) v.size = o.get("size").getAsDouble();
-        if (o.has("material")) v.material = o.get("material").getAsString();
+        if (o.has("material")) v.material = materialId(o.get("material").getAsString());
         if (o.has("potion")) v.potion = o.get("potion").getAsString();
         if (o.has("duration")) v.duration = o.get("duration").getAsInt();
         if (o.has("amplifier")) v.amplifier = o.get("amplifier").getAsInt();
@@ -667,5 +668,17 @@ public final class Value {
             } catch (NumberFormatException ignored) { }
         }
         return text(s);
+    }
+
+    private static String bukkitMaterial(String id) {
+        String bare = id == null ? "" : id.trim();
+        if (bare.startsWith("minecraft:")) bare = bare.substring("minecraft:".length());
+        return bare.isEmpty() ? "STONE" : bare.toUpperCase(Locale.ROOT);
+    }
+
+    public static String materialId(String raw) {
+        String id = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
+        if (id.isEmpty()) return "minecraft:stone";
+        return id.contains(":") ? id : "minecraft:" + id;
     }
 }

@@ -27,6 +27,9 @@ public final class Ui {
     public static int PRIMARY   = 0x38506E;
     public static int PRIMARY_H = 0x4E8FE0;
     public static int DANGER_BG = 0x4A2A32;
+    public static int ROW_ON    = 0x22405F;
+    public static int ROW_HOVER = 0x1C222D;
+    public static int DANGER_WELL = 0x2A2028;
 
     public static final int GHOST = 0, ACCENT = 1, DANGER = 2, ACTIVE = 3;
 
@@ -243,6 +246,20 @@ public final class Ui {
     public static boolean button(GuiGraphicsExtractor ctx, Font tr, int mx, int my,
                                  int x, int y, int w, int h, String label, int kind) {
         return button(ctx, tr, mx, my, x, y, w, h, label, kind, true);
+    }
+
+    static final int FOOT_GAP = 6, FOOT_NONE = -1, FOOT_CANCEL = 0, FOOT_OK = 1;
+
+    static void okCancel(GuiGraphicsExtractor ctx, Font tr, int mx, int my,
+                         int right, int y, int okW, int noW, int h) {
+        button(ctx, tr, mx, my, right - okW, y, okW, h, "Готово", ACCENT);
+        button(ctx, tr, mx, my, right - okW - FOOT_GAP - noW, y, noW, h, "Отмена", GHOST);
+    }
+
+    static int okCancelAt(double mx, double my, int right, int y, int okW, int noW, int h) {
+        if (hit(mx, my, right - okW, y, okW, h)) return FOOT_OK;
+        if (hit(mx, my, right - okW - FOOT_GAP - noW, y, noW, h)) return FOOT_CANCEL;
+        return FOOT_NONE;
     }
 
     public static boolean glyphButton(GuiGraphicsExtractor ctx, Font tr, int mx, int my,

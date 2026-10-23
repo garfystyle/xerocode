@@ -62,7 +62,6 @@ public final class Codespace {
         public int index() { return 0; }
         public int total() { return 0; }
         public int failedLines() { return 0; }
-        public int skippedLines() { return 0; }
         public Set<String> skipList() { return Set.of(); }
         public int blocks() { return 0; }
         public JsonArray handlers() { return new JsonArray(); }

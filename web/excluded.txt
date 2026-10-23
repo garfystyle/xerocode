@@ -3,3 +3,4 @@ com/xerocode/ui/LocationScreen.java
 com/xerocode/Release.java
 com/xerocode/Swap.java
 com/xerocode/ui/UpdateScreen.java
+com/xerocode/ServerAsk.java

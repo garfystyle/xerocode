@@ -1,7 +1,7 @@
 package com.xerocode.ui;
 
-import com.google.gson.JsonObject;
-import com.xerocode.Market;
+import com.google.gson.JsonArray;
+import com.xerocode.Modules;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -9,28 +9,28 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import org.lwjgl.glfw.GLFW;
 
-public final class MarketLook implements MarketScreen.Panel {
+public final class ModuleLook implements ModulesScreen.Panel {
     private static final int HEAD = 22, ICON = 16;
 
-    private final MarketScreen owner;
+    private final ModulesScreen owner;
     private final Font tr;
-    private final Market.Module module;
+    private final Modules.Module module;
     private final BlockView.Look look = new BlockView.Look();
     private final CodeStage stage = new CodeStage(0.2, 3.0, 1.4);
     private final ModuleCode code;
 
     private int x, y, w, h, mx, my;
 
-    public MarketLook(MarketScreen owner, Market.Module module, JsonObject payload) {
+    public ModuleLook(ModulesScreen owner, Modules.Module module, JsonArray handlers) {
         this.owner = owner;
         this.tr = Minecraft.getInstance().font;
         this.module = module;
-        this.code = new ModuleCode(module.id, tr);
-        code.adopt(payload);
+        this.code = new ModuleCode(module, tr);
+        code.adopt(handlers);
     }
 
     @Override
-    public String title() { return module.name; }
+    public String title() { return module.label; }
 
     @Override
     public void place(int px, int py, int pw, int ph) {
@@ -74,10 +74,8 @@ public final class MarketLook implements MarketScreen.Panel {
         Draw.rect(ctx, x, y, w, HEAD, Draw.opaque(Ui.RAIL));
         Ui.hairline(ctx, x, y + HEAD, w);
         int ty = y + (HEAD - Ui.TEXT_H) / 2;
-        String said = module.blocksText() + " · "
-                + Ui.plural(module.roots, "стопка", "стопки", "стопок");
         int room = packX() - x - 16;
-        if (room > 60) Draw.textFit(ctx, tr, said, x + 8, ty, room, Theme.TEXT_FAINT, false);
+        if (room > 60) Draw.textFit(ctx, tr, code.size(), x + 8, ty, room, Theme.TEXT_FAINT, false);
         if (packX() > x + 8)
             Ui.button(ctx, tr, mouseX, mouseY, packX(), y + 3, packW(), ICON,
                     "В рюкзак", Ui.GHOST, code.ready());
@@ -103,7 +101,7 @@ public final class MarketLook implements MarketScreen.Panel {
 
     @Override
     public void act() {
-        if (code.ready()) owner.install(module, code.payload(), false);
+        if (code.ready()) owner.install(module, code.handlers(), false);
     }
 
     @Override
@@ -113,8 +111,8 @@ public final class MarketLook implements MarketScreen.Panel {
             if (Ui.hit(atX, atY, btnX(0), y + 3, ICON, ICON)) { stage.step(1 / 1.12); return true; }
             if (Ui.hit(atX, atY, btnX(1), y + 3, ICON, ICON)) { stage.step(1.12); return true; }
             if (Ui.hit(atX, atY, btnX(2), y + 3, ICON, ICON)) { refit(); return true; }
-            if (code.ready() && Ui.hit(atX, atY, packX(), y + 3, packW(), ICON))
-                owner.install(module, code.payload(), true);
+            if (code.ready() && packX() > x + 8 && Ui.hit(atX, atY, packX(), y + 3, packW(), ICON))
+                owner.install(module, code.handlers(), true);
             return true;
         }
         if (doubled) refit();

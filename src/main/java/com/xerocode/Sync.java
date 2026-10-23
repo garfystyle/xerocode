@@ -1,8 +1,6 @@
 package com.xerocode;
 
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -182,8 +180,7 @@ public final class Sync {
         try {
             Path path = file(plot);
             if (!Files.exists(path)) return null;
-            JsonObject root = JsonParser
-                    .parseString(Files.readString(path, StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonObject root = Json.read(path);
             Base base = new Base();
             base.canvas = root.get("canvas").getAsInt();
             base.awaiting = root.has("awaiting") && root.get("awaiting").getAsBoolean();
@@ -212,9 +209,7 @@ public final class Sync {
                 root.addProperty("raster", base.stamp.raster());
                 root.addProperty("full", base.stamp.full());
             }
-            Path path = file(plot);
-            Files.createDirectories(path.getParent());
-            Files.writeString(path, root.toString(), StandardCharsets.UTF_8);
+            Json.write(file(plot), root);
         } catch (Exception e) {
             XeroCode.LOG.warn("[xerocode] слепок мира не сохранился", e);
         }

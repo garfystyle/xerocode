@@ -97,13 +97,6 @@ public final class Audio {
         if (playing()) pause(); else play();
     }
 
-    public static void stop() {
-        if (!ready()) return;
-        AL10.alSourceStop(source);
-        head = 0;
-        running = false;
-    }
-
     public static void rewind() {
         if (!ready()) return;
         boolean was = playing();

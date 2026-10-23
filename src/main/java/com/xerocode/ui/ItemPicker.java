@@ -254,7 +254,10 @@ public final class ItemPicker extends PickerPanel {
     }
 
     @Override
-    public void mouseReleased() { bar.release(); }
+    public void mouseReleased() {
+        super.mouseReleased();
+        bar.release();
+    }
 
     @Override
     protected boolean bodyKey(KeyEvent in) {

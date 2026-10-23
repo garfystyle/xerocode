@@ -2,11 +2,7 @@ package com.xerocode;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,14 +32,9 @@ public final class Placeholders {
 
     public static void load() {
         if (loaded()) return;
-        try (InputStream in = Placeholders.class.getResourceAsStream(
-                "/assets/xerocode/placeholders.json")) {
-            if (in == null) {
-                XeroCode.LOG.error("[xerocode] placeholders.json not found in the jar");
-                return;
-            }
-            JsonObject root = JsonParser.parseReader(
-                    new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+        try {
+            JsonObject root = Json.asset(Placeholders.class, "placeholders.json");
+            if (root == null) return;
             for (JsonElement ce : root.getAsJsonArray("cats")) {
                 JsonObject c = ce.getAsJsonObject();
                 CATEGORIES.put(c.get("id").getAsString(), c.get("n").getAsString());

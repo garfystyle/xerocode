@@ -2,9 +2,6 @@ package com.xerocode;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -215,15 +212,13 @@ public final class LinePut {
 
     private static String saveBackup(ClientLevel world, LineEdit.Where at, JsonObject original) {
         try {
-            Path dir = Codespace.savedDir();
-            if (!Files.isDirectory(dir)) Files.createDirectories(dir);
             String name = "line_" + Codespace.worldId(world) + "-" + at.floor() + "-" + at.line() + "-"
                     + LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy-HH.mm.ss")) + ".json";
             JsonObject root = new JsonObject();
             JsonArray list = new JsonArray();
             list.add(original);
             root.add("handlers", list);
-            Files.writeString(dir.resolve(name), root.toString(), StandardCharsets.UTF_8);
+            Json.write(Codespace.savedDir().resolve(name), root);
             return "saved/" + name;
         } catch (Exception e) {
             XeroCode.LOG.warn("[xerocode] копия строки не записалась", e);

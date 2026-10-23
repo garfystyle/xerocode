@@ -4,8 +4,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -19,7 +17,6 @@ import java.util.Set;
 import net.minecraft.client.Minecraft;
 
 public final class Collab {
-    public static final String HOST = "wss://109-120-178-103.sslip.io:8792/xerocode/collab";
 
     private static final long DIFF_EVERY = 200;
     private static final long LIVE_EVERY = 100;
@@ -81,6 +78,10 @@ public final class Collab {
     private static long waitingSince;
     private static long retryAt;
     private static int attempts;
+
+    private static int changes;
+
+    public static int changes() { return changes; }
 
     public static Stage stage() { return stage; }
 
@@ -145,7 +146,7 @@ public final class Collab {
         greeted = false;
         taking = null;
         net = new CollabNet();
-        net.connect(HOST);
+        net.connect(Endpoints.relay());
     }
 
     public static void stop() {
@@ -167,6 +168,7 @@ public final class Collab {
         enc = null;
         auth = null;
         roomId = "";
+        retryAt = 0;
     }
 
     public static void hold(Script.Root root) {
@@ -356,6 +358,7 @@ public final class Collab {
         script.fitOnOpen = true;
         script.save();
         History.clear();
+        changes++;
         stage = Stage.LIVE;
         note = "полотно комнаты загружено";
     }
@@ -364,10 +367,8 @@ public final class Collab {
         try {
             if (script.roots.isEmpty()) return;
             Path dir = Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode");
-            Files.createDirectories(dir);
             String stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy-HH.mm.ss"));
-            Files.writeString(dir.resolve("before-collab-" + stamp + ".json"),
-                    script.toJson().toString(), StandardCharsets.UTF_8);
+            Json.write(dir.resolve("before-collab-" + stamp + ".json"), script.toJson());
         } catch (Exception e) {
             XeroCode.LOG.warn("[xerocode] не удалось сохранить полотно перед входом в комнату", e);
         }
@@ -448,9 +449,15 @@ public final class Collab {
         Script.Root fresh = readRoot(payload);
         if (fresh == null) return;
         Script.Root was = script.rootById(id);
+        int hash = Script.rootHash(fresh);
+        mirror.put(id, hash);
+        if (was != null && Script.rootHash(was) == hash) return;
         if (was == null) script.roots.add(fresh);
-        else script.roots.set(script.roots.indexOf(was), fresh);
-        mirror.put(id, Script.rootHash(fresh));
+        else {
+            fresh.folded = was.folded;
+            script.roots.set(script.roots.indexOf(was), fresh);
+        }
+        changes++;
     }
 
     private static void del(JsonObject message, Script script) {
@@ -472,7 +479,7 @@ public final class Collab {
             return;
         }
         String gone = id;
-        script.roots.removeIf(root -> root.id.equals(gone));
+        if (script.roots.removeIf(root -> root.id.equals(gone))) changes++;
         mirror.remove(id);
     }
 
@@ -532,8 +539,12 @@ public final class Collab {
             Script.Root was = script.rootById(fresh.id);
             if (was != null && Script.rootHash(was) == Script.rootHash(fresh)) continue;
             if (was == null) script.roots.add(fresh);
-            else script.roots.set(script.roots.indexOf(was), fresh);
+            else {
+                fresh.folded = was.folded;
+                script.roots.set(script.roots.indexOf(was), fresh);
+            }
             mirror.put(fresh.id, Script.rootHash(fresh));
+            changes++;
         }
     }
 

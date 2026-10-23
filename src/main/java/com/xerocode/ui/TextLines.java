@@ -9,7 +9,7 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
-public final class TextLines {
+public final class TextLines implements Overlay {
     private static final int PAD = 10, HEAD_H = 26, FOOT_H = 26, ROW = 16, WIDTH = 420, BOX_H = 108;
     private static final String TITLE = "Многострочный текст";
     private static final String HINT = "Shift+Enter — новая строка · Enter — готово · Esc — отмена";

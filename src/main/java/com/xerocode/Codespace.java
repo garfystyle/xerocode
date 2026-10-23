@@ -4,9 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,7 +16,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.zip.Inflater;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.ClientPacketListener;
@@ -95,27 +92,15 @@ public final class Codespace {
         CompoundTag nbt = data.copyTag();
         CompoundTag bukkit = nbt.getCompound("PublicBukkitValues").orElse(null);
         if (bukkit == null) return null;
-        return bukkit.getString("justmc:template").orElse(null);
+        return bukkit.getString(LineEdit.TEMPLATE_KEY).orElse(null);
     }
 
     public static String decompress(String encoded) {
-        byte[] input = Base64.getDecoder().decode(encoded);
-        Inflater inflater = new Inflater();
-        inflater.setInput(input);
-        ByteArrayOutputStream out = new ByteArrayOutputStream(input.length * 4);
-        byte[] buffer = new byte[8192];
         try {
-            while (!inflater.finished()) {
-                int n = inflater.inflate(buffer);
-                if (n == 0 && (inflater.needsInput() || inflater.needsDictionary())) break;
-                out.write(buffer, 0, n);
-            }
+            return new String(Deflate.unpack(Base64.getDecoder().decode(encoded), false), StandardCharsets.UTF_8);
         } catch (Exception e) {
             return null;
-        } finally {
-            inflater.end();
         }
-        return out.toString(StandardCharsets.UTF_8);
     }
 
     public static Path savedDir() {
@@ -153,9 +138,7 @@ public final class Codespace {
             try {
                 Path path = file();
                 if (!Files.exists(path)) return null;
-                JsonObject root = JsonParser
-                        .parseString(Files.readString(path, StandardCharsets.UTF_8))
-                        .getAsJsonObject();
+                JsonObject root = Json.read(path);
                 Memo memo = new Memo();
                 memo.world = root.get("world").getAsString();
                 if (!memo.world.equals(world)) return null;
@@ -195,8 +178,7 @@ public final class Codespace {
                 for (String at : skip) list.add(at);
                 root.add("skip", list);
                 root.add("handlers", handlers);
-                Files.createDirectories(file().getParent());
-                Files.writeString(file(), root.toString(), StandardCharsets.UTF_8);
+                Json.write(file(), root);
             } catch (Exception e) {
                 XeroCode.LOG.warn("[xerocode] недочитанное чтение не сохранилось", e);
             }
@@ -233,7 +215,6 @@ public final class Codespace {
         private int clean;
         private int refusedHere;
         private int nearTries;
-        private int skipped;
         private int walked;
 
         public State state = State.RUNNING;
@@ -272,7 +253,6 @@ public final class Codespace {
         public int index()  { return Math.min(index + 1, lines.size()); }
         public int total()  { return lines.size(); }
         public int failedLines() { return failed; }
-        public int skippedLines() { return skipped; }
         public Set<String> skipList() { return memo.skip; }
         public int blocks() { return handlers.size(); }
         public JsonArray handlers() { return handlers; }
@@ -350,10 +330,7 @@ public final class Codespace {
         }
 
         private int ahead(int at) {
-            while (at < lines.size() && memo.skip.contains(key(lines.get(at)))) {
-                skipped++;
-                at++;
-            }
+            while (at < lines.size() && memo.skip.contains(key(lines.get(at)))) at++;
             return at;
         }
 
@@ -446,7 +423,7 @@ public final class Codespace {
         private void readLines() {
             index = ahead(index);
             if (index < lines.size()) teleport();
-            else state = State.DONE;
+            else complete();
         }
 
         private void next() {
@@ -493,13 +470,10 @@ public final class Codespace {
         private void save() {
             if (handlers.isEmpty() || single) return;
             try {
-                Files.createDirectories(savedDir());
                 JsonObject root = new JsonObject();
                 root.add("handlers", handlers);
                 file = freeFile(worldId(world));
-                try (Writer w = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
-                    w.write(root.toString());
-                }
+                Json.write(file, root);
             } catch (IOException e) {
                 XeroCode.LOG.error("[xerocode] не удалось сохранить код", e);
                 file = null;

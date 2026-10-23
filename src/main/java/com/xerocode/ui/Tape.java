@@ -1,5 +1,7 @@
 package com.xerocode.ui;
 
+import com.xerocode.XeroCode;
+
 import java.util.ArrayList;
 import java.util.List;
 import net.fabricmc.fabric.api.resource.v1.ResourceLoader;
@@ -28,7 +30,10 @@ public final class Tape {
         ResourceLoader.get(PackType.CLIENT_RESOURCES).registerReloadListener(
                 Identifier.fromNamespaceAndPath("xerocode",
                         "tape_" + Integer.toHexString(System.identityHashCode(Tape.class))),
-                (ResourceManagerReloadListener) manager -> epoch++);
+                (ResourceManagerReloadListener) manager -> {
+                    if (XeroCode.retired()) return;
+                    epoch++;
+                });
     }
 
     static void scaled(int x, int y, int s) {

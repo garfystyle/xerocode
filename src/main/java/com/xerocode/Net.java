@@ -18,11 +18,18 @@ public final class Net {
         };
     }
 
-    public static HttpClient client(Duration timeout, boolean follow) {
+    private static final Duration CONNECT = Duration.ofSeconds(15);
+    private static final HttpClient FOLLOW = build(true), DIRECT = build(false);
+
+    private static HttpClient build(boolean follow) {
         return HttpClient.newBuilder()
-                .connectTimeout(timeout)
+                .connectTimeout(CONNECT)
                 .followRedirects(follow ? HttpClient.Redirect.NORMAL : HttpClient.Redirect.NEVER)
                 .build();
+    }
+
+    public static HttpClient client(Duration timeout, boolean follow) {
+        return follow ? FOLLOW : DIRECT;
     }
 
     public static String reason(Throwable error, Who who) {

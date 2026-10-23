@@ -2,11 +2,7 @@ package com.xerocode;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -86,10 +82,9 @@ public final class Values {
 
     public static void load() {
         if (loaded()) return;
-        try (InputStream in = Values.class.getResourceAsStream("/assets/xerocode/values.json")) {
-            if (in == null) { XeroCode.LOG.error("[xerocode] values.json not found in the jar"); return; }
-            JsonObject root = JsonParser.parseReader(
-                    new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+        try {
+            JsonObject root = Json.asset(Values.class, "values.json");
+            if (root == null) return;
 
             for (JsonElement e : root.getAsJsonArray("kinds")) {
                 JsonObject o = e.getAsJsonObject();
@@ -184,13 +179,6 @@ public final class Values {
             case "Блок" -> Value.BLOCK;
             default -> Value.TEXT;
         };
-    }
-
-    public static List<GameValue> search(String query, int limit) {
-        if (query.isBlank())
-            return new ArrayList<>(GAME_VALUES.subList(0, Math.min(limit, GAME_VALUES.size())));
-        return Search.rank(GAME_VALUES, query, limit,
-                g -> new Search.Fields(g.name, g.id, g.category, g.description));
     }
 
     private Values() {}

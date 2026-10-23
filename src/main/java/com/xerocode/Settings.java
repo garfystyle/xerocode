@@ -3,14 +3,10 @@ package com.xerocode;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.xerocode.ui.Theme;
 import com.xerocode.ui.Ui;
 import org.lwjgl.glfw.GLFW;
 
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -59,7 +55,7 @@ public final class Settings {
         DEL_STACK("delStack",  "Удалить стопку",       MOUSE + GLFW.GLFW_MOUSE_BUTTON_MIDDLE, SHIFT),
         SELECT   ("select",    "Выделить всё",         GLFW.GLFW_KEY_A,      CTRL),
         BACKPACK ("backpack",  "Рюкзак кода",          GLFW.GLFW_KEY_R,      CTRL),
-        MARKET   ("market",    "Магазин модулей",      GLFW.GLFW_KEY_E,      CTRL),
+        MARKET   ("market",    "Модули",               GLFW.GLFW_KEY_E,      CTRL),
         STASH    ("stash",     "Убрать в рюкзак",      GLFW.GLFW_KEY_R,      CTRL | SHIFT),
         PLAY     ("play",      "Игра",                 GLFW.GLFW_KEY_P,      CTRL),
         BUILD    ("build",     "Строительство",        GLFW.GLFW_KEY_B,      CTRL),
@@ -223,7 +219,6 @@ public final class Settings {
 
     public boolean onMouse(Hot h) { return isMouse(code(h)); }
 
-    public boolean onModifier(Hot h) { return isModifier(code(h)); }
 
     public boolean clashes(Hot h) {
         int code = code(h), mods = mods(h);
@@ -446,11 +441,7 @@ public final class Settings {
 
     public void save() {
         try {
-            Path p = file();
-            Files.createDirectories(p.getParent());
-            try (Writer w = Files.newBufferedWriter(p, StandardCharsets.UTF_8)) {
-                w.write(toJson().toString());
-            }
+            Json.write(file(), toJson());
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] не удалось записать настройки", e);
         }
@@ -461,50 +452,50 @@ public final class Settings {
         try {
             Path p = file();
             if (!Files.exists(p)) return s;
-            try (Reader r = Files.newBufferedReader(p, StandardCharsets.UTF_8)) {
-                JsonObject root = JsonParser.parseReader(r).getAsJsonObject();
-                if (root.has("mode") && "original".equals(root.get("mode").getAsString()))
-                    s.mode = Mode.ORIGINAL;
-                if (root.has("look")) {
-                    JsonObject look = root.getAsJsonObject("look");
-                    s.readLook(look);
-                    s.drawableOnly = flag(look, "drawableOnly", s.drawableOnly);
+            JsonObject root = Json.read(p);
+            if (root.has("mode") && "original".equals(root.get("mode").getAsString()))
+                s.mode = Mode.ORIGINAL;
+            if (root.has("look")) {
+                JsonObject look = root.getAsJsonObject("look");
+                s.readLook(look);
+                s.drawableOnly = flag(look, "drawableOnly", s.drawableOnly);
+            }
+            int version = num(root, "version", 1);
+            if (version < 4 && Env.browser()) s.chests = Env.touch();
+            if (root.has("keys")) {
+                JsonObject hot = root.getAsJsonObject("keys");
+                for (Hot h : Hot.values()) {
+                    if (!hot.has(h.id)) continue;
+                    String[] parts = hot.get(h.id).getAsString().split(":");
+                    if (parts.length != 2) continue;
+                    int code = Integer.parseInt(parts[0]), mods = Integer.parseInt(parts[1]) & MOD_MASK;
+                    if (Env.browser() && taken(code, mods)) continue;
+                    if (version < 3 && movedDefault(h, code, mods)) continue;
+                    s.bind(h, code, mods);
                 }
-                int version = num(root, "version", 1);
-                if (version < 4 && Env.browser()) s.chests = Env.touch();
-                if (root.has("keys")) {
-                    JsonObject hot = root.getAsJsonObject("keys");
-                    for (Hot h : Hot.values()) {
-                        if (!hot.has(h.id)) continue;
-                        String[] parts = hot.get(h.id).getAsString().split(":");
-                        if (parts.length != 2) continue;
-                        int code = Integer.parseInt(parts[0]), mods = Integer.parseInt(parts[1]) & MOD_MASK;
-                        if (Env.browser() && taken(code, mods)) continue;
-                        if (version < 3 && movedDefault(h, code, mods)) continue;
-                        s.bind(h, code, mods);
+            }
+            if (root.has("colors")) {
+                JsonObject palette = root.getAsJsonObject("colors");
+                for (String name : palette.keySet()) {
+                    String hex = palette.get(name).getAsString().replace("#", "");
+                    try {
+                        s.colors.put(name, Integer.parseInt(hex, 16) & 0xFFFFFF);
+                    } catch (NumberFormatException ignored) {
                     }
                 }
-                if (root.has("colors")) {
-                    JsonObject palette = root.getAsJsonObject("colors");
-                    for (String name : palette.keySet()) {
-                        String hex = palette.get(name).getAsString().replace("#", "");
-                        try {
-                            s.colors.put(name, Integer.parseInt(hex, 16) & 0xFFFFFF);
-                        } catch (NumberFormatException ignored) {
-                        }
-                    }
-                }
-                readStrings(root, "symbols", s.symbols);
-                readStrings(root, "collapsed", s.collapsed);
-                if (root.has("collab")) {
-                    JsonObject collab = root.getAsJsonObject("collab");
-                    if (collab.has("name")) s.collabName = collab.get("name").getAsString();
-                    if (collab.has("code")) s.collabCode = collab.get("code").getAsString();
-                    s.collabCursors = flag(collab, "cursors", s.collabCursors);
-                }
+            }
+            readStrings(root, "symbols", s.symbols);
+            readStrings(root, "collapsed", s.collapsed);
+            if (root.has("collab")) {
+                JsonObject collab = root.getAsJsonObject("collab");
+                if (collab.has("name")) s.collabName = collab.get("name").getAsString();
+                if (collab.has("code")) s.collabCode = collab.get("code").getAsString();
+                s.collabCursors = flag(collab, "cursors", s.collabCursors);
             }
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] не удалось прочитать настройки", e);
+            Json.setAside(file());
+            return new Settings();
         }
         return s;
     }

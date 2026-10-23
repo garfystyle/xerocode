@@ -3,10 +3,7 @@ package com.xerocode;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -353,13 +350,8 @@ public final class Script {
 
     public void save() {
         if (scratch) return;
-        JsonObject root = toJson();
         try {
-            Path p = file(plot);
-            Files.createDirectories(p.getParent());
-            try (Writer w = Files.newBufferedWriter(p, StandardCharsets.UTF_8)) {
-                w.write(root.toString());
-            }
+            Json.write(file(plot), toJson());
         } catch (IOException e) {
             XeroCode.LOG.error("[xerocode] save failed", e);
         }
@@ -391,8 +383,6 @@ public final class Script {
         return max;
     }
 
-    public static Script load() { return load(""); }
-
     public static Script load(String plot) {
         adopt(plot);
         Script script = read(file(plot));
@@ -402,12 +392,36 @@ public final class Script {
 
     private static Script read(Path p) {
         if (!Files.exists(p)) return new Script();
-        try (Reader r = Files.newBufferedReader(p, StandardCharsets.UTF_8)) {
-            return fromJson(JsonParser.parseReader(r).getAsJsonObject());
+        damaged = false;
+        try {
+            Script script = fromJson(Json.read(p));
+            if (damaged) keepDamaged(p);
+            return script;
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] load failed", e);
+            setAside = Json.setAside(p);
+            if (setAside.isEmpty()) setAside = p.getFileName().toString();
             return new Script();
         }
+    }
+
+    private static void keepDamaged(Path p) {
+        try {
+            Path copy = p.resolveSibling(p.getFileName().toString().replace(".json", "")
+                    + ".damaged-" + LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) + ".json");
+            if (!Files.exists(copy)) Files.copy(p, copy);
+        } catch (Exception e) {
+            XeroCode.LOG.warn("[xerocode] копия повреждённого полотна не записалась", e);
+        }
+    }
+
+    private static boolean damaged;
+    private static String setAside = "";
+
+    public static String takeSetAside() {
+        String name = setAside;
+        setAside = "";
+        return name;
     }
 
     private static final List<String> LOST = new ArrayList<>();
@@ -593,51 +607,62 @@ public final class Script {
     static List<Node> readChain(JsonArray arr) {
         List<Node> out = new ArrayList<>();
         for (JsonElement e : arr) {
-            JsonObject o = e.getAsJsonObject();
-            String key = o.get("a").getAsString();
-            String sid = o.has("sid") ? o.get("sid").getAsString() : null;
-            Moved move = moved(o, key);
-            if (move != null) key = move.key();
-            Catalog.Action a = Catalog.byKey(key);
-            if (a == null && sid != null)
-                a = byServerId(sid, key.startsWith(Catalog.ELSE_CATEGORY + "|"));
-            if (a != null && Catalog.namesakes(a).size() > 1) a = namesake(a, o, sid);
-            if (a == null) {
-                a = Catalog.unknownAction(sid == null ? key : sid);
-                lost(key);
-                if (a == null) continue;
+            try {
+                Node n = readNode(e.getAsJsonObject());
+                if (n != null) out.add(n);
+            } catch (RuntimeException ex) {
+                XeroCode.LOG.warn("[xerocode] блок полотна не прочитался", ex);
+                damaged = true;
+                String name = e.isJsonObject() ? Json.str(e.getAsJsonObject(), "a") : "";
+                lost(name.isEmpty() ? "блок без имени" : name);
             }
-            Node n = new Node(a);
-            readStrings(o, "dk", n.dynKeys);
-            readStrings(o, "dm", n.dynMarkerKeys);
-            int[] remap = move == null ? null : move.args();
-            readSlots(o, "v", n, k -> argIndex(n, k, remap), (el, idx) -> {
-                List<Value> list = n.valuesOf(idx);
-                String argType = n.dynKeys.isEmpty() && idx < n.action.args.size()
-                        ? n.action.args.get(idx).type : "Любое значение";
-                for (JsonElement ve : el.getAsJsonArray()) {
-                    if (ve.isJsonPrimitive()) list.add(Value.fromLegacy(ve.getAsString(), argType));
-                    else if (ve.isJsonObject()) list.add(Value.fromJson(ve.getAsJsonObject()));
-                }
-            });
-            readSlots(o, "m", n, k -> settingIndex(n, k),
-                    (el, idx) -> n.markers.put(idx,
-                            Mapping.currentOption(n.action, idx, el.getAsString())));
-            readSlots(o, "mv", n, k -> settingIndex(n, k),
-                    (el, idx) -> n.markerVars.put(idx, Value.fromJson(el.getAsJsonObject())));
-            if (o.has("c") && o.get("c").isJsonObject()) {
-                JsonArray one = new JsonArray();
-                one.add(o.getAsJsonObject("c"));
-                List<Node> read = readChain(one);
-                if (!read.isEmpty()) n.cond = read.get(0);
-            }
-            if (o.has("b")) n.body.addAll(readChain(o.getAsJsonArray("b")));
-            if (o.has("f") && o.get("f").isJsonPrimitive()) n.folded = o.get("f").getAsBoolean();
-            if (o.has("r") && o.get("r").isJsonObject()) n.raw = o.getAsJsonObject("r");
-            if (n.cond == null && Mapping.loaded() && Mapping.hasConditional(n.action))
-                Importer.adoptConditional(n);
-            out.add(Upgrade.node(n));
         }
         return out;
+    }
+
+    private static Node readNode(JsonObject o) {
+        String key = o.get("a").getAsString();
+        String sid = o.has("sid") ? o.get("sid").getAsString() : null;
+        Moved move = moved(o, key);
+        if (move != null) key = move.key();
+        Catalog.Action a = Catalog.byKey(key);
+        if (a == null && sid != null)
+            a = byServerId(sid, key.startsWith(Catalog.ELSE_CATEGORY + "|"));
+        if (a != null && Catalog.namesakes(a).size() > 1) a = namesake(a, o, sid);
+        if (a == null) {
+            a = Catalog.unknownAction(sid == null ? key : sid);
+            lost(key);
+            if (a == null) return null;
+        }
+        Node n = new Node(a);
+        readStrings(o, "dk", n.dynKeys);
+        readStrings(o, "dm", n.dynMarkerKeys);
+        int[] remap = move == null ? null : move.args();
+        readSlots(o, "v", n, k -> argIndex(n, k, remap), (el, idx) -> {
+            List<Value> list = n.valuesOf(idx);
+            String argType = n.dynKeys.isEmpty() && idx < n.action.args.size()
+                    ? n.action.args.get(idx).type : "Любое значение";
+            for (JsonElement ve : el.getAsJsonArray()) {
+                if (ve.isJsonPrimitive()) list.add(Value.fromLegacy(ve.getAsString(), argType));
+                else if (ve.isJsonObject()) list.add(Value.fromJson(ve.getAsJsonObject()));
+            }
+        });
+        readSlots(o, "m", n, k -> settingIndex(n, k),
+                (el, idx) -> n.markers.put(idx,
+                        Mapping.currentOption(n.action, idx, el.getAsString())));
+        readSlots(o, "mv", n, k -> settingIndex(n, k),
+                (el, idx) -> n.markerVars.put(idx, Value.fromJson(el.getAsJsonObject())));
+        if (o.has("c") && o.get("c").isJsonObject()) {
+            JsonArray one = new JsonArray();
+            one.add(o.getAsJsonObject("c"));
+            List<Node> read = readChain(one);
+            if (!read.isEmpty()) n.cond = read.get(0);
+        }
+        if (o.has("b")) n.body.addAll(readChain(o.getAsJsonArray("b")));
+        if (o.has("f") && o.get("f").isJsonPrimitive()) n.folded = o.get("f").getAsBoolean();
+        if (o.has("r") && o.get("r").isJsonObject()) n.raw = o.getAsJsonObject("r");
+        if (n.cond == null && Mapping.loaded() && Mapping.hasConditional(n.action))
+            Importer.adoptConditional(n);
+        return Upgrade.node(n);
     }
 }

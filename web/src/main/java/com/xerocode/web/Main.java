@@ -1,7 +1,6 @@
 package com.xerocode.web;
 
 import com.xerocode.Collab;
-import com.xerocode.Market;
 import com.xerocode.XeroCode;
 import com.xerocode.ui.EditorScreen;
 import com.xerocode.ui.Ui;
@@ -117,7 +116,6 @@ public final class Main {
             if (s != null) s.tick();
             try {
                 Collab.tick();
-                Market.tick();
             } catch (Throwable e) {
                 report(e);
             }

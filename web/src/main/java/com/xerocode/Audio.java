@@ -33,7 +33,6 @@ public final class Audio {
         else Sound.play();
     }
 
-    public static void stop() { Sound.stop(); }
 
     public static void rewind() { Sound.seek(0); }
 

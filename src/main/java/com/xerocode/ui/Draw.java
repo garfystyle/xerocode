@@ -159,6 +159,11 @@ public final class Draw {
         }
     }
 
+    public static void vgrad(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int top, int bottom) {
+        if (w <= 0 || h <= 0) return;
+        quad(ctx, x, y, x + w, y + h, top, bottom);
+    }
+
     public static void hgrad(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int left, int right) {
         if (w <= 0 || h <= 0) return;
         for (int i = 0; i < w; i++) {
@@ -455,13 +460,14 @@ public final class Draw {
             "## ## ",
             " #### ",
             "  ##  "};
-    public static final String[] HEART = {
-            " ## ## ",
-            "#######",
+    public static final String[] STAR = {
+            "   #   ",
+            "  ###  ",
             "#######",
             " ##### ",
             "  ###  ",
-            "   #   "};
+            " ## ## ",
+            "#     #"};
     public static final String[] SHOP = {
             "  #####  ",
             " #     # ",

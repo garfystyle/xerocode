@@ -35,6 +35,12 @@ public final class History {
 
     public static boolean undo(Script script) { return step(script, undo, redo); }
 
+    public static boolean revert(Script script) {
+        if (undo.isEmpty()) return false;
+        restore(script, undo.pop());
+        return true;
+    }
+
     public static boolean redo(Script script) { return step(script, redo, undo); }
 
     private static boolean step(Script script, Deque<String> from, Deque<String> to) {

@@ -2,11 +2,7 @@ package com.xerocode;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -90,10 +86,9 @@ public final class Menus {
     public static void load() {
         if (loaded || !Catalog.loaded()) return;
         loaded = true;
-        try (InputStream in = Menus.class.getResourceAsStream("/assets/xerocode/menus.json")) {
-            if (in == null) { XeroCode.LOG.error("[xerocode] menus.json not found in the jar"); return; }
-            JsonObject root = JsonParser.parseReader(
-                    new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+        try {
+            JsonObject root = Json.asset(Menus.class, "menus.json");
+            if (root == null) return;
             JsonObject menus = root.getAsJsonObject("menus");
             for (String name : menus.keySet()) {
                 Catalog.Category c = Catalog.category(name);

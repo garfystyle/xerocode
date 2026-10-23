@@ -329,6 +329,7 @@ public final class CatalogPicker extends PickerPanel {
 
     @Override
     public void mouseReleased() {
+        super.mouseReleased();
         bar.release();
         if (extra != null) extra.mouseReleased();
     }

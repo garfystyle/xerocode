@@ -189,6 +189,7 @@ public final class ExportScreen extends DialogScreen {
             lines.add(code != null && code.report().lines == 0
                     ? "Отправлено пустое — сервер чистит код мира."
                     : "Код отправлен — сервер раскладывает его блоками.");
+            if (job != null && !job.asked.isEmpty()) lines.add("Сервер переспросил, подтверждено: " + job.asked);
             for (String answer : answers) {
                 if (lines.size() >= 4) break;
                 lines.add(answer);

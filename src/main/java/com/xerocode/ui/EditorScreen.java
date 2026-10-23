@@ -1,5 +1,8 @@
 package com.xerocode.ui;
 
+import java.util.LinkedHashSet;
+import com.xerocode.Sync;
+import com.xerocode.Exporter;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -16,14 +19,12 @@ import com.xerocode.Functions;
 import com.xerocode.History;
 import com.xerocode.Importer;
 import com.xerocode.LineEdit;
-import com.xerocode.Localized;
 import com.xerocode.Mapping;
 import com.xerocode.Script;
 import com.xerocode.Settings;
 import com.xerocode.Stacks;
 import com.xerocode.Upgrade;
 import com.xerocode.Value;
-import com.xerocode.Values;
 import com.xerocode.XeroCode;
 import org.lwjgl.glfw.GLFW;
 
@@ -35,12 +36,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
@@ -55,6 +56,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private final Script script;
     private final Palette palette = new Palette();
     private TopBar top;
+    private Tips tips;
     private EditBox search;
 
     private double panX = 60, panY = 50, zoom = 1.0;
@@ -72,9 +74,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private Layout ghostLayout;
     private int ghostStamp = Integer.MIN_VALUE;
 
-    private final Set<Script.Node> picked = Collections.newSetFromMap(new IdentityHashMap<>());
-    private Set<Script.Node> coveredCache = Set.of();
-    private int pickedStamp = Integer.MIN_VALUE;
+    private final Selection picked = new Selection(new Selection.Host() {
+        @Override public Layout layout() { return EditorScreen.this.layout(); }
+        @Override public int stamp() { return layoutStamp; }
+        @Override public int screenX(double cx) { return toScreenX(cx); }
+        @Override public int screenY(double cy) { return toScreenY(cy); }
+    });
     private boolean banding;
     private int bandMode;
     private double bandX0, bandY0, bandX1, bandY1;
@@ -82,8 +87,6 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private boolean moving, moveShifted;
     private double moveDX, moveDY;
     private String moveSnapshot;
-    private ModulePick moduleDone;
-    private Screen moduleBack;
 
     private BackpackPanel backpack;
     private FindPanel finder;
@@ -98,7 +101,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private long panStart;
     private boolean panAnim;
     private final BlockView.Look look = new BlockView.Look();
-    private final BlockView.Accepts accepts = this::acceptsCarry;
+    private final BlockView.Accepts accepts = (box, chip) -> Carry.accepts(this.carry, box, chip);
 
     private List<Value> carry;
     private boolean carryHeld;
@@ -192,7 +195,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 width - canvasLeft(), canvasBottom() - Theme.TOPBAR_H);
     }
 
-    private boolean busy() { return drag != null || carry != null || moving; }
+    private boolean busy() { return drag != null || held != null || carry != null || moving; }
 
     private static final int PLUS_H = 24, PLUS_EDGE = 12, PLUS_DISC = 18;
     private static final String PLUS_LABEL = "Блоки";
@@ -247,6 +250,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private final List<Script.Root> lineOrder = new ArrayList<>();
     private final Map<Script.Root, Integer> lineOf = new IdentityHashMap<>();
+    private final Map<Script.Root, String> lineTag = new IdentityHashMap<>();
     private int lineStamp = Integer.MIN_VALUE;
     private Script.Root navRoot;
     private long navAt;
@@ -261,12 +265,14 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         lineStamp = layoutStamp;
         lineOrder.clear();
         lineOf.clear();
+        lineTag.clear();
         List<Script.Root> ordered = Finder.ordered(script);
         for (int i = 0; i < ordered.size(); i++) {
             Script.Root r = ordered.get(i);
             if (r.chain.isEmpty()) continue;
             lineOrder.add(r);
             lineOf.put(r, i + 1);
+            lineTag.put(r, String.valueOf(i + 1));
         }
     }
 
@@ -287,8 +293,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private String tagText(Layout.Box box) {
         if (!Settings.lineNumbers()) return "";
-        Integer n = lineOf(box.root);
-        return n == null ? "" : String.valueOf(n);
+        syncLines();
+        String s = lineTag.get(box.root);
+        return s == null ? "" : s;
     }
 
     private boolean tagCaret(Layout.Box box) { return box.root != null && box.root.foldable(); }
@@ -658,6 +665,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     protected void init() {
         changeHint = true;
         if (top == null) top = new TopBar(font, this);
+        if (tips == null) tips = new Tips(font, script);
         if (foot == null) foot = new StatusBar(font, new StatusBar.Host() {
             @Override public int lines() { return EditorScreen.this.lines(); }
             @Override public int blocks() { return countNodes(); }
@@ -693,6 +701,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         List<String> said = new ArrayList<>();
         String updated = XeroCode.updateNote();
         if (!updated.isEmpty()) said.add(updated);
+        String aside = Script.takeSetAside();
+        if (!aside.isEmpty()) said.add("полотно не прочиталось — файл отложен: " + aside);
         List<String> lost = Script.lostOnLoad();
         if (!lost.isEmpty()) {
             Script.forgetLost();
@@ -727,7 +737,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     @Override
     public boolean shouldCloseOnEsc() { return !Env.browser(); }
 
-    private void toast(String message) {
+    void toast(String message) {
         status = message;
         statusAt = System.currentTimeMillis();
     }
@@ -923,7 +933,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             Draw.roundOutline(ctx, b.x - 2, b.y - 2, b.w + 4, b.totalH + 4, 5,
                     Draw.argb(0xC0, soft));
         }
-        Layout.Box focus = focusNode == null || ink == 0 ? null : boxOf(focusNode);
+        Layout.Box focus = ink == 0 ? null : focusBox();
         if (focus != null && visible(focus, vx0, vy0, vx1, vy1)) {
             Draw.roundOutline(ctx, focus.x - 2, focus.y - 2, focus.w + 4, focus.totalH + 4, 5,
                     Draw.argb(ink, Theme.ACCENT));
@@ -934,7 +944,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     private boolean rides(Layout.Box box) {
-        return moving && coveredCache.contains(box.node);
+        return moving && picked.lastCovered().contains(box.node);
     }
 
     private void drawMoving(GuiGraphicsExtractor ctx, ScreenRectangle area,
@@ -946,46 +956,17 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         m.translate(dx, dy);
         double sx0 = vx0 - dx, sy0 = vy0 - dy, sx1 = vx1 - dx, sy1 = vy1 - dy;
         Draw.batch(Batch.open(ctx, area, area, 512));
-        for (Piece p : pieces())
+        for (Selection.Piece p : picked.pieces())
             for (Layout.Box box : p.boxes())
                 if (visible(box, sx0, sy0, sx1, sy1)) BlockView.shadow(ctx, box);
         Draw.batch(null);
-        for (Piece p : pieces()) {
+        for (Selection.Piece p : picked.pieces()) {
             Draw.batch(Batch.open(ctx, area, area, 512));
             for (Layout.Box box : p.boxes())
                 if (visible(box, sx0, sy0, sx1, sy1)) BlockView.block(ctx, font, box, look);
             Draw.batch(null);
         }
         m.popMatrix();
-    }
-
-    private void edges(GuiGraphicsExtractor ctx, List<int[]> segments, double dx, double dy, int argb,
-                       double vx0, double vy0, double vx1, double vy1) {
-        for (int[] s : segments) {
-            double a = s[0] + dx, b = s[1] + dy, c = s[2] + dx, d = s[3] + dy;
-            if (c < vx0 || a > vx1 || d < vy0 || b > vy1) continue;
-            int x0 = toScreenX(a), y0 = toScreenY(b);
-            if (s[1] == s[3]) Draw.rect(ctx, x0, y0, Math.max(1, toScreenX(c) - x0) + 2, 2, argb);
-            else Draw.rect(ctx, x0, y0, 2, Math.max(1, toScreenY(d) - y0) + 2, argb);
-        }
-    }
-
-    private void drawOutlines(GuiGraphicsExtractor ctx, List<Piece> list, double dx, double dy,
-                              ScreenRectangle area, double vx0, double vy0, double vx1, double vy1) {
-        List<Piece> shown = null;
-        int cap = 0;
-        for (Piece p : list) {
-            if (p.x() + dx + p.w() < vx0 || p.x() + dx > vx1
-                    || p.y() + dy + p.h() < vy0 || p.y() + dy > vy1) continue;
-            if (shown == null) shown = new ArrayList<>(list.size());
-            shown.add(p);
-            cap += p.edge().size();
-        }
-        if (shown == null) return;
-        Draw.batch(Batch.open(ctx, area, area, Math.min(cap, 2048)));
-        int ink = Draw.argb(0xF0, Theme.ACCENT);
-        for (Piece p : shown) edges(ctx, p.edge(), dx, dy, ink, vx0, vy0, vx1, vy1);
-        Draw.batch(null);
     }
 
     private void drawBand(GuiGraphicsExtractor ctx) {
@@ -995,7 +976,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         int bx = toScreenX(Math.min(bandX0, bandX1)), by = toScreenY(Math.min(bandY0, bandY1));
         int bw = toScreenX(Math.max(bandX0, bandX1)) - bx;
         int bh = toScreenY(Math.max(bandY0, bandY1)) - by;
-        int band = bandMode == BAND_SUB ? Theme.DANGER : Theme.ACCENT;
+        int band = bandMode == Selection.SUB ? Theme.DANGER : Theme.ACCENT;
         Draw.rect(ctx, bx, by, bw, bh, Draw.argb(0x26, band));
         Draw.roundOutline(ctx, bx, by, bw, bh, 2, Draw.argb(0xC0, band));
         Draw.batch(null);
@@ -1009,8 +990,23 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 toCanvasX(canvasRight()), toCanvasY(canvasBottom()),
                 mapDragging || map.hit(mouseX, mouseY));
         if (!found.isEmpty()) map.marks(ctx, found, Theme.ACCENT);
-        Layout.Box focus = focusNode == null ? null : boxOf(focusNode);
+        Layout.Box focus = focusBox();
         if (focus != null) map.marks(ctx, List.of(focus), Theme.OK);
+    }
+
+    private Layout focusLayout;
+    private Script.Node focusOf;
+    private Layout.Box focusCache;
+
+    private Layout.Box focusBox() {
+        if (focusNode == null) return null;
+        Layout l = layout();
+        if (l != focusLayout || focusNode != focusOf) {
+            focusLayout = l;
+            focusOf = focusNode;
+            focusCache = boxOf(focusNode);
+        }
+        return focusCache;
     }
 
     private void closeOverlays() {
@@ -1056,73 +1052,6 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         boolean list = node.args().get(arg).list;
         openValue(node, arg, canvasLeft() + 20, Theme.TOPBAR_H + 20,
                 false, list && slot != null && cell >= 0 && cell < slot.size() ? cell : -1);
-    }
-
-    private List<String> namesUsed(boolean parameters) {
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (Script.Root r : script.roots) collectNames(r.chain, parameters, counts);
-        List<String> out = new ArrayList<>(counts.keySet());
-        out.sort((a, b) -> counts.get(b) - counts.get(a));
-        return out;
-    }
-
-    private List<NamePick.Known> knownVars(Script.Node near) {
-        Script.Root here = near == null ? null : script.rootOf(near);
-        Map<String, int[]> seen = new LinkedHashMap<>();
-        for (Script.Root r : script.roots) {
-            boolean mine = r == here;
-            collectVars(r.chain, mine, seen);
-            if (!r.chain.isEmpty() && r.chain.get(0).declares())
-                for (Value p : Functions.parametersOf(r.chain.get(0)))
-                    note(seen, p.name, "line", mine);
-        }
-        List<NamePick.Known> out = new ArrayList<>(seen.size());
-        for (Map.Entry<String, int[]> e : seen.entrySet()) {
-            String key = e.getKey();
-            int cut = key.indexOf('\0');
-            out.add(new NamePick.Known(key.substring(cut + 1), key.substring(0, cut),
-                    e.getValue()[1] > 0, e.getValue()[0]));
-        }
-        return out;
-    }
-
-    private static void note(Map<String, int[]> seen, String name, String scope, boolean mine) {
-        if (name == null || name.isBlank()) return;
-        int[] n = seen.computeIfAbsent(scope + '\0' + name, k -> new int[2]);
-        n[0]++;
-        if (mine) n[1] = 1;
-    }
-
-    private static void collectVars(List<Script.Node> chain, boolean mine, Map<String, int[]> seen) {
-        for (Script.Node n : chain) {
-            for (List<Value> list : n.values.values())
-                for (Value v : list) noteValue(v, mine, seen);
-            for (Value v : n.markerVars.values()) noteValue(v, mine, seen);
-            if (n.cond != null) collectVars(List.of(n.cond), mine, seen);
-            collectVars(n.body, mine, seen);
-        }
-    }
-
-    private static void noteValue(Value v, boolean mine, Map<String, int[]> seen) {
-        if (Value.VARIABLE.equals(v.type)) note(seen, v.name, v.scope, mine);
-        for (Value it : v.items) noteValue(it, mine, seen);
-        for (Value k : v.keys) noteValue(k, mine, seen);
-    }
-
-    private static void collectNames(List<Script.Node> chain, boolean parameters,
-                                     Map<String, Integer> counts) {
-        String want = parameters ? Value.PARAMETER : Value.VARIABLE;
-        for (Script.Node n : chain) {
-            for (List<Value> list : n.values.values())
-                for (Value v : list)
-                    if (want.equals(v.type) && !v.name.isBlank())
-                        counts.merge(v.name, 1, Integer::sum);
-            for (Value v : n.markerVars.values())
-                if (want.equals(v.type) && !v.name.isBlank())
-                    counts.merge(v.name, 1, Integer::sum);
-            if (n.cond != null) collectNames(List.of(n.cond), parameters, counts);
-            collectNames(n.body, parameters, counts);
-        }
     }
 
     private static final int TAPE_SMALL = 48, QUIET_LIMIT = 20;
@@ -1215,8 +1144,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         layout = layout();
         framing = false;
         inFrame = true;
-        prunePicked();
-        if (moving) covered();
+        picked.prune();
+        if (moving) picked.covered();
         if (finder != null) finder.sync(layoutStamp);
         syncFound();
         updateHover(mouseX, mouseY);
@@ -1249,15 +1178,16 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         drawFound(ctx, vx0, vy0, vx1, vy1);
         drawMoving(ctx, area, vx0, vy0, vx1, vy1);
 
-        if (snap != null || drag != null) {
+        if (snap != null || drag != null || held != null) {
             Draw.batch(Batch.open(ctx, area, area, 512));
             if (snap != null) drawSnapMark(ctx);
             if (drag != null) drawDragged(ctx);
+            if (held != null) drawHeld(ctx);
             Draw.batch(null);
         }
 
         ctx.pose().popMatrix();
-        if (moving) drawOutlines(ctx, pieces(), Math.round(moveDX), Math.round(moveDY),
+        if (moving) picked.drawOutlines(ctx, picked.pieces(), Math.round(moveDX), Math.round(moveDY),
                 area, vx0, vy0, vx1, vy1);
         drawBand(ctx);
         Peers.render(ctx, font, script, layout, area, canvasLeft(), Theme.TOPBAR_H,
@@ -1285,10 +1215,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (editor != null) editor.render(ctx, mouseX, mouseY, delta);
         if (menu != null) menu.render(ctx, font, mouseX, mouseY);
         else if (blockMenu != null) blockMenu.render(ctx, mouseX, mouseY);
-        else if (!exitPrompt && settings == null && backpack == null && carry == null
-                && chest == null)
-            drawTooltips(ctx, mouseX, mouseY);
-        drawCarry(ctx, mouseX, mouseY);
+        else if (!modal() && carry == null) drawTooltips(ctx, mouseX, mouseY);
+        Carry.draw(ctx, font, carry, carryHeld, mouseX, mouseY, width, height);
         if (exitPrompt) drawExitPrompt(ctx, mouseX, mouseY);
         if (condPicker != null) {
             ctx.nextStratum();
@@ -1300,11 +1228,11 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
         if (chest != null) {
             ctx.nextStratum();
-            chest.render(ctx, mouseX, mouseY);
+            chest.render(ctx, mouseX, mouseY, delta);
             Catalog.Action tipped = chest.hoverAction();
             List<Component> tip = chest.hoverLines();
             if (tip == null) tip = chest.headLines(mouseX, mouseY);
-            if (tipped != null) actionTooltip(ctx, tipped, mouseX, mouseY);
+            if (tipped != null) tips.action(ctx, tipped, null, width, mouseX, mouseY);
             else if (tip != null) ctx.setComponentTooltipForNextFrame(font, tip, mouseX, mouseY);
         }
         if (settings != null) settings.render(ctx, mouseX, mouseY, delta);
@@ -1365,10 +1293,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                     && System.nanoTime() < budget, vx0, vy0, vx1, vy1);
             chunkTag(ctx, view.boxes.get(chunk.from), area, vx0, vy0, vx1, vy1);
             if (moving || picked.isEmpty() || view != layout) continue;
-            List<Piece> mine = byRoot().get(owner);
+            List<Selection.Piece> mine = picked.byRoot().get(owner);
             if (mine == null) continue;
             ctx.pose().popMatrix();
-            drawOutlines(ctx, mine, 0, 0, area, vx0, vy0, vx1, vy1);
+            picked.drawOutlines(ctx, mine, 0, 0, area, vx0, vy0, vx1, vy1);
             enterCanvas(ctx);
         }
     }
@@ -1406,7 +1334,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void updateHover(int mouseX, int mouseY) {
         hoverBox = null;
         hoverChip = null;
-        if (drag != null || moving || banding || menu != null || blockMenu != null
+        if (drag != null || moving || banding || modal()
                 || mouseX < canvasLeft() || mouseY < Theme.TOPBAR_H || mouseY >= canvasBottom()) return;
         if (editor != null && editor.contains(mouseX, mouseY)) return;
         if (finder != null && finder.contains(mouseX, mouseY)) return;
@@ -1497,18 +1425,65 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 x + 20, y + 42, w - 40, Theme.TEXT_FAINT, false);
     }
 
+    private static final class ChainView {
+        private List<Script.Node> chain;
+        private int x, y, key;
+        private Layout layout;
+
+        Layout at(List<Script.Node> chain, int x, int y, int key, Font font) {
+            if (layout == null || chain != this.chain || x != this.x || y != this.y || key != this.key) {
+                layout = Layout.ofChain(chain, x, y, font);
+                this.chain = chain;
+                this.x = x;
+                this.y = y;
+                this.key = key;
+            }
+            return layout;
+        }
+    }
+
+    private final ChainView draggedView = new ChainView(), markView = new ChainView();
+    private final List<ChainView> heldViews = new ArrayList<>();
+    private static final int HELD_X = 26, HELD_Y = 10;
+    private List<Script.Root> held;
+    private String heldName = "";
+    private List<Script.Node> sizedDrag;
+    private int sizedKey, payloadW, payloadH;
+
+    private int dragKey() { return style() * 31 + callsStamp; }
+
+    private void sizeDrag() {
+        int key = dragKey();
+        if (drag == sizedDrag && key == sizedKey) return;
+        payloadW = Layout.ofChain(drag, 0, 0, font).boxes.get(0).w;
+        payloadH = Layout.chainHeight(drag, font);
+        sizedDrag = drag;
+        sizedKey = key;
+    }
+
     private void drawDragged(GuiGraphicsExtractor ctx) {
         int px = (int) Math.round(mouseCanvasX - dragOffX);
         int py = (int) Math.round(mouseCanvasY - dragOffY);
-        Layout l = Layout.ofChain(drag, px, py, font);
+        Layout l = draggedView.at(drag, px, py, dragKey(), font);
         for (Layout.Box b : l.boxes) BlockView.shadow(ctx, b);
         for (Layout.Box b : l.boxes) BlockView.block(ctx, font, b, look);
+    }
+
+    private void drawHeld(GuiGraphicsExtractor ctx) {
+        int px = (int) Math.round(mouseCanvasX - HELD_X), py = (int) Math.round(mouseCanvasY - HELD_Y);
+        while (heldViews.size() < held.size()) heldViews.add(new ChainView());
+        for (int i = 0; i < held.size(); i++) {
+            Script.Root r = held.get(i);
+            Layout l = heldViews.get(i).at(r.chain, px + (int) r.x, py + (int) r.y, dragKey(), font);
+            for (Layout.Box b : l.boxes) BlockView.shadow(ctx, b);
+            for (Layout.Box b : l.boxes) BlockView.block(ctx, font, b, look);
+        }
     }
 
     private void drawSnapMark(GuiGraphicsExtractor ctx) {
         int mx = ghost != null ? ghost.x : snap.x;
         int my = ghost != null ? ghost.y : snap.y;
-        Layout mark = Layout.ofChain(drag, mx, my, font);
+        Layout mark = markView.at(drag, mx, my, dragKey(), font);
         int ink = Draw.opaque(Theme.GHOST);
         for (Layout.Box b : mark.boxes) BlockView.ghost(ctx, b, ink);
     }
@@ -1526,7 +1501,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Path dir = Codespace.savedDir();
         try {
             Files.createDirectories(dir);
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            XeroCode.LOG.warn("[xerocode] не удалось создать папку {}", dir, e);
         }
         toast(FileDialog.hint());
         FileDialog.open("Загрузить json", dir.toAbsolutePath() + File.separator,
@@ -1598,7 +1574,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             case TopBar.UPLOAD -> publish(null);
             case TopBar.LOAD -> openLoadDialog();
             case TopBar.BACKPACK -> openBackpack();
-            case TopBar.MARKET -> openMarket();
+            case TopBar.MARKET -> openModules();
             case TopBar.SETTINGS -> openSettings();
             case TopBar.ORIGINAL -> toOriginal();
             default -> { }
@@ -1667,16 +1643,32 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     public boolean touchScrolls(double mx, double my) {
-        if (condPicker != null || chest != null || backpack != null || settings != null) return true;
+        if (panel() != null) return true;
         if (menu != null && menu.contains(mx, my)) return true;
         if (blockMenu != null && blockMenu.contains(mx, my)) return true;
         if (editor != null && editor.contains(mx, my)) return true;
         return finder != null && finder.contains(mx, my);
     }
 
-    private boolean overlayOpen() {
-        return condPicker != null || chest != null || backpack != null || settings != null || menu != null
-                || blockMenu != null || editor != null;
+    private Overlay panel() {
+        if (condPicker != null) return condPicker;
+        if (chest != null) return chest;
+        if (backpack != null) return backpack;
+        return settings;
+    }
+
+    private boolean modal() {
+        return panel() != null || exitPrompt || menu != null || blockMenu != null;
+    }
+
+    private boolean overlayOpen() { return modal() || editor != null; }
+
+    private void settle(Overlay panel) {
+        if (!panel.isClosed()) return;
+        if (panel == condPicker) condPicker = null;
+        else if (panel == chest) chest = null;
+        else if (panel == backpack) backpack = null;
+        else if (panel == settings) closeSettings();
     }
 
     private void zoomTo(double target, double aroundX, double aroundY) {
@@ -1865,7 +1857,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (mouseX < canvasLeft()) {
             Palette.Entry e = palette.entryAt(mouseX, mouseY, canvasBottom());
             if (e == null) return;
-            if (e.action != null) actionTooltip(ctx, e.action, mouseX, mouseY);
+            if (e.action != null) tips.action(ctx, e.action, null, width, mouseX, mouseY);
             else if (e.category != null) {
                 List<Component> lines = new ArrayList<>();
                 lines.add(Component.literal(e.category.name));
@@ -1874,204 +1866,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             }
             return;
         }
-        if (hoverChip != null && hoverBox != null) { chipTooltip(ctx, mouseX, mouseY); return; }
+        if (hoverChip != null && hoverBox != null) {
+            tips.chip(ctx, hoverBox, hoverChip, width, mouseX, mouseY);
+            return;
+        }
         if (hoverBox != null)
-            actionTooltip(ctx, hoverBox.node.action, hoverBox.node, mouseX, mouseY);
-    }
-
-    private void chipTooltip(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
-        List<Component> lines = new ArrayList<>();
-        if (hoverChip.isPlus()) {
-            lines.add(Component.literal("Добавить параметр"));
-            lines.add(Component.literal("§8станет строчной переменной с этим именем"));
-        } else if (hoverChip.isCell()) {
-            Value p = hoverChip.value;
-            lines.add(Component.literal(p == null || p.name.isBlank() ? "параметр без имени" : p.name));
-            if (p != null) {
-                for (String line : paramAbout(p)) lines.add(Component.literal("§7" + line));
-                lines.add(Component.literal("§8принимает: §7" + p.paramNote()));
-                if (Value.ENUM.equals(p.typeKey)) {
-                    StringBuilder sb = new StringBuilder();
-                    for (Value.Elem e : p.elements) {
-                        if (sb.length() > 0) sb.append(", ");
-                        sb.append(e.name);
-                    }
-                    if (sb.length() > 0) lines.add(Component.literal("§8варианты: §7" + sb));
-                }
-            }
-            lines.add(Component.literal(Env.touch() ? "§8тап — правка, 2 пальца — удалить" : "§8ЛКМ — правка, ПКМ — удалить"));
-            if (!Env.touch() && p != null && !p.name.isBlank() && declaresParams(hoverBox, hoverChip))
-                lines.add(Component.literal("§8Shift+ПКМ — взять как строчную переменную"));
-            if (!chipValues(hoverBox, hoverChip).isEmpty())
-                lines.add(Component.literal("§8" + copyHint()));
-        } else if (hoverChip.isCondition()) {
-            Script.Node cond = hoverBox.node.cond;
-            lines.add(Component.literal(cond == null ? "Условие не выбрано" : cond.action.name));
-            if (cond == null) {
-                lines.add(Component.literal("§8блок работает по вложенному условию"));
-            } else {
-                lines.add(Component.literal("§8" + (cond.action.category == null
-                        ? "" : cond.action.category.name)
-                        + (cond.inverted() ? " §8· §7НЕ" : "")));
-                for (String line : describe(cond.action.description))
-                    lines.add(Component.literal("§7" + line));
-            }
-            lines.add(Component.literal(Env.touch() ? "§8тап — выбрать условие, 2 пальца — НЕ" : "§8ЛКМ — выбрать условие, ПКМ — НЕ"));
-        } else if (hoverChip.isArg()) {
-            Catalog.Arg arg = Layout.chipNode(hoverBox.node).args().get(hoverChip.argIndex);
-            lines.add(Component.literal(arg.purpose));
-            lines.add(Component.literal("§8слот: §7" + arg.type
-                    + (arg.list ? " §8· до " + arg.capacity + " значений" : "")));
-            Value v = hoverChip.value;
-            if (v != null) {
-                lines.add(Component.literal("§8значение: §7" + Values.kindName(v.type)
-                        + (v.note().isEmpty() ? "" : " §8· " + v.note())));
-                if (Value.GAME_VALUE.equals(v.type)) {
-                    Values.GameValue g = Values.gameValue(v.gameValue);
-                    if (g != null) {
-                        for (String line : describe(g.description)) lines.add(Component.literal("§7" + line));
-                        if (!g.returns.isEmpty())
-                            lines.add(Component.literal("§8возвращает: §7" + g.returns
-                                    + (g.returnsNote.isEmpty() ? "" : " §8— " + g.returnsNote)));
-                    }
-                }
-            }
-            lines.add(Component.literal(Env.touch() ? "§8тап — значение, 2 пальца — очистить" : "§8ЛКМ — значение, ПКМ — очистить"));
-            if (!chipValues(hoverBox, hoverChip).isEmpty())
-                lines.add(Component.literal("§8" + copyHint()));
-        } else {
-            Script.Node owner = Layout.chipNode(hoverBox.node);
-            Catalog.Setting s = owner.settings().get(hoverChip.settingIndex);
-            lines.add(Component.literal(s.label));
-            Value bound = owner.markerVar(hoverChip.settingIndex);
-            if (bound != null && !bound.name.isBlank()) {
-                Values.Scope sc = Values.scope(bound.scope);
-                lines.add(Component.literal("§8привязана к переменной: §7" + bound.name
-                        + (sc == null ? "" : " §8· " + sc.name())));
-                lines.add(Component.literal("§8по умолчанию: §7"
-                        + owner.marker(hoverChip.settingIndex)));
-            } else {
-                lines.add(Component.literal("§8" + s.options.size() + " вариантов"
-                        + (Env.touch() ? "" : " · Ctrl+колесо — листать")));
-            }
-        }
-        ctx.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY);
-    }
-
-    private static final int TOOLTIP_W = 260;
-
-    private int tooltipW() { return Math.max(120, Math.min(TOOLTIP_W, width - 40)); }
-
-    private List<String> describe(String description) {
-        List<String> out = new ArrayList<>();
-        if (description == null || description.isBlank()) return out;
-        int room = tooltipW();
-        for (String part : description.split("(?=»)")) {
-            String piece = part.trim();
-            if (piece.isEmpty()) continue;
-            StringBuilder line = new StringBuilder();
-            for (String word : piece.split(" ")) {
-                String next = line.isEmpty() ? word : line + " " + word;
-                if (!line.isEmpty() && font.width(next) > room) {
-                    out.add(line.toString());
-                    line = new StringBuilder(word);
-                } else {
-                    line = new StringBuilder(next);
-                }
-            }
-            if (!line.isEmpty()) out.add(line.toString());
-        }
-        return out;
-    }
-
-    private void actionTooltip(GuiGraphicsExtractor ctx, Catalog.Action a, int mouseX, int mouseY) {
-        actionTooltip(ctx, a, null, mouseX, mouseY);
-    }
-
-    private void actionTooltip(GuiGraphicsExtractor ctx, Catalog.Action a, Script.Node node,
-                               int mouseX, int mouseY) {
-        List<Component> lines = new ArrayList<>();
-        lines.add(Component.literal(a.name));
-        if (a.category != null)
-            lines.add(Component.literal("§8" + a.category.name
-                    + (a.subcategory == null ? "" : " / " + a.subcategory)));
-        for (String line : describe(a.description)) lines.add(Component.literal("§7" + line));
-        if (a.unavailable) lines.add(Component.literal("§eНедоступно в этом мире"));
-        if (!a.args.isEmpty()) {
-            lines.add(Component.literal("§fАргументы:"));
-            for (Catalog.Arg g : a.args)
-                lines.add(Component.literal("§8• §7" + g.purpose + " §8— " + g.type
-                        + (g.list ? " (до " + g.capacity + ")" : "")));
-        }
-        if (!a.settings.isEmpty()) {
-            lines.add(Component.literal("§fНастройки:"));
-            for (Catalog.Setting s : a.settings)
-                lines.add(Component.literal("§8• §7" + s.label + " §8= " + s.def));
-        }
-        if (node != null && node.cond != null) {
-            lines.add(Component.literal("§fУсловие:"));
-            lines.add(Component.literal("§8• §7" + (node.cond.inverted() ? "НЕ " : "")
-                    + node.cond.action.name));
-            for (Catalog.Arg g : node.cond.action.args)
-                lines.add(Component.literal("§8• §7" + g.purpose + " §8— " + g.type));
-        } else if (node != null && Mapping.hasConditional(a)) {
-            lines.add(Component.literal("§eУсловие не выбрано"));
-        }
-        if (node != null && (node.declares() || node.invokes())) functionTooltip(lines, node);
-        if (node != null) {
-            int target = node.settingIndex(Catalog.TARGET);
-            int invert = node.settingIndex(Catalog.INVERT);
-            if (target >= 0)
-                lines.add(Component.literal("§fЦель: §7" + node.marker(target)));
-            if (invert >= 0 && Catalog.INVERT_ON.equals(node.marker(invert)))
-                lines.add(Component.literal("§fУсловие: §cНЕ выполнено"));
-            if (target >= 0 || invert >= 0)
-                lines.add(Component.literal((Env.touch() ? "§8отпусти — " : "§8ПКМ — ")
-                        + (target >= 0 ? "цель" : "") + (target >= 0 && invert >= 0 ? " и " : "")
-                        + (invert >= 0 ? "«НЕ»" : "")));
-        }
-        ctx.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY);
-    }
-
-    private void functionTooltip(List<Component> lines, Script.Node node) {
-        boolean declares = node.declares();
-        String name = declares ? Functions.nameOf(node) : Functions.targetOf(node);
-        Script.Node decl = node;
-        if (!declares) {
-            Functions.Known known = Functions.of(script);
-            Functions.Signature s = (node.isStart() ? known.processes() : known.functions()).get(name);
-            if (s == null) {
-                lines.add(Component.literal(name.isBlank()
-                        ? "§eФункция не выбрана"
-                        : "§eНа полотне нет " + (node.isStart() ? "процесса" : "функции") + " «"
-                                + name + "»"));
-                return;
-            }
-            decl = s.declaration();
-            String shown = Layout.titleOf(s);
-            lines.add(Component.literal("§f" + shown));
-            if (!shown.equals(name)) lines.add(Component.literal("§8" + name));
-        }
-        if (declares) {
-            Value display = Functions.displayOf(decl);
-            if (display != null)
-                lines.add(Component.literal("§8отображается как §7"
-                        + McText.plain(display.text, display.parsing).trim()));
-        }
-        List<Value> params = Functions.parametersOf(decl);
-        if (params.isEmpty()) {
-            lines.add(Component.literal("§8без параметров"));
-        } else {
-            lines.add(Component.literal("§fПараметры:"));
-            for (Value p : params)
-                lines.add(Component.literal("§8• §7" + (p.name.isBlank() ? "без имени" : p.name)
-                        + " §8— " + p.paramNote()));
-        }
-        List<String> desc = Layout.descAll(decl);
-        if (!desc.isEmpty()) {
-            lines.add(Component.literal("§fОписание:"));
-            for (String d : desc) lines.add(Component.literal("§7" + d));
-        }
+            tips.action(ctx, hoverBox.node.action, hoverBox.node, width, mouseX, mouseY);
     }
 
     @Override
@@ -2082,32 +1882,17 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         mouseCanvasY = toCanvasY(my);
         int button = click.button();
 
-        if (condPicker != null) {
-            condPicker.mouseClicked(click, doubled);
-            if (condPicker.isClosed()) condPicker = null;
-            return true;
-        }
-        if (chest != null) {
-            ChestMenu panel = chest;
-            panel.mouseClicked(click);
-            if (panel.isClosed() && chest == panel) chest = null;
-            return true;
-        }
-        if (backpack != null) {
-            BackpackPanel panel = backpack;
+        Overlay panel = panel();
+        if (panel != null) {
             panel.mouseClicked(click, doubled);
-            if (panel.isClosed() || backpack != panel) backpack = null;
-            return true;
-        }
-        if (settings != null) {
-            settings.mouseClicked(click, doubled);
-            if (settings.isClosed()) closeSettings();
+            settle(panel);
             return true;
         }
         if (exitPrompt) return exitPromptClicked(mx, my);
         if (menu != null) {
-            menu.mouseClicked(mx, my);
-            if (menu.isClosed()) menu = null;
+            Menu open = menu;
+            open.mouseClicked(mx, my);
+            if (open.isClosed() && menu == open) menu = null;
             return true;
         }
         if (blockMenu != null) {
@@ -2141,18 +1926,20 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             }
             return true;
         }
+        if (held != null) {
+            if (button == 0 && mx >= canvasLeft() && my >= Theme.TOPBAR_H && my < canvasBottom()) placeHeld();
+            else cancelHeld();
+            return true;
+        }
         if (drag != null && dragAwaitsClick) {
             if (button == 0 && mx >= canvasLeft() && my >= Theme.TOPBAR_H && my < canvasBottom()) {
                 finishDrag(mx, my);
             } else {
-                drag = null;
-                snap = null;
-                dragSnapshot = null;
-                dragAwaitsClick = false;
-                toast("отменено");
+                cancelDrag();
             }
             return true;
         }
+        if (drag != null) return true;
         soloKey = Settings.NONE;
         if (drag == null && carry == null && !moving && mouseHotkey(click)) return true;
         if (drag == null && carry == null && barClicked(mx, my)) return true;
@@ -2224,8 +2011,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         hoverChip = pendChip;
         pendChip = null;
         switch (hot) {
-            case DELETE -> { if (covered().contains(box.node)) deletePicked(); else deleteHovered(); }
-            case DEL_STACK -> { if (covered().contains(box.node)) deletePicked(); else deleteStackHovered(); }
+            case DELETE -> { if (picked.covered().contains(box.node)) deletePicked(); else deleteHovered(); }
+            case DEL_STACK -> { if (picked.covered().contains(box.node)) deletePicked(); else deleteStackHovered(); }
             case GO_DEF -> goTo(box.node);
             default -> runHotkey(hot);
         }
@@ -2291,7 +2078,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
         boolean add = (mods & GLFW.GLFW_MOD_SHIFT) != 0;
         boolean sub = (mods & (GLFW.GLFW_MOD_CONTROL | GLFW.GLFW_MOD_ALT)) != 0;
-        if (button == 0 && (add || sub)) {
+        if (button == 0 && (add || sub) && !overChip()) {
             Layout.Box box = grabAt();
             if (box != null) {
                 if ((mods & GLFW.GLFW_MOD_CONTROL) != 0 && !add) {
@@ -2300,11 +2087,11 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                     pressY = my;
                     return true;
                 }
-                if (sub) unpick(box);
-                else togglePicked(box);
+                if (sub) picked.unpick(box);
+                else picked.toggle(box);
                 return true;
             }
-            startBand(sub ? BAND_SUB : BAND_ADD);
+            startBand(sub ? Selection.SUB : Selection.ADD);
             return true;
         }
         Layout l = layout();
@@ -2326,7 +2113,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             Layout.Chip chip = button <= 1 ? box.chipAt(mouseCanvasX, mouseCanvasY) : null;
             if (chip != null) {
                 if (button == 1 && add && paramVariable(box, chip)) return true;
-                if (button == 0 && !chipValues(box, chip).isEmpty()) {
+                if (button == 0 && !Carry.values(box, chip).isEmpty()) {
                     pressBox = box;
                     pressChip = chip;
                     pressX = mx;
@@ -2352,7 +2139,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 return true;
             }
             if (button != 0) break;
-            if (covered().contains(box.node)) startMove();
+            if (picked.covered().contains(box.node)) startMove();
             else startDrag(box);
             return true;
         }
@@ -2361,7 +2148,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             quickAdd(null, mouseCanvasX, mouseCanvasY, true);
             return true;
         }
-        if (button == 0 && !spaceHeld() && !Env.touch()) { startBand(BAND_NEW); return true; }
+        if (button == 0 && !spaceHeld() && !Env.touch()) { startBand(Selection.NEW); return true; }
         if (button == 1) {
             emptyPress = true;
             emptyX = mouseCanvasX;
@@ -2391,7 +2178,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void startBand(int mode) {
         closeOverlays();
         bandMode = mode;
-        if (mode == BAND_NEW) clearPicked();
+        if (mode == Selection.NEW) clearPicked();
         banding = true;
         bandX0 = bandX1 = mouseCanvasX;
         bandY0 = bandY1 = mouseCanvasY;
@@ -2417,23 +2204,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (!moveShifted || (dx == 0 && dy == 0)) { moveSnapshot = null; return; }
         pushUndo(moveSnapshot);
         moveSnapshot = null;
-        List<Script.Root> born = new ArrayList<>();
-        for (Piece p : pieces()) {
-            Layout.Box head = p.head();
-            if (head.index == 0 && !head.nested && head.root != null) {
-                head.root.x += dx;
-                head.root.y += dy;
-                continue;
-            }
-            List<Script.Node> tail = head.owner.subList(head.index, head.owner.size());
-            Script.Root r = new Script.Root(head.x + dx, head.y + dy);
-            r.chain.addAll(tail);
-            tail.clear();
-            born.add(r);
-        }
-        script.roots.addAll(born);
-        script.roots.removeIf(r -> r.chain.isEmpty());
-        pickedChanged();
+        picked.moveBy(script, dx, dy);
     }
 
     private void cancelMove() {
@@ -2452,6 +2223,17 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 return b;
         }
         return null;
+    }
+
+    private boolean overChip() {
+        Layout l = layout();
+        for (int i = l.boxes.size() - 1; i >= 0; i--) {
+            Layout.Box b = l.boxes.get(i);
+            if (!b.contains(mouseCanvasX, mouseCanvasY)) continue;
+            if (b.chipAt(mouseCanvasX, mouseCanvasY) != null) return true;
+            if (b.hitGrab(mouseCanvasX, mouseCanvasY) || b.hitTail(mouseCanvasX, mouseCanvasY)) return false;
+        }
+        return false;
     }
 
     private boolean cardClicked(Layout.Box box, int mx, int my) {
@@ -2553,7 +2335,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         editorUndo = snapshot();
         editor = ValueEditor.forCell(start, "Настройка «" + label + "»", Value.VARIABLE,
                 font, toScreenX(chip.x), toScreenY(chip.y + Layout.CHIP_H) + 2,
-                width, height, knownVars(node), namesUsed(true),
+                width, height, ScriptNames.known(script, node), ScriptNames.used(script, true),
                 edited -> node.bindMarker(settingIndex, edited));
     }
 
@@ -2652,6 +2434,11 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (variable != null)
             m.row(Draw.SEARCH, "Найти переменную «" + variable + "»", null,
                     () -> openFinder(variable));
+        Value item = heldItem(box);
+        if (item != null)
+            m.row(Draw.COPY, "Копировать предмет для Xero", null, () -> copyForXero(item));
+        if (!Env.browser() && minecraft.level != null && Codespace.inDev(minecraft.level))
+            m.row(Draw.UPLOAD, "Выложить модулем JustMC…", null, () -> publishModule(box));
 
         m.gap();
         m.row(Draw.COPY, tail ? "Копировать стопку" : "Копировать",
@@ -2676,10 +2463,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         m.row(Draw.PACK, tail ? "Стопку в рюкзак" : "В рюкзак",
                 Settings.Hot.STASH, () -> stashBlock(box, true));
         if (tail) m.row(Draw.PACK, "Блок в рюкзак", null, () -> stashBlock(box, false));
-        m.row(Draw.SELECT, covered().contains(box.node) ? "Убрать из выделения" : "Выделить",
-                null, () -> togglePicked(box));
+        m.row(Draw.SELECT, picked.covered().contains(box.node) ? "Убрать из выделения" : "Выделить",
+                null, () -> picked.toggle(box));
         if (!picked.isEmpty()) {
-            String said = "  ·  " + Ui.plural(pieces().size(), "кусок", "куска", "кусков");
+            String said = "  ·  " + Ui.plural(picked.pieces().size(), "кусок", "куска", "кусков");
             m.row(Draw.COPY, "Копировать выделенное" + said, Settings.Hot.COPY, this::copyPicked);
             m.row(Draw.PACK, "Выделенное в рюкзак" + said, null, this::stashPicked);
             m.row(Draw.CROSS, "Снять выделение", null, this::clearPicked);
@@ -2709,7 +2496,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                            boolean add, int select) {
         editorUndo = snapshot();
         ValueEditor open = new ValueEditor(node, argIndex, font, sx, sy, width, height,
-                knownVars(node), namesUsed(true));
+                ScriptNames.known(script, node), ScriptNames.used(script, true));
         if (add) open.addCell();
         else if (select >= 0) open.select(select);
         editor = open;
@@ -2766,25 +2553,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 });
     }
 
-    private static boolean declaresParams(Layout.Box box, Layout.Chip chip) {
-        return chip.isCell() && chip.argIndex == Catalog.FN_PARAMS && Layout.chipNode(box.node).declares();
-    }
-
-    private List<String> paramAbout(Value p) {
-        List<String> out = new ArrayList<>();
-        String raw = Localized.text(p.paramDesc);
-        if (raw.isBlank()) return out;
-        String plain = McText.plain(raw, Localized.parsing(p.paramDesc));
-        for (String part : plain.replace("\\n", "\n").split("\n")) {
-            if (out.size() >= 6) break;
-            out.addAll(describe(part));
-        }
-        return out.size() > 6 ? new ArrayList<>(out.subList(0, 6)) : out;
-    }
-
     private boolean paramVariable(Layout.Box box, Layout.Chip chip) {
         Script.Node n = Layout.chipNode(box.node);
-        if (!declaresParams(box, chip)) return false;
+        if (!Carry.paramCell(box, chip)) return false;
         List<Value> params = n.values.get(Catalog.FN_PARAMS);
         if (params == null || chip.cell >= params.size()) return false;
         Value param = params.get(chip.cell);
@@ -2797,13 +2568,34 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return true;
     }
 
+    private void endDrag() {
+        drag = null;
+        snap = null;
+        dragSnapshot = null;
+    }
+
+    private void dropEmpty(Script.Root root) {
+        if (root != null && root.chain.isEmpty()) script.roots.remove(root);
+    }
+
+    private void cancelDrag() {
+        boolean lifted = drag != null && !dragFromPalette;
+        endDrag();
+        dragAwaitsClick = false;
+        if (lifted && History.revert(script)) {
+            Collab.afterHistory(script);
+            revision++;
+        }
+        toast("отменено");
+    }
+
     private void startDragOne(Layout.Box box) {
         closeOverlays();
         heldRoot = box.root;
         pushUndo();
         drag = new ArrayList<>();
         drag.add(box.owner.remove(box.index));
-        if (box.root != null && box.root.chain.isEmpty()) script.roots.remove(box.root);
+        dropEmpty(box.root);
         dragOffX = mouseCanvasX - box.x;
         dragOffY = mouseCanvasY - box.y;
         dragFromPalette = false;
@@ -2817,7 +2609,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         pushUndo();
         drag = new ArrayList<>(box.owner.subList(box.index, box.owner.size()));
         box.owner.subList(box.index, box.owner.size()).clear();
-        if (box.root != null && box.root.chain.isEmpty()) script.roots.remove(box.root);
+        dropEmpty(box.root);
         dragOffX = mouseCanvasX - box.x;
         dragOffY = mouseCanvasY - box.y;
         dragFromPalette = false;
@@ -2835,10 +2627,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     private static String blocksText(List<Script.Node> chain) {
-        int n = Script.blocks(chain);
-        String word = n % 10 == 1 && n % 100 != 11 ? "блок"
-                : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "блока" : "блоков";
-        return n + " " + word;
+        return Ui.plural(Script.blocks(chain), "блок", "блока", "блоков");
     }
 
     private void duplicate(Layout.Box box, boolean wholeStack) {
@@ -2886,7 +2675,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Clip.copy(chain);
         pushUndo();
         box.owner.subList(box.index, box.owner.size()).clear();
-        if (box.root != null && box.root.chain.isEmpty()) script.roots.remove(box.root);
+        dropEmpty(box.root);
         toast("вырезано · " + blocksText(chain));
     }
 
@@ -2901,7 +2690,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Clip.copy(chain);
         pushUndo();
         box.owner.remove(box.index);
-        if (box.root != null && box.root.chain.isEmpty()) script.roots.remove(box.root);
+        dropEmpty(box.root);
         toast("блок вырезан · " + blocksText(chain));
     }
 
@@ -2936,12 +2725,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         holdChain(chain, "вставлено · " + blocksText(chain) + " — " + Ui.click() + " по полотну поставит");
     }
 
-    public void openMarket() {
+    public void openModules() {
         closeOverlays();
         rememberView();
         saveScript();
         XeroCode.canvasClosed();
-        minecraft.gui.setScreen(new MarketScreen(script, this));
+        minecraft.gui.setScreen(new ModulesScreen(script, this));
     }
 
     private void openBackpack() {
@@ -2959,6 +2748,52 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         List<Script.Node> chain = item.copy();
         if (chain.isEmpty()) return;
         holdOnCursor(chain, item.name);
+    }
+
+    public void holdModule(List<Script.Root> roots, String name) {
+        if (roots.isEmpty()) return;
+        if (roots.size() == 1) {
+            holdOnCursor(roots.get(0).chain, name);
+            return;
+        }
+        double x0 = Double.MAX_VALUE, y0 = Double.MAX_VALUE;
+        for (Script.Root r : roots) {
+            x0 = Math.min(x0, r.x);
+            y0 = Math.min(y0, r.y);
+        }
+        for (Script.Root r : roots) {
+            r.x = Math.round(r.x - x0);
+            r.y = Math.round(r.y - y0);
+        }
+        closeOverlays();
+        menu = null;
+        blockMenu = null;
+        held = new ArrayList<>(roots);
+        heldName = name;
+        swallowRelease = true;
+        toast("«" + name + "» на курсоре · " + Ui.plural(roots.size(), "стопка", "стопки", "стопок")
+                + " — " + Ui.click() + " по полотну поставит, Esc — отмена");
+    }
+
+    private void placeHeld() {
+        List<Script.Root> roots = held;
+        held = null;
+        heldViews.clear();
+        pushUndo();
+        double dx = Math.round(mouseCanvasX - HELD_X), dy = Math.round(mouseCanvasY - HELD_Y);
+        for (Script.Root r : roots) {
+            r.x += dx;
+            r.y += dy;
+            script.roots.add(r);
+        }
+        picked.set(roots);
+        toast("«" + heldName + "» на полотне · Ctrl+Z вернёт");
+    }
+
+    private void cancelHeld() {
+        held = null;
+        heldViews.clear();
+        toast("отменено");
     }
 
     private void holdOnCursor(List<Script.Node> chain, String name) {
@@ -2998,183 +2833,16 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         stashBlock(hoverBox, true);
     }
 
-    private static final int BAND_NEW = 0, BAND_ADD = 1, BAND_SUB = 2;
+    private void clearPicked() { picked.clear(); }
 
-    private record Piece(Layout.Box head, List<Layout.Box> boxes,
-                         int x, int y, int w, int h, List<int[]> edge) {}
+    private String pickedSaid() { return picked.said(); }
 
-    private List<Piece> pieceCache = List.of();
-    private Map<Script.Root, List<Piece>> byRootCache = Map.of();
-    private Map<Script.Node, Piece> pieceByNode = Map.of();
-    private int pieceStamp = Integer.MIN_VALUE;
-    private String saidCache = "";
-
-    private Map<Script.Root, List<Piece>> byRoot() {
-        pieces();
-        return byRootCache;
-    }
-
-    private void pickedChanged() {
-        pieceStamp = Integer.MIN_VALUE;
-        pickedStamp = layoutStamp;
-    }
-
-    private void clearPicked() {
-        if (picked.isEmpty()) return;
-        picked.clear();
-        pickedChanged();
-    }
-
-    private static void tailNodes(List<Script.Node> owner, int from, Set<Script.Node> out) {
-        for (int i = from; i < owner.size(); i++) subtree(owner.get(i), out);
-    }
-
-    private static void subtree(Script.Node node, Set<Script.Node> out) {
-        out.add(node);
-        if (node.cond != null) out.add(node.cond);
-        for (Script.Node kid : node.body) subtree(kid, out);
-    }
-
-    private void pick(Layout.Box box) {
-        if (box == null) return;
-        Set<Script.Node> tail = Collections.newSetFromMap(new IdentityHashMap<>());
-        tailNodes(box.owner, box.index, tail);
-        if (covered().contains(box.node)) return;
-        picked.removeIf(tail::contains);
-        picked.add(box.node);
-        pickedChanged();
-    }
-
-    private Piece pieceOf(Script.Node node) {
-        pieces();
-        return pieceByNode.get(node);
-    }
-
-    private void unpick(Layout.Box box) {
-        Piece p = box == null ? null : pieceOf(box.node);
-        if (p == null) return;
-        picked.remove(p.head().node);
-        pickedChanged();
-    }
-
-    private void togglePicked(Layout.Box box) {
-        if (box == null) return;
-        if (covered().contains(box.node)) unpick(box); else pick(box);
-    }
-
-    private void prunePicked() {
-        if (pickedStamp == layoutStamp) return;
-        pickedStamp = layoutStamp;
-        pieceStamp = Integer.MIN_VALUE;
-        if (picked.isEmpty()) return;
-        Set<Script.Node> live = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (Layout.Box b : layout().boxes) live.add(b.node);
-        picked.removeIf(n -> !live.contains(n));
-    }
-
-    private Set<Script.Node> covered() {
-        pieces();
-        return coveredCache;
-    }
-
-    private List<Piece> pieces() {
-        Layout l = layout();
-        if (pieceStamp == layoutStamp) return pieceCache;
-        pieceStamp = layoutStamp;
-        pieceCache = List.of();
-        byRootCache = Map.of();
-        pieceByNode = Map.of();
-        coveredCache = Set.of();
-        saidCache = "";
-        if (picked.isEmpty()) return pieceCache;
-        List<Layout.Box> heads = new ArrayList<>(picked.size());
-        for (Layout.Box b : l.boxes) if (picked.contains(b.node)) heads.add(b);
-        Map<Script.Node, Integer> headOf = new IdentityHashMap<>();
-        Set<Script.Node> tail = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (int i = 0; i < heads.size(); i++) {
-            Layout.Box head = heads.get(i);
-            tail.clear();
-            tailNodes(head.owner, head.index, tail);
-            for (Script.Node n : tail) headOf.put(n, i);
-        }
-        int[][] bounds = new int[heads.size()][];
-        List<List<int[]>> rects = new ArrayList<>(heads.size());
-        List<List<Layout.Box>> mine = new ArrayList<>(heads.size());
-        for (int i = 0; i < heads.size(); i++) {
-            rects.add(new ArrayList<>());
-            mine.add(new ArrayList<>());
-            bounds[i] = new int[]{Integer.MAX_VALUE, Integer.MAX_VALUE,
-                    Integer.MIN_VALUE, Integer.MIN_VALUE};
-        }
-        for (Layout.Box b : l.boxes) {
-            Integer at = headOf.get(b.node);
-            if (at == null) continue;
-            shapeOf(b, rects.get(at));
-            mine.get(at).add(b);
-            int[] r = bounds[at];
-            r[0] = Math.min(r[0], b.x);
-            r[1] = Math.min(r[1], b.y);
-            r[2] = Math.max(r[2], b.x + b.w);
-            r[3] = Math.max(r[3], b.bottom());
-        }
-        Piece[] made = new Piece[heads.size()];
-        List<Piece> out = new ArrayList<>(heads.size());
-        int blocks = 0;
-        for (int i = 0; i < heads.size(); i++) {
-            if (rects.get(i).isEmpty()) continue;
-            int[] r = bounds[i];
-            made[i] = new Piece(heads.get(i), mine.get(i),
-                    r[0], r[1], r[2] - r[0], r[3] - r[1], Outline.of(rects.get(i), 3));
-            out.add(made[i]);
-            blocks += Script.blocks(chainOfPiece(made[i]));
-        }
-        out.sort((a, b) -> a.y() != b.y() ? a.y() - b.y() : a.x() - b.x());
-        Map<Script.Root, List<Piece>> byRoot = new IdentityHashMap<>();
-        for (Piece p : out)
-            byRoot.computeIfAbsent(p.head().root, k -> new ArrayList<>()).add(p);
-        Map<Script.Node, Piece> byNode = new IdentityHashMap<>(headOf.size() * 2);
-        for (Map.Entry<Script.Node, Integer> e : headOf.entrySet())
-            if (made[e.getValue()] != null) byNode.put(e.getKey(), made[e.getValue()]);
-        pieceCache = out;
-        byRootCache = byRoot;
-        pieceByNode = byNode;
-        coveredCache = byNode.keySet();
-        saidCache = (out.size() > 1 ? Ui.plural(out.size(), "кусок", "куска", "кусков") + " · " : "")
-                + Ui.plural(blocks, "блок", "блока", "блоков");
-        return out;
-    }
-
-    private static void shapeOf(Layout.Box b, List<int[]> out) {
-        out.add(new int[]{b.x, b.y, b.x + b.w, b.y + b.headerH});
-        if (!b.node.wraps()) return;
-        int arm = b.armY();
-        out.add(new int[]{b.x, b.y + b.headerH - 1, b.x + Layout.INDENT + 1, arm + 1});
-        out.add(new int[]{b.x, arm, b.x + b.w, arm + Layout.ARM_H});
-    }
-
-    private static List<Script.Node> copyOf(Piece p) {
-        Layout.Box head = p.head();
-        List<Script.Node> out = new ArrayList<>();
-        for (int i = head.index; i < head.owner.size(); i++) out.add(head.owner.get(i).copy());
-        return out;
-    }
-
-    private static List<Script.Node> chainOfPiece(Piece p) {
-        Layout.Box head = p.head();
-        return head.owner.subList(head.index, head.owner.size());
-    }
-
-    private String pickedSaid() {
-        pieces();
-        return saidCache;
-    }
+    private List<Script.Root> pickedAsRoots() { return picked.asRoots(); }
 
     private void selectAll() {
         if (script.roots.isEmpty()) { toast("полотно пустое"); return; }
         closeOverlays();
-        picked.clear();
-        for (Script.Root r : script.roots) if (!r.chain.isEmpty()) picked.add(r.chain.get(0));
-        pickedChanged();
+        picked.set(script.roots);
     }
 
     private void stashPicked() {
@@ -3187,31 +2855,11 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         toast("в рюкзаке «" + item.name + "» · " + item.blocksText());
     }
 
-    private List<Script.Root> pickedAsRoots() {
-        List<Script.Root> out = new ArrayList<>();
-        for (Piece p : pieces()) {
-            List<Script.Node> chain = copyOf(p);
-            if (chain.isEmpty()) continue;
-            Script.Root r = new Script.Root(p.head().x, p.head().y);
-            r.chain.addAll(chain);
-            out.add(r);
-        }
-        return out;
-    }
-
-    private void cutOut() {
-        for (Piece p : pieces()) {
-            Layout.Box head = p.head();
-            head.owner.subList(head.index, head.owner.size()).clear();
-        }
-        script.roots.removeIf(r -> r.chain.isEmpty());
-    }
-
     private void deletePicked() {
         if (picked.isEmpty()) return;
         String said = pickedSaid();
         pushUndo();
-        cutOut();
+        picked.cutOut(script);
         clearPicked();
         hoverBox = null;
         toast("удалено " + said);
@@ -3230,7 +2878,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         Clip.copyRoots(roots);
         String said = pickedSaid();
         pushUndo();
-        cutOut();
+        picked.cutOut(script);
         clearPicked();
         hoverBox = null;
         toast("вырезано " + said);
@@ -3240,14 +2888,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         List<Script.Root> copies = pickedAsRoots();
         if (copies.isEmpty()) return;
         pushUndo();
-        picked.clear();
         for (Script.Root r : copies) {
             r.x += 24;
             r.y += 24;
             script.roots.add(r);
-            picked.add(r.chain.get(0));
         }
-        pickedChanged();
+        picked.set(copies);
         toast("продублировано " + pickedSaid());
     }
 
@@ -3276,49 +2922,19 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             dy = Math.round(toCanvasY(midY()) - (y0 + y1) / 2 - 40);
         }
         pushUndo();
-        picked.clear();
         for (Script.Root r : roots) {
             r.x += dx;
             r.y += dy;
             script.roots.add(r);
-            picked.add(r.chain.get(0));
         }
-        pickedChanged();
+        picked.set(roots);
         toast(note == null ? "вставлено " + pickedSaid() : note);
-    }
-
-    private List<Layout.Box> bandHits() {
-        double x0 = Math.min(bandX0, bandX1), x1 = Math.max(bandX0, bandX1);
-        double y0 = Math.min(bandY0, bandY1), y1 = Math.max(bandY0, bandY1);
-        if (x1 - x0 < 3 && y1 - y0 < 3) return List.of();
-        List<Layout.Box> out = new ArrayList<>();
-        Set<Script.Node> taken = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (Layout.Box b : layout().boxes) {
-            if (taken.contains(b.node)) continue;
-            if (!b.touches(x0, y0, x1, y1)) continue;
-            out.add(b);
-            tailNodes(b.owner, b.index, taken);
-        }
-        return out;
     }
 
     private void applyBand() {
         banding = false;
-        List<Layout.Box> hit = bandHits();
-        if (hit.isEmpty()) return;
-        Set<Script.Node> was = covered();
-        if (bandMode == BAND_SUB) {
-            for (Layout.Box b : hit) {
-                Piece p = pieceOf(b.node);
-                if (p != null) picked.remove(p.head().node);
-            }
-        } else {
-            Set<Script.Node> tails = Collections.newSetFromMap(new IdentityHashMap<>());
-            for (Layout.Box b : hit) tailNodes(b.owner, b.index, tails);
-            picked.removeIf(tails::contains);
-            for (Layout.Box b : hit) if (!was.contains(b.node)) picked.add(b.node);
-        }
-        pickedChanged();
+        picked.band(bandMode, picked.bandHits(Math.min(bandX0, bandX1), Math.min(bandY0, bandY1),
+                Math.max(bandX0, bandX1), Math.max(bandY0, bandY1)));
     }
 
     private void lineAction(int i) {
@@ -3374,73 +2990,25 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         mc.gui.setScreen(new EditorScreen(main));
     }
 
-    public interface ModulePick { void apply(List<Script.Root> roots); }
-
-    public void pickForModule(Screen back, ModulePick done) {
-        closeOverlays();
-        drag = null;
-        snap = null;
-        carry = null;
-        carryHeld = false;
-        banding = false;
-        cancelMove();
-        moduleBack = back;
-        moduleDone = done;
-        clearPicked();
-        toast("выдели код для модуля: обведи рамкой или Shift+клик по блоку");
-    }
-
-    private boolean modulePick() { return moduleDone != null; }
-
-    private void finishModulePick(boolean take) {
-        ModulePick done = moduleDone;
-        Screen back = moduleBack;
-        moduleDone = null;
-        moduleBack = null;
-        List<Script.Root> out = new ArrayList<>();
-        if (take) out.addAll(pickedAsRoots());
-        clearPicked();
-        if (take && done != null) done.apply(out);
-        if (back == null) return;
-        closeOverlays();
-        rememberView();
-        saveScript();
-        XeroCode.canvasClosed();
-        Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
-        mc.gui.setScreen(back);
-    }
-
     private int barStamp = Integer.MIN_VALUE, barWidth;
     private int compactStamp = Integer.MIN_VALUE;
     private boolean compact;
 
     private static final int BAR_H = 26;
-    private static final String[] MODULE_ACTS = {"Готово", "Отмена"};
-    private static final String[][] MODULE_ICONS = {Draw.CHECK, Draw.CROSS};
     private static final String[] LINE_ACTS = {"В руку", "Копировать", "В полотно"};
     private static final String[][] LINE_ICONS = {Draw.LOAD, Draw.COPY, Draw.CANVAS};
     private static final String[] PLACE_ACTS = {"На место", "В руку", "Копировать", "В полотно"};
     private static final String[][] PLACE_ICONS = {Draw.UPLOAD, Draw.LOAD, Draw.COPY, Draw.CANVAS};
 
-    private String[] barActs() {
-        if (!script.scratch) return MODULE_ACTS;
-        return LineEdit.hasPlace(script) ? PLACE_ACTS : LINE_ACTS;
-    }
+    private String[] barActs() { return LineEdit.hasPlace(script) ? PLACE_ACTS : LINE_ACTS; }
 
-    private String[][] barIcons() {
-        if (!script.scratch) return MODULE_ICONS;
-        return LineEdit.hasPlace(script) ? PLACE_ICONS : LINE_ICONS;
-    }
+    private String[][] barIcons() { return LineEdit.hasPlace(script) ? PLACE_ICONS : LINE_ICONS; }
 
-    private boolean barShown() { return drag == null && (modulePick() || script.scratch); }
+    private boolean barShown() { return drag == null && script.scratch; }
 
-    private boolean barOn(int i) { return script.scratch ? !script.roots.isEmpty() : i != 0 || !picked.isEmpty(); }
+    private boolean barOn(int i) { return !script.roots.isEmpty(); }
 
-    private String barText() {
-        if (script.scratch) return "строка · " + script.scratchLabel;
-        return picked.isEmpty() ? "выдели код для модуля: рамка мышью или Shift+клик"
-                : "в модуль: " + pickedSaid();
-    }
+    private String barText() { return "строка · " + script.scratchLabel; }
 
     private int barRoom() { return canvasRight() - canvasLeft() - 20; }
 
@@ -3505,9 +3073,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         int by2 = barY() + (BAR_H - 16) / 2;
         for (int i = 0; i < barActs().length; i++) {
             if (!Ui.hit(mx, my, barBtnX(i), by2, barBtnW(i), 16)) continue;
-            if (!barOn(i)) return true;
-            if (script.scratch) lineAction(i);
-            else finishModulePick(i == 0);
+            if (barOn(i)) lineAction(i);
             return true;
         }
         return true;
@@ -3530,22 +3096,27 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private void drawTrash(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (!trashShown()) return;
-        int px = trashX(), py = pocketY(), pw = pocketW();
         boolean hot = overTrash(mouseX, mouseY);
+        dropTarget(ctx, trashX(), hot, Theme.DANGER, Draw.TRASH, "УДАЛИТЬ",
+                hot ? "отпусти — удалю" : "перетащи сюда");
+    }
+
+    private void dropTarget(GuiGraphicsExtractor ctx, int px, boolean hot, int accent, String[] glyph,
+                            String title, String hint) {
+        int py = pocketY(), pw = pocketW();
         Draw.shadow(ctx, px, py, pw, POCKET_H, Ui.R);
         Draw.card(ctx, px, py, pw, POCKET_H, Ui.R,
                 Draw.argb(hot ? 0xFF : 0xE0,
-                        hot ? Draw.mix(Ui.PANEL, Theme.DANGER, 0.22f) : Ui.PANEL),
-                Draw.opaque(hot ? Theme.DANGER : Ui.BORDER));
-        int gx = px + 11, gy = py + (POCKET_H - Draw.glyphH(Draw.TRASH)) / 2;
-        Draw.glyph(ctx, Draw.TRASH, gx, gy, hot ? Theme.DANGER : Theme.TEXT_DIM);
-        int tx = gx + Draw.glyphW(Draw.TRASH) + 8;
+                        hot ? Draw.mix(Ui.PANEL, accent, 0.22f) : Ui.PANEL),
+                Draw.opaque(hot ? accent : Ui.BORDER));
+        int gx = px + 11, gy = py + (POCKET_H - Draw.glyphH(glyph)) / 2;
+        Draw.glyph(ctx, glyph, gx, gy, hot ? accent : Theme.TEXT_DIM);
+        int tx = gx + Draw.glyphW(glyph) + 8;
         int room = px + pw - 9 - tx;
         if (room < 34) return;
-        Draw.textFit(ctx, font, "УДАЛИТЬ", tx, py + 8, room,
+        Draw.textFit(ctx, font, title, tx, py + 8, room,
                 hot ? Theme.TEXT : Theme.TEXT_DIM, false);
-        Draw.textFit(ctx, font, hot ? "отпусти — удалю" : "перетащи сюда", tx, py + 19,
-                room, Theme.TEXT_FAINT, false);
+        Draw.textFit(ctx, font, hint, tx, py + 19, room, Theme.TEXT_FAINT, false);
     }
 
     private int pocketX() { return canvasRight() - pocketW() - POCKET_EDGE; }
@@ -3561,22 +3132,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void drawPocket(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         if (drag == null) return;
         drawTrash(ctx, mouseX, mouseY);
-        int px = pocketX(), py = pocketY(), pw = pocketW();
         boolean hot = overPocket(mouseX, mouseY);
-        Draw.shadow(ctx, px, py, pw, POCKET_H, Ui.R);
-        Draw.card(ctx, px, py, pw, POCKET_H, Ui.R,
-                Draw.argb(hot ? 0xFF : 0xE0,
-                        hot ? Draw.mix(Ui.PANEL, Theme.ACCENT, 0.22f) : Ui.PANEL),
-                Draw.opaque(hot ? Theme.ACCENT : Ui.BORDER));
-        int gx = px + 11, gy = py + (POCKET_H - Draw.glyphH(Draw.PACK)) / 2;
-        Draw.glyph(ctx, Draw.PACK, gx, gy, hot ? Theme.ACCENT : Theme.TEXT_DIM);
-        int tx = gx + Draw.glyphW(Draw.PACK) + 8;
-        int room = px + pw - 9 - tx;
-        if (room < 34) return;
-        Draw.textFit(ctx, font, "В РЮКЗАК", tx, py + 8, room,
-                hot ? Theme.TEXT : Theme.TEXT_DIM, false);
-        Draw.textFit(ctx, font, hot ? "отпусти — уберу" : "перетащи сюда", tx, py + 19,
-                room, Theme.TEXT_FAINT, false);
+        dropTarget(ctx, pocketX(), hot, Theme.ACCENT, Draw.PACK, "В РЮКЗАК",
+                hot ? "отпусти — уберу" : "перетащи сюда");
     }
 
     private void finishDrag(double mx, double my) {
@@ -3584,25 +3142,19 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         dragAwaitsClick = false;
         if (overPocket(mx, my)) {
             List<Script.Node> chain = drag;
-            drag = null;
-            snap = null;
-            dragSnapshot = null;
+            endDrag();
             stash(chain, "убрано в рюкзак");
             return;
         }
         if (overTrash(mx, my)) {
             toast(dragFromPalette ? "отменено" : "удалено · " + blocksText(drag));
-            drag = null;
-            snap = null;
-            dragSnapshot = null;
+            endDrag();
             return;
         }
         if (mx < canvasLeft()) {
             if (dragFromPalette && !dragMoved) placeAtCenter();
             else toast(dragFromPalette ? "отменено" : "блок удалён");
-            drag = null;
-            snap = null;
-            dragSnapshot = null;
+            endDrag();
             return;
         }
         Snap s = findSnap(layout());
@@ -3615,9 +3167,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             r.chain.addAll(drag);
             script.roots.add(r);
         }
-        drag = null;
-        snap = null;
-        dragSnapshot = null;
+        endDrag();
     }
 
     private void deleteBlock(Layout.Box box) {
@@ -3625,14 +3175,14 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         List<Script.Node> body = new ArrayList<>(box.node.body);
         box.owner.remove(box.index);
         if (!body.isEmpty()) box.owner.addAll(box.index, body);
-        if (box.root != null && box.root.chain.isEmpty()) script.roots.remove(box.root);
+        dropEmpty(box.root);
         toast("блок удалён");
     }
 
     private void deleteStack(Layout.Box box) {
         pushUndo();
         box.owner.subList(box.index, box.owner.size()).clear();
-        if (box.root != null && box.root.chain.isEmpty()) script.roots.remove(box.root);
+        dropEmpty(box.root);
         toast("стопка удалена");
     }
 
@@ -3661,46 +3211,25 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private static final int GRAB_SLOP = 3;
 
-    private static List<Value> chipValues(Layout.Box box, Layout.Chip chip) {
-        if (box == null || chip == null || (!chip.isArg() && !chip.isCell())) return List.of();
-        Script.Node n = Layout.chipNode(box.node);
-        if (chip.argIndex < 0 || chip.argIndex >= n.args().size()) return List.of();
-        List<Value> all = n.values.get(chip.argIndex);
-        if (all == null || all.isEmpty()) return List.of();
-        if (chip.isCell())
-            return chip.cell < all.size() && !all.get(chip.cell).isBlank()
-                    ? List.of(all.get(chip.cell)) : List.of();
-        List<Value> out = new ArrayList<>(all.size());
-        for (Value v : all) if (!v.isBlank()) out.add(v);
-        return out;
-    }
-
     private boolean grabFromChip(Layout.Box box, Layout.Chip chip, boolean move) {
-        List<Value> have = chipValues(box, chip);
+        List<Value> have = Carry.values(box, chip);
         if (have.isEmpty()) return false;
         if (move) { take(box, chip, have, true); return true; }
         boolean nested = false;
-        for (Value v : have) nested |= !inner(v).isEmpty();
+        for (Value v : have) nested |= !Carry.inner(v).isEmpty();
         if (have.size() == 1 && !nested) { take(box, chip, have, false); return true; }
         chooseValues(box, chip, have);
         return true;
-    }
-
-    private static List<Value> inner(Value v) {
-        if (!Value.ARRAY.equals(v.type)) return List.of();
-        List<Value> out = new ArrayList<>();
-        for (Value it : v.items) if (!it.isBlank()) out.add(it);
-        return out.size() >= 2 ? out : List.of();
     }
 
     private void chooseValues(Layout.Box box, Layout.Chip chip, List<Value> have) {
         record Pick(Value value, boolean top, Menu.Item item) {}
         List<Pick> picks = new ArrayList<>();
         for (Value v : have) {
-            picks.add(new Pick(v, true, Menu.Item.rich(v.label(), icon(v), v.note(), List.of())));
-            for (Value in : inner(v))
+            picks.add(new Pick(v, true, Menu.Item.rich(v.label(), Carry.icon(v), v.note(), List.of())));
+            for (Value in : Carry.inner(v))
                 picks.add(new Pick(in, false,
-                        Menu.Item.rich("· " + in.label(), icon(in), in.note(), List.of())));
+                        Menu.Item.rich("· " + in.label(), Carry.icon(in), in.note(), List.of())));
         }
         List<Menu.Item> items = new ArrayList<>(picks.size());
         boolean[] on = new boolean[picks.size()];
@@ -3716,13 +3245,6 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                     for (int i : picked) out.add(picks.get(i).value());
                     take(box, chip, out, false);
                 });
-    }
-
-    private static ItemStack icon(Value v) {
-        ItemStack own = BlockView.itemIcon(v);
-        if (!own.isEmpty()) return own;
-        Values.Kind k = Values.kind(v.type);
-        return k == null ? ItemStack.EMPTY : Catalog.stackOf(k.item());
     }
 
     private void take(Layout.Box box, Layout.Chip chip, List<Value> picked, boolean move) {
@@ -3749,10 +3271,6 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 : "скопировано значений: " + carry.size() + " — " + Ui.click() + " по слоту");
     }
 
-    private String copyHint() {
-        return Env.touch() ? "тянуть — перенести" : Settings.get().label(Settings.Hot.DUPLICATE) + " — копировать, тянуть — перенести";
-    }
-
     private void cancelCarry() {
         if (carry == null) return;
         boolean moved = carryHeld;
@@ -3766,33 +3284,13 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         toast("отменено");
     }
 
-    private static boolean fits(Script.Node n, int argIndex, Value v) {
-        if ("Параметр".equals(n.args().get(argIndex).type))
-            return Value.PARAMETER.equals(v.type);
-        if (n.declares()) {
-            if (argIndex == Catalog.FN_NAME || argIndex == Catalog.FN_DESC
-                    || argIndex == Catalog.FN_DISPLAY) return Value.TEXT.equals(v.type);
-            if (argIndex == Catalog.FN_ICON) return Value.ITEM.equals(v.type);
-        }
-        return Values.EDITABLE.contains(v.type);
-    }
-
-    private boolean acceptsCarry(Layout.Box box, Layout.Chip chip) {
-        if (carry == null || box == null || chip == null) return false;
-        if (!chip.isArg() && !chip.isCell()) return false;
-        Script.Node n = Layout.chipNode(box.node);
-        if (chip.argIndex < 0 || chip.argIndex >= n.args().size()) return false;
-        for (Value v : carry) if (!fits(n, chip.argIndex, v)) return false;
-        return true;
-    }
-
     private void dropCarry() {
         Layout l = layout();
         for (int i = l.boxes.size() - 1; i >= 0; i--) {
             Layout.Box b = l.boxes.get(i);
             if (!b.contains(mouseCanvasX, mouseCanvasY)) continue;
             Layout.Chip c = b.chipAt(mouseCanvasX, mouseCanvasY);
-            if (c != null && acceptsCarry(b, c)) { placeCarry(b, c); return; }
+            if (c != null && Carry.accepts(carry, b, c)) { placeCarry(b, c); return; }
             break;
         }
         cancelCarry();
@@ -3800,7 +3298,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private void placeCarry(Layout.Box box, Layout.Chip chip) {
         pushUndo(carrySnapshot);
-        int put = putValues(box, chip, carry);
+        int put = Carry.put(box, chip, carry);
         int left = carry.size() - put;
         carry = null;
         carryHeld = false;
@@ -3808,32 +3306,51 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         toast(left > 0 ? "вставлено " + put + ", не влезло " + left : "вставлено");
     }
 
-    private static int putValues(Layout.Box box, Layout.Chip chip, List<Value> values) {
-        Script.Node n = Layout.chipNode(box.node);
-        List<Value> dst = n.valuesOf(chip.argIndex);
-        Catalog.Arg a = n.args().get(chip.argIndex);
-        if (chip.isCell()) {
-            while (dst.size() <= chip.cell) dst.add(Value.blank());
-            dst.set(chip.cell, values.get(0).copy());
-            return 1;
+    private void publishModule(Layout.Box box) {
+        Set<Script.Root> roots = new LinkedHashSet<>();
+        Set<Script.Node> covered = picked.covered();
+        if (!covered.isEmpty() && covered.contains(box.node)) {
+            for (Layout.Box b : layout().boxes) if (b.root != null && covered.contains(b.node)) roots.add(b.root);
+        } else if (box.root != null) roots.add(box.root);
+        if (Sync.state(script, minecraft.level) != Sync.State.IN_SYNC) {
+            toast("сначала отправь код в мир («На сервер») — модуль собирается из строк /dev");
+            return;
         }
-        if (a.list) {
-            int put = 0;
-            for (Value v : values) {
-                if (dst.size() >= a.capacity) break;
-                dst.add(v.copy());
-                put++;
-            }
-            return put;
+        Map<Script.Root, Integer> at = Exporter.positions(script);
+        List<Integer> positions = new ArrayList<>();
+        for (Script.Root r : roots) {
+            Integer p = at.get(r);
+            if (p != null) positions.add(p);
         }
-        dst.clear();
-        dst.add(values.get(0).copy());
-        return 1;
+        if (positions.isEmpty()) {
+            toast("здесь нет строк, которые уходят на сервер");
+            return;
+        }
+        Collections.sort(positions);
+        closeOverlays();
+        rememberView();
+        saveScript();
+        minecraft.gui.setScreen(new PublishModuleScreen(this, positions));
+    }
+
+    private Value heldItem(Layout.Box box) {
+        if (hoverChip == null || hoverBox != box) return null;
+        List<Value> have = Carry.values(box, hoverChip);
+        if (have.size() != 1) return null;
+        Value v = have.get(0);
+        return Value.ITEM.equals(v.type) && !v.isBlank() ? v : null;
+    }
+
+    private void copyForXero(Value item) {
+        String raw = Stacks.toServer(item);
+        if (raw == null) { toast("предмет не собрался"); return; }
+        minecraft.keyboardHandler.setClipboard("item(\"" + raw + "\")");
+        toast("скопировано для Xero: item(\"…\")");
     }
 
     private boolean copyChip(boolean cut) {
         if (hoverBox == null || hoverChip == null) return false;
-        List<Value> have = chipValues(hoverBox, hoverChip);
+        List<Value> have = Carry.values(hoverBox, hoverChip);
         if (have.isEmpty()) {
             toast(cut ? "в этом слоте нечего вырезать" : "в этом слоте пусто");
             return true;
@@ -3862,81 +3379,17 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         List<Value> values = Clip.pasteValues();
         if (values.isEmpty()) return false;
         List<Value> ok = new ArrayList<>(values.size());
-        for (Value v : values) if (fits(n, hoverChip.argIndex, v)) ok.add(v);
+        for (Value v : values) if (Carry.fits(n, hoverChip.argIndex, v)) ok.add(v);
         if (ok.isEmpty()) {
             toast("такое значение в этот слот не кладётся");
             return true;
         }
         pushUndo();
-        int put = putValues(hoverBox, hoverChip, ok);
+        int put = Carry.put(hoverBox, hoverChip, ok);
         int left = ok.size() - put;
         toast(left > 0 ? "вставлено " + put + ", не влезло " + left
                 : put == 1 ? "вставлено «" + ok.get(0).label() + "»" : "вставлено " + put);
         return true;
-    }
-
-    private static final int CARRY_MAX = 4;
-    private static final int CARRY_MAX_W = 190, CARRY_GAP = 2, CARRY_MORE_H = 11;
-
-    private void drawCarry(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
-        if (carry == null) return;
-        ctx.nextStratum();
-        int shown = Math.min(carry.size(), CARRY_MAX);
-        String more = carry.size() > shown ? "и ещё " + (carry.size() - shown) : null;
-
-        int w = 0;
-        for (int i = 0; i < shown; i++) {
-            Value v = carry.get(i);
-            String note = v.note();
-            w = Math.max(w, Layout.CHIP_INK_X + font.width(v.label()) + 7
-                    + (note.isEmpty() ? 0 : font.width(note) + 6));
-        }
-        if (more != null) w = Math.max(w, font.width(more) + 22);
-        w = Math.max(Layout.CHIP_MIN_W, Math.min(CARRY_MAX_W, w));
-
-        int step = Layout.CHIP_H + CARRY_GAP;
-        int h = shown * step - CARRY_GAP + (more == null ? 0 : CARRY_MORE_H);
-        int edge = carryHeld ? 2 : 10;
-        int x = carryHeld ? mouseX - w / 2 : mouseX + 11;
-        int y = carryHeld ? mouseY - h / 2 : mouseY + 13;
-        x = Math.max(edge, Math.min(x, width - w - 2));
-        y = Math.max(Theme.TOPBAR_H + edge, Math.min(y, height - h - 3));
-
-        for (int i = 0; i < shown; i++) carryPill(ctx, carry.get(i), x, y + i * step, w);
-        if (more != null)
-            Draw.textFit(ctx, font, more, x + Layout.CHIP_INK_X,
-                    y + shown * step + 1, w - Layout.CHIP_INK_X - 4, Theme.TEXT_DIM, true);
-        if (!carryHeld) carryBadge(ctx, x - 8, y - 8);
-    }
-
-    private void carryPill(GuiGraphicsExtractor ctx, Value v, int x, int y, int w) {
-        int tc = v.color();
-        int ink = Layout.ink(Draw.isLight(tc));
-
-        Draw.shadow(ctx, x, y, w, Layout.CHIP_H, 7);
-        BlockView.pill(ctx, x, y, w, tc, true, carryHeld ? 0xE0 : 0xFF);
-
-        ItemStack stack = BlockView.itemIcon(v);
-        BlockView.badge(ctx, x, y, stack, Draw.opaque(Draw.shade(tc, -0.55f)));
-        int textX = x + (stack.isEmpty() ? Layout.CHIP_INK_X : Layout.CHIP_ITEM_INK_X);
-
-        int right = x + w - 6;
-        String note = v.note();
-        if (!note.isEmpty()) {
-            int nw = font.width(note);
-            if (right - nw - textX > 24) {
-                Draw.text(ctx, font, note, right - nw, y + 4,
-                        Draw.shade(tc, -0.42f), false);
-                right -= nw + 4;
-            }
-        }
-        Draw.textFit(ctx, font, v.label(), textX, y + 4, right - textX, ink, false);
-    }
-
-    private void carryBadge(GuiGraphicsExtractor ctx, int x, int y) {
-        Draw.round(ctx, x, y, 11, 11, 3, Draw.opaque(Theme.ACCENT));
-        Draw.roundOutline(ctx, x, y, 11, 11, 3, Draw.opaque(Draw.shade(Theme.ACCENT, -0.45f)));
-        Draw.glyph(ctx, Draw.PLUS, x + 3, y + 3, Theme.ON_ACCENT);
     }
 
     @Override
@@ -3957,9 +3410,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (menu != null && menu.mouseDragged(click.y())) return true;
         if (blockMenu != null && blockMenu.mouseDragged(click.y())) return true;
         if (palette.barDragging()) { palette.barDrag(click.y(), canvasBottom()); return true; }
-        if (backpack != null) return backpack.mouseDragged(click, dx, dy);
-        if (condPicker != null) return condPicker.mouseDragged(click, click.x(), click.y());
-        if (settings != null) return settings.mouseDragged(click, dx, dy);
+        Overlay panel = panel();
+        if (panel != null && panel != chest) return panel.mouseDragged(click, dx, dy);
         if (resizingPalette) {
             paletteDrag += dx;
             setPaletteWidth((int) Math.round(paletteDrag));
@@ -3994,8 +3446,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (paletteSwipe) { palette.scrollBy(dy / 42.0, canvasBottom()); return true; }
         if (drag != null && dragFromPalette && !dragMoved && Env.touch() && click.x() < canvasLeft()
                 && Math.abs(dy) > Math.abs(dx)) {
-            drag = null;
-            dragSnapshot = null;
+            endDrag();
             dragFromPalette = false;
             paletteSwipe = true;
             palette.scrollBy(dy / 42.0, canvasBottom());
@@ -4017,14 +3468,14 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         palette.barRelease();
         if (menu != null) menu.mouseReleased();
         if (blockMenu != null) blockMenu.mouseReleased();
-        if (backpack != null) { backpack.mouseReleased(); return true; }
-        if (settings != null) { settings.mouseReleased(); return true; }
+        Overlay panel = panel();
+        if (panel != null && panel != chest) { panel.mouseReleased(); return true; }
         if (banding) { applyBand(); return true; }
         if (moving) { finishMove(); return true; }
         if (pressOne != null) {
             Layout.Box one = pressOne;
             pressOne = null;
-            unpick(one);
+            picked.unpick(one);
             return true;
         }
         if (pendHot != null && click.button() == pendButton) {
@@ -4084,10 +3535,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     @Override
     public boolean mouseScrolled(double mx, double my, double hAmount, double vAmount) {
         changeHint = true;
-        if (condPicker != null) return condPicker.mouseScrolled(mx, my, vAmount);
-        if (chest != null) return chest.mouseScrolled(vAmount);
-        if (backpack != null) return backpack.mouseScrolled(mx, my, vAmount);
-        if (settings != null) return settings.mouseScrolled(mx, my, vAmount);
+        Overlay panel = panel();
+        if (panel != null) return panel.mouseScrolled(mx, my, vAmount);
         if (menu != null && menu.mouseScrolled(mx, my, vAmount)) return true;
         if (blockMenu != null) { blockMenu.mouseScrolled(mx, my, vAmount); return true; }
         if (editor != null && editor.mouseScrolled(mx, my, vAmount)) return true;
@@ -4145,8 +3594,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (drag == null || drag.isEmpty()) return null;
         boolean hat = drag.get(0).isHat();
         double px = mouseCanvasX - dragOffX, py = mouseCanvasY - dragOffY;
-        int payloadW = Layout.ofChain(drag, 0, 0, font).boxes.get(0).w;
-        int payloadH = Layout.chainHeight(drag, font);
+        sizeDrag();
 
         Snap best = null;
         double bestDist = 44;
@@ -4186,25 +3634,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     public boolean keyPressed(KeyEvent input) {
         changeHint = true;
         int key = input.key();
-        if (condPicker != null) {
-            condPicker.keyPressed(input);
-            if (condPicker.isClosed()) condPicker = null;
-            return true;
-        }
-        if (chest != null) {
-            chest.keyPressed(input);
-            if (chest.isClosed()) chest = null;
-            return true;
-        }
-        if (backpack != null) {
-            BackpackPanel panel = backpack;
+        Overlay panel = panel();
+        if (panel != null) {
             panel.keyPressed(input);
-            if (panel.isClosed() || backpack != panel) backpack = null;
-            return true;
-        }
-        if (settings != null) {
-            settings.keyPressed(input);
-            if (settings.isClosed()) closeSettings();
+            settle(panel);
             return true;
         }
         if (menu != null) {
@@ -4254,14 +3687,11 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             if (banding) { banding = false; return true; }
             if (moving) { cancelMove(); return true; }
             if (!picked.isEmpty()) { clearPicked(); toast("выделение снято"); return true; }
-            if (modulePick()) { finishModulePick(false); return true; }
             if (drag != null) {
-                drag = null;
-                snap = null;
-                dragAwaitsClick = false;
-                toast("отменено");
+                cancelDrag();
                 return true;
             }
+            if (held != null) { cancelHeld(); return true; }
             if (!Settings.chests() && palette.hasCrumb()) {
                 if (!search.getValue().isEmpty()) search.setValue("");
                 else palette.openCategory(-1);
@@ -4282,14 +3712,14 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (soloKey == Settings.NONE || Settings.canonical(key) != Settings.canonical(soloKey))
             return super.keyReleased(input);
         soloKey = Settings.NONE;
-        if (overlayOpen() || typingText() || exitPrompt) return true;
+        if (overlayOpen() || typingText()) return true;
         Settings.Hot hot = Settings.get().match(key, input.modifiers());
         if (hot != null) runHotkey(hot);
         return true;
     }
 
     private boolean typingText() {
-        return search.isFocused() || (finder != null && finder.focused());
+        return (search.isFocused() && !Settings.chests()) || (finder != null && finder.focused());
     }
 
     private boolean typing(Settings.Hot hot) {
@@ -4327,7 +3757,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             case DEL_STACK -> { if (picked.isEmpty()) deleteStackHovered(); else deletePicked(); }
             case SELECT -> selectAll();
             case BACKPACK -> openBackpack();
-            case MARKET -> { if (modulePick()) finishModulePick(false); else openMarket(); }
+            case MARKET -> openModules();
             case STASH -> stashHovered();
             case PLAY -> askExit("play");
             case BUILD -> askExit("build");
@@ -4356,13 +3786,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     @Override
     public boolean charTyped(CharacterEvent input) {
         changeHint = true;
-        if (condPicker != null) { condPicker.charTyped(input); return true; }
-        if (chest != null) { chest.charTyped(input); return true; }
-        if (backpack != null) { backpack.charTyped(input); return true; }
-        if (settings != null) { settings.charTyped(input); return true; }
-        if (menu != null) return true;
+        Overlay panel = panel();
+        if (panel != null) { panel.charTyped(input); return true; }
+        if (menu != null || blockMenu != null) return true;
         if (editor != null) return editor.charTyped(input);
         if (finder != null && finder.focused()) return finder.charTyped(input);
+        if (Settings.chests()) return false;
         if (!search.isFocused()) {
             String s = input.codepointAsString();
             if (s != null && !s.isBlank()) {
@@ -4389,9 +3818,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         script.viewZoom = zoom;
     }
 
+    public void finishEditing() { finishEditor(); }
+
     @Override
     public void removed() {
         if (minecraft != null) Backstage.restore(minecraft);
+        finishEditor();
         Audio.release();
         if (settings != null) { settings.dispose(); settings = null; }
         rememberView();

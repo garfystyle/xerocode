@@ -32,6 +32,8 @@ public final class Release {
     private static volatile News news;
     private static volatile boolean asking;
     private static volatile long askedAt;
+    private static volatile long quietUntil;
+    private static volatile String etag = "";
 
     private Release() {}
 
@@ -41,7 +43,7 @@ public final class Release {
 
     public static void check() {
         long now = System.currentTimeMillis();
-        if (asking || (askedAt != 0 && now - askedAt < EVERY)) return;
+        if (asking || now < quietUntil || (askedAt != 0 && now - askedAt < EVERY)) return;
         asking = true;
         askedAt = now;
         Net.threads("xerocode-release").newThread(() -> {
@@ -56,18 +58,27 @@ public final class Release {
     }
 
     private static void ask() throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(API))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(API))
                 .timeout(TIMEOUT)
                 .header("Accept", "application/vnd.github+json")
                 .header("User-Agent", "xerocode/" + current())
-                .GET()
-                .build();
+                .GET();
+        if (!etag.isEmpty()) builder.header("If-None-Match", etag);
         HttpResponse<String> answer = Net.client(TIMEOUT, true)
-                .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (answer.statusCode() != 200) {
-            XeroCode.LOG.warn("[xerocode] GitHub ответил {} на вопрос о новой версии", answer.statusCode());
+                .send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        int status = answer.statusCode();
+        if (status == 304) return;
+        if (status == 403 || status == 429) {
+            long reset = answer.headers().firstValueAsLong("X-RateLimit-Reset").orElse(0) * 1000;
+            quietUntil = Math.max(System.currentTimeMillis() + EVERY, reset);
+            XeroCode.LOG.warn("[xerocode] GitHub ограничил вопросы о новой версии ({}), следующий — позже", status);
             return;
         }
+        if (status != 200) {
+            XeroCode.LOG.warn("[xerocode] GitHub ответил {} на вопрос о новой версии", status);
+            return;
+        }
+        etag = answer.headers().firstValue("ETag").orElse("");
         List<Entry> fresh = newer(JsonParser.parseString(answer.body()).getAsJsonArray(), current());
         news = fresh.isEmpty() ? null : new News(fresh.get(0).version(), List.copyOf(fresh));
     }

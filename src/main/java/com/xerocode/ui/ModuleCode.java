@@ -1,28 +1,31 @@
 package com.xerocode.ui;
 
-import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
 import com.xerocode.Functions;
-import com.xerocode.Market;
+import com.xerocode.Importer;
+import com.xerocode.Modules;
 import com.xerocode.Script;
+import com.xerocode.XeroCode;
 import net.minecraft.client.gui.Font;
 
 public final class ModuleCode {
-    private final String id;
+    private final Modules.Module module;
     private final Font tr;
 
-    private JsonObject payload;
+    private JsonArray handlers;
     private Layout layout;
     private boolean asking, broken, parsed;
+    private int blocks, lines;
     private String trouble = "";
 
-    public ModuleCode(String id, Font tr) {
-        this.id = id;
+    public ModuleCode(Modules.Module module, Font tr) {
+        this.module = module;
         this.tr = tr;
     }
 
-    public JsonObject payload() { return payload; }
+    public JsonArray handlers() { return handlers; }
 
-    public boolean ready() { return payload != null; }
+    public boolean ready() { return handlers != null && !broken; }
 
     public boolean asking() { return asking; }
 
@@ -30,13 +33,19 @@ public final class ModuleCode {
 
     public String trouble() { return trouble; }
 
+    public String size() {
+        if (layout == null) return "";
+        return Ui.plural(blocks, "блок", "блока", "блоков") + " · "
+                + Ui.plural(lines, "строка", "строки", "строк");
+    }
+
     public void forget() {
         layout = null;
         parsed = false;
     }
 
-    public void adopt(JsonObject got) {
-        payload = got;
+    public void adopt(JsonArray got) {
+        handlers = got;
         forget();
         if (got == null) fetch();
     }
@@ -44,19 +53,19 @@ public final class ModuleCode {
     public void again() {
         broken = false;
         trouble = "";
-        payload = null;
+        handlers = null;
         forget();
         fetch();
     }
 
     public void fetch() {
-        if (asking || payload != null) return;
+        if (asking || handlers != null || !module.open) return;
         asking = true;
-        Market.payload(id, got -> {
+        Modules.code(module.id, got -> {
             asking = false;
-            payload = got;
+            handlers = got;
             forget();
-        }, (said, code) -> {
+        }, said -> {
             asking = false;
             broken = true;
             trouble = said;
@@ -64,13 +73,17 @@ public final class ModuleCode {
     }
 
     public Layout layout() {
-        if (parsed || payload == null) return layout;
+        if (parsed || handlers == null) return layout;
         parsed = true;
         try {
-            Script tmp = Script.fromJson(payload);
+            Script tmp = new Script();
+            Importer.importInto(tmp, handlers.deepCopy(), tr);
             Functions.rebuild(tmp);
             layout = Layout.of(tmp, tr);
+            blocks = Script.blocksIn(tmp.roots);
+            lines = tmp.roots.size();
         } catch (Throwable e) {
+            XeroCode.LOG.error("[xerocode] код модуля {} не разобрался", module.id, e);
             layout = null;
             broken = true;
             trouble = "код модуля не разобрался";

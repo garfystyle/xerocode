@@ -8,7 +8,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import org.lwjgl.glfw.GLFW;
 
-public final class ColorPick {
+public final class ColorPick implements Overlay {
     public interface Done { void apply(int rgb); }
 
     private static final int WANT_W = 232, PAD = 10, ROW = 18, CAP = 11;
@@ -22,7 +22,7 @@ public final class ColorPick {
     private final int screenW, screenH;
     private final EditBox hex;
 
-    private float pickH, pickS, pickV;
+    private final Hsv hsv;
     private int shown;
     private int dragging;
     private boolean closed, cancelled;
@@ -43,18 +43,15 @@ public final class ColorPick {
         this.W = Ui.fitW(screenW, WANT_W);
         this.SV_W = W - PAD * 2;
 
-        float[] hsv = McText.rgbHsv(rgb & 0xFFFFFF);
-        pickH = hsv[0];
-        pickS = hsv[1];
-        pickV = hsv[2];
+        this.hsv = new Hsv(rgb & 0xFFFFFF);
 
         this.hex = Ui.field(tr, 0, 0, 60, 10, "rrggbb");
         hex.setMaxLength(7);
         hex.setBordered(false);
         hex.setTextColor(Draw.opaque(Theme.TEXT));
-        hex.setValue(hexOf(rgb));
+        hex.setValue(Hsv.hex(rgb));
         shown = rgb & 0xFFFFFF;
-        hex.setResponder(this::hexTyped);
+        hsv.bind(hex, this::hexTyped);
 
         int perRow = Math.max(1, (SV_W + SWATCH_GAP) / (SWATCH + SWATCH_GAP));
         this.rows = (McText.COLOURS.size() + perRow - 1) / perRow;
@@ -75,30 +72,20 @@ public final class ColorPick {
     public boolean isClosed() { return closed; }
     public boolean cancelled() { return cancelled; }
 
-    public int rgb() { return McText.hsvRgb(pickH, pickS, pickV); }
-
-    private static String hexOf(int rgb) {
-        return "#" + String.format("%06x", rgb & 0xFFFFFF);
-    }
+    public int rgb() { return hsv.rgb(); }
 
     private void hexTyped(String text) {
-        String normalised = McText.normaliseHex(text);
-        if (normalised == null) return;
-        float[] hsv = McText.rgbHsv(McText.hexRgb(normalised));
-        pickH = hsv[0];
-        pickS = hsv[1];
-        pickV = hsv[2];
+        Integer rgb = Hsv.parse(text);
+        if (rgb != null) hsv.set(rgb);
     }
 
     private void syncHex() {
         int now = rgb() & 0xFFFFFF;
         if (now == shown) return;
         shown = now;
-        String text = hexOf(now);
+        String text = Hsv.hex(now);
         if (text.equalsIgnoreCase(hex.getValue())) return;
-        hex.setResponder(s -> { });
-        hex.setValue(text);
-        hex.setResponder(this::hexTyped);
+        hsv.write(text);
     }
 
     public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
@@ -106,9 +93,9 @@ public final class ColorPick {
         Ui.caption(ctx, tr, title, x + PAD, y + PAD, W - PAD * 2);
 
         int sx = x + PAD, sy = y + svY;
-        Ui.svSquare(ctx, sx, sy, SV_W, SV_H, pickH, pickS, pickV, 4);
+        Ui.svSquare(ctx, sx, sy, SV_W, SV_H, hsv.h, hsv.s, hsv.v, 4);
         Ui.dragZone(sx, sy, SV_W, SV_H);
-        Ui.hueBar(ctx, sx, y + hueY, SV_W, HUE_H, pickH);
+        Ui.hueBar(ctx, sx, y + hueY, SV_W, HUE_H, hsv.h);
 
         syncHex();
         int fy = y + hexY;
@@ -171,10 +158,7 @@ public final class ColorPick {
         for (int i = 0; i < McText.COLOURS.size(); i++) {
             int[] p = swatchAt(i);
             if (!Ui.hit(mx, my, p[0], p[1], SWATCH, SWATCH)) continue;
-            float[] hsv = McText.rgbHsv(McText.COLOURS.get(i).rgb());
-            pickH = hsv[0];
-            pickS = hsv[1];
-            pickV = hsv[2];
+            hsv.set(McText.COLOURS.get(i).rgb());
             return true;
         }
         int by = y + footY;
@@ -197,15 +181,9 @@ public final class ColorPick {
 
     private void drag(double mx, double my) {
         int sx = x + PAD;
-        if (dragging == 1) {
-            pickS = clamp01((mx - sx) / (SV_W - 1.0));
-            pickV = 1f - clamp01((my - (y + svY)) / (SV_H - 1.0));
-        } else if (dragging == 2) {
-            pickH = clamp01((mx - sx) / (SV_W - 1.0));
-        }
+        if (dragging == 1) hsv.square((mx - sx) / (SV_W - 1.0), (my - (y + svY)) / (SV_H - 1.0));
+        else if (dragging == 2) hsv.hue((mx - sx) / (SV_W - 1.0));
     }
-
-    private static float clamp01(double v) { return (float) Math.max(0, Math.min(1, v)); }
 
     public boolean keyPressed(KeyEvent input) {
         int key = input.key();
@@ -222,7 +200,7 @@ public final class ColorPick {
     public boolean mouseScrolled(double mx, double my, double amount) {
         if (!contains(mx, my)) return false;
         if (Ui.hit(mx, my, x + PAD, y + hueY, SV_W, HUE_H)) {
-            pickH = clamp01(pickH + amount * 0.01);
+            hsv.hue(hsv.h + amount * 0.01);
             return true;
         }
         return true;

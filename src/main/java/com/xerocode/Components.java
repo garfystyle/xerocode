@@ -2,11 +2,7 @@ package com.xerocode;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -23,13 +19,9 @@ public final class Components {
     public static void load() {
         if (loaded) return;
         loaded = true;
-        try (InputStream in = Components.class.getResourceAsStream("/assets/xerocode/components.json")) {
-            if (in == null) {
-                XeroCode.LOG.error("[xerocode] components.json not found in the jar");
-                return;
-            }
-            JsonObject root = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8))
-                    .getAsJsonObject();
+        try {
+            JsonObject root = Json.asset(Components.class, "components.json");
+            if (root == null) return;
             for (Map.Entry<String, JsonElement> e : root.entrySet()) {
                 JsonObject o = e.getValue().getAsJsonObject();
                 List<String> fields = new ArrayList<>();

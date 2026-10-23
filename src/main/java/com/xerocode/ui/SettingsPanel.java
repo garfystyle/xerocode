@@ -27,7 +27,7 @@ import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 
-public final class SettingsPanel {
+public final class SettingsPanel implements Overlay {
     private static final int WANT_W = 560;
     private static final int WANT_H = 404;
     private static final int SIDE_W = 128;
@@ -76,7 +76,7 @@ public final class SettingsPanel {
                 new KeyGroup("НАВИГАЦИЯ", List.of(Hot.SEARCH, Hot.FIND, Hot.FIT, Hot.PREV_LINE,
                         Hot.NEXT_LINE, Hot.GO_DEF, Hot.GO_BACK, Hot.FOLD, Hot.FOLD_ALL,
                         Hot.FOLD_STACK, Hot.FOLD_STACKS, Hot.TIDY)),
-                new KeyGroup("РЮКЗАК И МАГАЗИН", List.of(Hot.BACKPACK, Hot.STASH, Hot.MARKET)),
+                new KeyGroup("РЮКЗАК И МОДУЛИ", List.of(Hot.BACKPACK, Hot.STASH, Hot.MARKET)),
                 new KeyGroup("ИГРА", List.of(Hot.PLAY, Hot.BUILD, Hot.RESTART, Hot.EDIT_LINE))));
         Set<Hot> rest = EnumSet.allOf(Hot.class);
         for (KeyGroup g : groups) rest.removeAll(g.keys());
@@ -162,10 +162,9 @@ public final class SettingsPanel {
     private Hot binding;
     private int soloKey = Settings.NONE, soloMods;
     private int openColor = -1;
-    private float pickH, pickS, pickV;
+    private final Hsv pick = new Hsv(0f, 0f, 0f);
     private EditBox hexField;
     private EditBox nameField, codeField, searchField;
-    private boolean syncing;
     private int dragging;
     private boolean hexDrag;
     private boolean closed, changed;
@@ -190,6 +189,7 @@ public final class SettingsPanel {
     }
 
     private void build(int screenW, int screenH) {
+        stale();
         this.screenW = screenW;
         this.screenH = screenH;
         this.W = Ui.fitW(screenW, WANT_W);
@@ -293,7 +293,30 @@ public final class SettingsPanel {
         return out;
     }
 
+    private boolean framing;
+    private List<Item> keyCache, lookCache;
+    private int[] countCache;
+
+    private void stale() {
+        keyCache = null;
+        lookCache = null;
+        countCache = null;
+    }
+
     private int matchCount(int t) {
+        if (t < 0 || t >= TAB_COLLAB) return countMatches(t);
+        if (countCache != null && countCache[t] >= 0) return countCache[t];
+        int n = countMatches(t);
+        if (!framing) return n;
+        if (countCache == null) {
+            countCache = new int[TAB_COLLAB];
+            Arrays.fill(countCache, -1);
+        }
+        countCache[t] = n;
+        return n;
+    }
+
+    private int countMatches(int t) {
         String q = query();
         return switch (t) {
             case TAB_KEYS -> (int) Arrays.stream(Hot.values()).filter(h -> keyMatches(h, q)).count();
@@ -326,6 +349,20 @@ public final class SettingsPanel {
     }
 
     private List<Item> keyItems() {
+        if (keyCache != null) return keyCache;
+        List<Item> out = buildKeyItems();
+        if (framing) keyCache = out;
+        return out;
+    }
+
+    private List<Item> lookItems() {
+        if (lookCache != null) return lookCache;
+        List<Item> out = buildLookItems();
+        if (framing) lookCache = out;
+        return out;
+    }
+
+    private List<Item> buildKeyItems() {
         String q = query();
         List<Item> out = new ArrayList<>();
         int at = 0;
@@ -344,7 +381,7 @@ public final class SettingsPanel {
         return out;
     }
 
-    private List<Item> lookItems() {
+    private List<Item> buildLookItems() {
         String q = query();
         List<Item> out = new ArrayList<>();
         int at = 0;
@@ -388,6 +425,7 @@ public final class SettingsPanel {
     private int scroll() { return Math.min(scroll[tab], maxScroll()); }
 
     public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
+        framing = true;
         if (confirmTab >= 0 && System.currentTimeMillis() - confirmAt > CONFIRM_MS) confirmTab = -1;
         Ui.dim(ctx, screenW, screenH);
         Ui.panel(ctx, x, y, W, h);
@@ -427,6 +465,7 @@ public final class SettingsPanel {
         int doneW = doneW();
         Ui.button(ctx, tr, mouseX, mouseY, x + W - PAD - doneW, footerY(), doneW, BTN_H,
                 "Готово", Ui.ACCENT);
+        framing = false;
     }
 
     private int resetW() {
@@ -943,8 +982,8 @@ public final class SettingsPanel {
     private void drawPicker(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, int py,
                             Catalog.Category cat) {
         int lx = cx();
-        Ui.svSquare(ctx, lx, py, SV_W, SV_H, pickH, pickS, pickV, 3);
-        Ui.hueBar(ctx, lx, py + SV_H + 4, SV_W, HUE_H, pickH);
+        Ui.svSquare(ctx, lx, py, SV_W, SV_H, pick.h, pick.s, pick.v, 3);
+        Ui.hueBar(ctx, lx, py + SV_H + 4, SV_W, HUE_H, pick.h);
 
         int rx = pickRx(), rw = pickRw();
         Ui.swatch(ctx, rx, py, rw, 22, cat.color, true, false);
@@ -963,6 +1002,7 @@ public final class SettingsPanel {
     }
 
     public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+        stale();
         double mx = click.x(), my = click.y();
         int button = click.button();
         if (binding != null && bindMouse(button, click.modifiers())) return true;
@@ -1102,13 +1142,13 @@ public final class SettingsPanel {
                 Catalog.Category cat = categories.get(i);
                 if (button == 1) {
                     s.clearColor(cat.name);
-                    if (openColor == i) { setPick(cat.color); syncHexField(cat.color); }
+                    if (openColor == i) { pick.set(cat.color); syncHexField(cat.color); }
                     changed = true;
                     return;
                 }
                 if (openColor == i) { closeColor(); return; }
                 openColor = i;
-                setPick(cat.color);
+                pick.set(cat.color);
                 openHexField(cat.color);
                 return;
             }
@@ -1130,7 +1170,7 @@ public final class SettingsPanel {
             if (Ui.hit(mx, dy, pickRx(), py + 26 + ROW_H + 4, pickRw(), ROW_H)
                     && s.colors.containsKey(cat.name)) {
                 s.clearColor(cat.name);
-                setPick(cat.color);
+                pick.set(cat.color);
                 syncHexField(cat.color);
                 changed = true;
                 return;
@@ -1142,11 +1182,11 @@ public final class SettingsPanel {
         hexField = Ui.hexField(tr, 0, 0, 40, 10, "RRGGBB");
         hexField.setMaxLength(6);
         hexField.setValue(String.format("%06X", rgb));
-        hexField.setResponder(t -> {
-            if (syncing || t.length() != 6 || openColor < 0) return;
+        pick.bind(hexField, t -> {
+            if (t.length() != 6 || openColor < 0) return;
             int color = McText.hexRgb(t);
             s.setColor(categories.get(openColor).name, color);
-            setPick(color);
+            pick.set(color);
             changed = true;
         });
     }
@@ -1164,42 +1204,31 @@ public final class SettingsPanel {
         return tr.plainSubstrByWidth(hexField.getValue(), rel).length();
     }
 
-    private void setPick(int rgb) {
-        float[] hsv = McText.rgbHsv(rgb);
-        pickH = hsv[0];
-        pickS = hsv[1];
-        pickV = hsv[2];
-    }
-
     private void syncHexField(int rgb) {
         if (hexField == null) return;
-        syncing = true;
-        hexField.setValue(String.format("%06X", rgb));
-        syncing = false;
+        pick.write(String.format("%06X", rgb));
     }
 
     private void dragSv(double mx, double dy) {
-        pickS = clamp01((float) (mx - cx()) / (SV_W - 1));
-        pickV = 1 - clamp01((float) dy / (SV_H - 1));
+        pick.square((float) (mx - cx()) / (SV_W - 1), (float) dy / (SV_H - 1));
         applyPick();
     }
 
     private void dragHue(double mx) {
-        pickH = clamp01((float) (mx - cx()) / (SV_W - 1));
+        pick.hue((float) (mx - cx()) / (SV_W - 1));
         applyPick();
     }
 
     private void applyPick() {
         if (openColor < 0) return;
-        int rgb = McText.hsvRgb(pickH, pickS, pickV);
+        int rgb = pick.rgb();
         s.setColor(categories.get(openColor).name, rgb);
         syncHexField(rgb);
         changed = true;
     }
 
-    private static float clamp01(float v) { return v < 0 ? 0 : Math.min(v, 1); }
-
     public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
+        stale();
         double mx = click.x(), my = click.y();
         if (bar.dragged(my, 1, maxScroll(), v -> scroll[tab] = v)) return true;
         if (dragField != null) {
@@ -1222,9 +1251,16 @@ public final class SettingsPanel {
         return true;
     }
 
-    public void mouseReleased() { dragging = 0; hexDrag = false; dragField = null; bar.release(); }
+    public void mouseReleased() {
+        stale();
+        dragging = 0;
+        hexDrag = false;
+        dragField = null;
+        bar.release();
+    }
 
     public boolean mouseScrolled(double mx, double my, double amount) {
+        stale();
         if (!contains(mx, my)) return false;
         scroll[tab] = Math.max(0, Math.min(maxScroll(),
                 scroll() - (int) Math.round(amount * 18)));
@@ -1232,6 +1268,7 @@ public final class SettingsPanel {
     }
 
     public boolean keyPressed(KeyEvent input) {
+        stale();
         int key = input.key();
         if (binding != null) {
             if (key == GLFW.GLFW_KEY_ESCAPE) { binding = null; soloKey = Settings.NONE; return true; }
@@ -1287,6 +1324,7 @@ public final class SettingsPanel {
     }
 
     public void keyReleased(KeyEvent input) {
+        stale();
         if (binding == null || soloKey == Settings.NONE) return;
         if (Settings.canonical(input.key()) != Settings.canonical(soloKey)) return;
         s.bind(binding, soloKey, soloMods);
@@ -1303,6 +1341,7 @@ public final class SettingsPanel {
     }
 
     public boolean charTyped(CharacterEvent input) {
+        stale();
         if (hexField != null && hexField.isFocused()) return hexField.charTyped(input);
         EditBox typing = focusedField();
         return typing != null && typing.charTyped(input);

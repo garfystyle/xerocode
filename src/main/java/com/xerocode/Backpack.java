@@ -3,11 +3,7 @@ package com.xerocode;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.xerocode.ui.Ui;
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -258,8 +254,8 @@ public final class Backpack {
     private static void load() {
         Path p = file();
         if (!Files.exists(p)) return;
-        try (Reader r = Files.newBufferedReader(p, StandardCharsets.UTF_8)) {
-            JsonObject root = JsonParser.parseReader(r).getAsJsonObject();
+        try {
+            JsonObject root = Json.read(p);
             if (!root.has("items")) return;
             if (!root.has("version") || root.get("version").getAsInt() < 2) keepOld(p);
             for (JsonElement e : root.getAsJsonArray("items")) {
@@ -284,6 +280,7 @@ public final class Backpack {
             }
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] рюкзак не читается", e);
+            Json.setAside(p);
         }
     }
 
@@ -310,11 +307,7 @@ public final class Backpack {
         root.addProperty("version", 2);
         root.add("items", items);
         try {
-            Path p = file();
-            Files.createDirectories(p.getParent());
-            try (Writer w = Files.newBufferedWriter(p, StandardCharsets.UTF_8)) {
-                w.write(root.toString());
-            }
+            Json.write(file(), root);
         } catch (Exception e) {
             XeroCode.LOG.error("[xerocode] рюкзак не записался", e);
         }

@@ -4,13 +4,11 @@ import javax.crypto.Cipher;
 import javax.crypto.Mac;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.zip.Deflater;
-import java.util.zip.Inflater;
 
 public final class CollabCrypto {
     public static final int SECRET_BYTES = 16;
@@ -132,35 +130,11 @@ public final class CollabCrypto {
     }
 
     private static byte[] squeeze(byte[] raw) {
-        Deflater z = new Deflater(Deflater.BEST_SPEED, true);
-        try {
-            z.setInput(raw);
-            z.finish();
-            ByteArrayOutputStream out = new ByteArrayOutputStream(Math.max(64, raw.length / 3));
-            byte[] buffer = new byte[8192];
-            while (!z.finished()) out.write(buffer, 0, z.deflate(buffer));
-            return out.toByteArray();
-        } finally {
-            z.end();
-        }
+        return Deflate.pack(raw, Deflater.BEST_SPEED, true);
     }
 
     private static byte[] swell(byte[] raw) throws Exception {
-        Inflater z = new Inflater(true);
-        try {
-            z.setInput(raw);
-            ByteArrayOutputStream out = new ByteArrayOutputStream(Math.max(64, raw.length * 3));
-            byte[] buffer = new byte[8192];
-            while (!z.finished()) {
-                int n = z.inflate(buffer);
-                if (n == 0 && (z.needsInput() || z.needsDictionary())) break;
-                out.write(buffer, 0, n);
-                if (out.size() > 64 << 20) throw new IllegalStateException("слишком много данных");
-            }
-            return out.toByteArray();
-        } finally {
-            z.end();
-        }
+        return Deflate.unpack(raw, true);
     }
 
     private CollabCrypto() {}

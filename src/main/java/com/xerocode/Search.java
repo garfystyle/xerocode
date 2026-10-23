@@ -8,7 +8,6 @@ import java.util.function.Function;
 
 public final class Search {
     public record Fields(String name, String id, String category, String description) {
-        public static Fields of(String name) { return new Fields(name, "", "", ""); }
         public static Fields of(String name, String id) { return new Fields(name, id, "", ""); }
     }
 

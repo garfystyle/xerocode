@@ -11,7 +11,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.world.item.ItemStack;
 
-abstract class PickerPanel {
+abstract class PickerPanel implements Overlay {
     private final Ui.Grab grab = new Ui.Grab();
     protected static final int PAD = 10;
     protected static final int HEAD_H = 28;

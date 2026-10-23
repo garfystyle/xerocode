@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.xerocode.Endpoints;
 import com.xerocode.Net;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -23,7 +24,6 @@ final class LoadScreen extends DialogScreen {
     private static final String OR = "или";
     private static final String CANCEL = "Отмена";
     private static final String FILE = "Выбрать .json с компьютера";
-    private static final String PROXY = "https://2-27-249-33.sslip.io/xerocode/justmc?u=";
     private static final Path SAVED = Path.of("/upload", "justmc.json");
     private static final Net.Who WHO = new Net.Who("нет сети", "сервер не отвечает", "сервер не ответил вовремя");
     private static final int FIELD_H = 20;
@@ -150,7 +150,7 @@ final class LoadScreen extends DialogScreen {
         Minecraft mc = Minecraft.getInstance();
         Net.threads("xerocode-load").newThread(() -> {
             try {
-                HttpRequest request = HttpRequest.newBuilder(URI.create(PROXY
+                HttpRequest request = HttpRequest.newBuilder(URI.create(Endpoints.safe() + "justmc?u="
                                 + URLEncoder.encode(url, StandardCharsets.UTF_8)))
                         .timeout(Duration.ofSeconds(30)).GET().build();
                 HttpResponse<byte[]> answer = Net.client(Duration.ofSeconds(10), true)

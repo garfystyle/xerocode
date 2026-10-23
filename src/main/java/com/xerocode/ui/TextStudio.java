@@ -26,7 +26,7 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 
-public final class TextStudio {
+public final class TextStudio implements Overlay {
     private static final int PAD = 12, HEAD_H = 26, FOOT_H = 28, GUTTER = 16;
     private static final int CAP = 12, SEG_H = 18, TOOL_H = 20, TOOL_W = 22, GROUP_GAP = 17;
     private static final int SW_GAP = 3, SL_H = 8, CELL = 18, OUT_ROW = 16, SIGN_W = 90;
@@ -80,7 +80,7 @@ public final class TextStudio {
     private final EditBox hex, search;
     private Ui.Chips catChips, sprChips;
 
-    private float pickH = 0f, pickS = 0.85f, pickV = 1f;
+    private final Hsv hsv = new Hsv(0f, 0.85f, 1f);
     private int gradA = 0xFF5555, gradB = 0x5555FF;
     private int tab, cat, gridScroll, dragging;
     private Menu menu;
@@ -94,7 +94,7 @@ public final class TextStudio {
     private final Ui.Pane pane = new Ui.Pane();
     private final Ui.Bar bar = new Ui.Bar();
     private final Ui.Grab grab = new Ui.Grab();
-    private boolean one, compact, closed, syncing, headMode;
+    private boolean one, compact, closed, headMode;
     private int srcLines, modeW, toolRows;
     private final int[] toolX = new int[9], toolRow = new int[9], toolW = new int[9];
     private int modeY, toolY, srcY, srcH, hintY, bodyY, colTop, bodyH, tabsY;
@@ -128,10 +128,9 @@ public final class TextStudio {
         area = new WrapField(tr, input, () -> this.parsing);
         hex = Ui.field(tr, "", "#RRGGBB", 7);
         search = Ui.field(tr, "", "поиск символа", 32);
-        hex.setResponder(s -> {
-            if (syncing) return;
-            String h6 = McText.normaliseHex(s);
-            if (h6 != null) fromRgb(McText.hexRgb(h6));
+        hsv.bind(hex, s -> {
+            Integer rgb = Hsv.parse(s);
+            if (rgb != null) hsv.keep(rgb);
         });
         setHexFromPicker();
         focus(input);
@@ -577,7 +576,7 @@ public final class TextStudio {
         separator(ctx, T_COLOUR);
         int cx = toolLeft(T_COLOUR), cy = toolTop(T_COLOUR);
         boolean ch = Ui.button(ctx, tr, mx, my, cx, cy, toolW[T_COLOUR], TOOL_H, "", Ui.GHOST, on);
-        Ui.swatch(ctx, cx + 6, cy + 4, SWATCH - 4, TOOL_H - 8, pickRgb(), on, false);
+        Ui.swatch(ctx, cx + 6, cy + 4, SWATCH - 4, TOOL_H - 8, hsv.rgb(), on, false);
         Draw.text(ctx, tr, COLOUR_LABEL, cx + SWATCH + 7, cy + (TOOL_H - Ui.TEXT_H) / 2,
                 !on ? Theme.TEXT_FAINT : ch ? Theme.TEXT : Theme.TEXT_DIM, false);
 
@@ -727,14 +726,14 @@ public final class TextStudio {
 
         Ui.caption(ctx, tr, "СВОЙ ЦВЕТ", lx, absY(pickY) - CAP, lw);
         int sy = absY(pickY);
-        Ui.svSquare(ctx, lx, sy, svW, svH, pickH, pickS, pickV, 3);
+        Ui.svSquare(ctx, lx, sy, svW, svH, hsv.h, hsv.s, hsv.v, 3);
         String[] names = {"H", "S", "V"};
-        String[] shows = {Math.round(pickH * 360) + "°",
-                Math.round(pickS * 100) + "%", Math.round(pickV * 100) + "%"};
+        String[] shows = {Math.round(hsv.h * 360) + "°",
+                Math.round(hsv.s * 100) + "%", Math.round(hsv.v * 100) + "%"};
         for (int i = 0; i < 3; i++) {
             int ry = sliderY(i);
             Draw.text(ctx, tr, names[i], hexX(), ry, Theme.TEXT_FAINT, false);
-            Ui.hsvSlider(ctx, sliderX(), ry, sliderW(), SL_H, i, pickH, pickS, pickV,
+            Ui.hsvSlider(ctx, sliderX(), ry, sliderW(), SL_H, i, hsv.h, hsv.s, hsv.v,
                     dragging == 2 + i || Ui.hit(mouseX, mouseY, sliderX(), ry - 2, sliderW(), SL_H + 4));
             Draw.textRight(ctx, tr, shows[i], lx + lw, ry, Theme.TEXT_DIM, false);
         }
@@ -743,7 +742,7 @@ public final class TextStudio {
         Ui.input(ctx, hexX(), hy, HEX_W, rowH, hex.isFocused());
         hex.extractRenderState(ctx, mouseX, mouseY, delta);
         Ui.placeholder(ctx, tr, hex);
-        Ui.swatch(ctx, hexX() + HEX_W + 4, hy, 22, rowH, pickRgb(), true, false);
+        Ui.swatch(ctx, hexX() + HEX_W + 4, hy, 22, rowH, hsv.rgb(), true, false);
         int ax = applyX();
         Ui.button(ctx, tr, mouseX, mouseY, ax, hy, lx + lw - ax, rowH, "Применить", Ui.ACCENT, on);
 
@@ -941,20 +940,7 @@ public final class TextStudio {
                 "Отмена", Ui.GHOST);
     }
 
-    private int pickRgb() { return McText.hsvRgb(pickH, pickS, pickV); }
-
-    private void fromRgb(int rgb) {
-        float[] hsv = McText.rgbHsv(rgb);
-        if (hsv[1] > 0.001f) pickH = hsv[0];
-        if (hsv[2] > 0.001f) pickS = hsv[1];
-        pickV = hsv[2];
-    }
-
-    private void setHexFromPicker() {
-        syncing = true;
-        hex.setValue("#" + String.format("%06x", pickRgb() & 0xFFFFFF));
-        syncing = false;
-    }
+    private void setHexFromPicker() { hsv.write(Hsv.hex(hsv.rgb())); }
 
     private void remember(int rgb) {
         RECENT.remove(Integer.valueOf(rgb));
@@ -1113,7 +1099,7 @@ public final class TextStudio {
     }
 
     private void applyColour(McText.Colour c) {
-        fromRgb(c.rgb());
+        hsv.keep(c.rgb());
         setHexFromPicker();
         wrap(McText.colourTag(parsing, c), McText.colourClose(parsing, c), true);
     }
@@ -1220,8 +1206,8 @@ public final class TextStudio {
                 else gradB = McText.COLOURS.get(i).rgb();
             }, first ? "Начальный цвет" : "Конечный цвет");
             else {
-                if (first) gradA = pickRgb();
-                else gradB = pickRgb();
+                if (first) gradA = hsv.rgb();
+                else gradB = hsv.rgb();
                 toast((first ? "начальный" : "конечный") + " цвет взят из пипетки");
             }
             return true;
@@ -1270,7 +1256,7 @@ public final class TextStudio {
         }
         int rc = recentAt(mx, my);
         if (rc >= 0) {
-            fromRgb(RECENT.get(rc));
+            hsv.keep(RECENT.get(rc));
             setHexFromPicker();
             return true;
         }
@@ -1279,8 +1265,8 @@ public final class TextStudio {
 
     private void applyPicked() {
         if (!McText.formattable(parsing)) { toast("в этом режиме разметки нет"); return; }
-        remember(pickRgb());
-        wrap(McText.hexTag(parsing, pickRgb()), McText.hexClose(parsing), true);
+        remember(hsv.rgb());
+        wrap(McText.hexTag(parsing, hsv.rgb()), McText.hexClose(parsing), true);
     }
 
     private boolean searchClicked(int mx, int my, MouseButtonEvent click, boolean doubled) {
@@ -1353,19 +1339,14 @@ public final class TextStudio {
     private void dragPicker(double mx, double my) {
         int lx = leftX(), sy = absY(pickY);
         switch (dragging) {
-            case 1 -> {
-                pickS = clamp01((mx - lx) / (svW - 1.0));
-                pickV = 1f - clamp01((my - sy) / (svH - 1.0));
-            }
-            case 2 -> pickH = clamp01((mx - sliderX()) / (sliderW() - 1.0));
-            case 3 -> pickS = clamp01((mx - sliderX()) / (sliderW() - 1.0));
-            case 4 -> pickV = clamp01((mx - sliderX()) / (sliderW() - 1.0));
+            case 1 -> hsv.square((mx - lx) / (svW - 1.0), (my - sy) / (svH - 1.0));
+            case 2 -> hsv.hue((mx - sliderX()) / (sliderW() - 1.0));
+            case 3 -> hsv.sat((mx - sliderX()) / (sliderW() - 1.0));
+            case 4 -> hsv.val((mx - sliderX()) / (sliderW() - 1.0));
             default -> { return; }
         }
         setHexFromPicker();
     }
-
-    private static float clamp01(double v) { return (float) Math.max(0, Math.min(1, v)); }
 
     private void finish() {
         done.apply(input.getValue(), parsing);
@@ -1381,13 +1362,12 @@ public final class TextStudio {
         return grab.drag(click, dx, dy);
     }
 
-    public boolean mouseReleased() {
+    public void mouseReleased() {
         dragging = 0;
         bar.release();
         grab.release();
         area.release();
         if (menu != null) menu.mouseReleased();
-        return true;
     }
 
     public boolean mouseScrolled(double mx, double my, double amount) {

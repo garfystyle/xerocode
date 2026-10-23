@@ -127,7 +127,7 @@ final class TopBar {
         list.add(btn(4, BACKPACK, Draw.PACK, stashed == 0 ? null : String.valueOf(stashed),
                 "Рюкзак кода  " + hotkey(Settings.Hot.BACKPACK) + (Env.touch() ? ""
                         : "\n" + hotkey(Settings.Hot.STASH) + " — убрать стопку под курсором")));
-        list.add(btn(4, MARKET, Draw.SHOP, "Магазин модулей  " + hotkey(Settings.Hot.MARKET)));
+        list.add(btn(4, MARKET, Draw.SHOP, "Модули  " + hotkey(Settings.Hot.MARKET)));
 
         boolean canvasMode = Settings.canvasMode();
         Btn original = btn(5, ORIGINAL, Draw.BRICKS, modeLabels ? "3D" : null,

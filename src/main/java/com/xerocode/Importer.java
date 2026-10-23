@@ -465,7 +465,7 @@ public final class Importer {
             }
 
             Integer index = act.args.get(name);
-            if (index == null || index >= action.args.size()) {
+            if (index == null || index >= action.args.size() || legacyInside(value)) {
                 keepValue(entry, node);
                 continue;
             }
@@ -473,7 +473,10 @@ public final class Importer {
             Value v;
             if (Value.ITEM.equals(type)) {
                 v = item(value);
-                if (v == null) continue;
+                if (v == null) {
+                    if (!empty(str(value, "item"))) keepValue(entry, node);
+                    continue;
+                }
             } else if (!KNOWN.contains(type)) {
                 keepValue(entry, node);
                 continue;
@@ -507,6 +510,23 @@ public final class Importer {
     private static Value item(JsonObject value) {
         String encoded = str(value, "item");
         return empty(encoded) ? null : Stacks.valueFromServer(encoded);
+    }
+
+    private static boolean legacyInside(JsonElement e) {
+        if (e == null || !e.isJsonObject()) return false;
+        JsonObject o = e.getAsJsonObject();
+        if (Value.ITEM.equals(str(o, "type"))) {
+            String raw = str(o, "item");
+            return raw.trim().startsWith("{") && !empty(raw);
+        }
+        JsonElement inner = o.get("values");
+        if (inner != null && inner.isJsonArray()) {
+            for (JsonElement cell : inner.getAsJsonArray()) if (legacyInside(cell)) return true;
+        } else if (inner != null && inner.isJsonObject()) {
+            for (Map.Entry<String, JsonElement> cell : inner.getAsJsonObject().entrySet())
+                if (legacyInside(cell.getValue())) return true;
+        }
+        return false;
     }
 
     private static final Set<String> KNOWN = Set.of(
@@ -551,7 +571,7 @@ public final class Importer {
     }
 
     private static boolean empty(String encoded) {
-        if (encoded == null || encoded.isEmpty()) return true;
+        if (encoded == null || encoded.isEmpty() || encoded.trim().equals("{}")) return true;
         try {
             for (byte b : Base64.getDecoder().decode(encoded)) if (b != 0) return false;
             return true;

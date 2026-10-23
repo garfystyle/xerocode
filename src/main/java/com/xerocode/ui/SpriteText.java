@@ -1,5 +1,7 @@
 package com.xerocode.ui;
 
+import com.xerocode.XeroCode;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -27,7 +29,6 @@ public final class SpriteText {
     public static List<String> ids(int group) {
         if (group < 0 || group >= DIRS.length) return List.of();
         if (!READ[group]) {
-            READ[group] = true;
             List<String> out = new ArrayList<>();
             String dir = "textures/" + DIRS[group];
             try {
@@ -37,7 +38,10 @@ public final class SpriteText {
                     String path = id.getPath();
                     out.add(path.substring("textures/".length(), path.length() - ".png".length()));
                 }
-            } catch (RuntimeException ignored) { }
+                READ[group] = true;
+            } catch (RuntimeException e) {
+                XeroCode.LOG.warn("[xerocode] не прочитался список текстур {}", dir, e);
+            }
             out.sort(null);
             LISTS.set(group, out);
         }

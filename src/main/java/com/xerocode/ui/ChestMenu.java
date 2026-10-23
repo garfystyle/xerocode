@@ -16,7 +16,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
-public final class ChestMenu {
+public final class ChestMenu implements Overlay {
     private static final int PAD = 8, HOTBAR_GAP = 5, FOOT_H = 66, SIDE_W = 150, TAKE_W = 52, TAKE_H = 20;
     private static final int FIND_H = 16, FIND_GAP = 5;
 
@@ -165,7 +165,7 @@ public final class ChestMenu {
     private int closeX() { return x + w - PAD - icon(); }
     private int iconY() { return y + (head() - icon()) / 2; }
 
-    public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
+    public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         place();
         int accent = accent();
         Ui.dim(ctx, screenW, screenH);
@@ -356,27 +356,30 @@ public final class ChestMenu {
 
     public boolean contains(double mx, double my) { return Ui.hit(mx, my, x, y, w, h); }
 
-    public void mouseClicked(MouseButtonEvent click) {
+    public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) { return false; }
+
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         double mx = click.x(), my = click.y();
-        if (!contains(mx, my)) { closed = true; return; }
-        if (click.button() == 1) { back(); return; }
-        if (click.button() != 0) return;
-        if (Ui.hit(mx, my, closeX(), iconY(), icon(), icon())) { closed = true; return; }
-        if (canBack() && Ui.hit(mx, my, backX(), iconY(), icon(), icon())) { back(); return; }
-        if (canHome() && Ui.hit(mx, my, homeX(), iconY(), icon(), icon())) { PATH.clear(); return; }
+        if (!contains(mx, my)) { closed = true; return true; }
+        if (click.button() == 1) { back(); return true; }
+        if (click.button() != 0) return true;
+        if (Ui.hit(mx, my, closeX(), iconY(), icon(), icon())) { closed = true; return true; }
+        if (canBack() && Ui.hit(mx, my, backX(), iconY(), icon(), icon())) { back(); return true; }
+        if (canHome() && Ui.hit(mx, my, homeX(), iconY(), icon(), icon())) { PATH.clear(); return true; }
         if (Ui.hit(mx, my, fieldX(), fieldY(), fieldW(), FIND_H)) {
-            if (!field.getValue().isEmpty() && mx >= clearX()) { field.setValue(""); return; }
+            if (!field.getValue().isEmpty() && mx >= clearX()) { field.setValue(""); return true; }
             field.setFocused(true);
             if (!field.mouseClicked(click, false)) field.onClick(click, false);
-            return;
+            return true;
         }
         if (touch() && picked != null
-                && Ui.hit(mx, my, takeX(), takeY(), takeW(), TAKE_H)) { open(picked); return; }
+                && Ui.hit(mx, my, takeX(), takeY(), takeW(), TAKE_H)) { open(picked); return true; }
         Menus.Cell c = cellAt(mx, my);
-        if (c == null) return;
-        if (c.nav != 0) { turn(c.nav == Menus.PREV ? -1 : 1); return; }
-        if (touch() && c != picked) { picked = c; return; }
+        if (c == null) return true;
+        if (c.nav != 0) { turn(c.nav == Menus.PREV ? -1 : 1); return true; }
+        if (touch() && c != picked) { picked = c; return true; }
         open(c);
+        return true;
     }
 
     private void open(Menus.Cell c) {
@@ -433,37 +436,39 @@ public final class ChestMenu {
         return null;
     }
 
-    public boolean mouseScrolled(double amount) {
+    public boolean mouseScrolled(double mx, double my, double amount) {
         int n = Ui.rows(amount, 1, 48);
         if (n != 0) turn(n < 0 ? 1 : -1);
         return true;
     }
 
-    public void keyPressed(KeyEvent input) {
+    public boolean keyPressed(KeyEvent input) {
         int key = input.key();
         boolean typed = !field.getValue().isEmpty();
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             if (typed) field.setValue(""); else closed = true;
-            return;
+            return true;
         }
         if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {
             Catalog.Action a = first();
             if (a != null) pick(a);
-            return;
+            return true;
         }
-        if (key == GLFW.GLFW_KEY_PAGE_UP) { turn(-1); return; }
-        if (key == GLFW.GLFW_KEY_PAGE_DOWN) { turn(1); return; }
-        if (typed && field.isFocused()) { field.keyPressed(input); return; }
+        if (key == GLFW.GLFW_KEY_PAGE_UP) { turn(-1); return true; }
+        if (key == GLFW.GLFW_KEY_PAGE_DOWN) { turn(1); return true; }
+        if (typed && field.isFocused()) { field.keyPressed(input); return true; }
         if (key == GLFW.GLFW_KEY_BACKSPACE) back();
         else if (key == GLFW.GLFW_KEY_LEFT) turn(-1);
         else if (key == GLFW.GLFW_KEY_RIGHT) turn(1);
         else if (field.isFocused()) field.keyPressed(input);
+        return true;
     }
 
-    public void charTyped(CharacterEvent input) {
+    public boolean charTyped(CharacterEvent input) {
         String s = input.codepointAsString();
-        if (s == null || s.isBlank() && field.getValue().isEmpty()) return;
+        if (s == null || s.isBlank() && field.getValue().isEmpty()) return true;
         field.setFocused(true);
         field.charTyped(input);
+        return true;
     }
 }

@@ -2,11 +2,7 @@ package com.xerocode;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,13 +32,9 @@ public final class Symbols {
         loaded = true;
         CATEGORIES.add("★");
         GROUPS.add(List.of());
-        try (InputStream in = Symbols.class.getResourceAsStream("/assets/xerocode/symbols.json")) {
-            if (in == null) {
-                XeroCode.LOG.error("[xerocode] symbols.json not found in the jar");
-                return;
-            }
-            JsonObject root = JsonParser.parseReader(
-                    new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+        try {
+            JsonObject root = Json.asset(Symbols.class, "symbols.json");
+            if (root == null) return;
 
             Map<String, String> names = new LinkedHashMap<>();
             for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("names").entrySet())

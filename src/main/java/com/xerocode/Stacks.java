@@ -49,6 +49,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 public final class Stacks {
     public record Entry(ItemStack stack, String id, String name) {
@@ -191,7 +192,11 @@ public final class Stacks {
         return world.registryAccess().lookup(key).orElse(null);
     }
 
-    public static ItemStack fromServer(String encoded) {
+    public static ItemStack fromServer(String encoded) { return decode(encoded, true); }
+
+    public static ItemStack icon(String encoded) { return decode(encoded, false); }
+
+    private static ItemStack decode(String encoded, boolean remember) {
         if (encoded == null || encoded.isEmpty()) return null;
         Minecraft client = Minecraft.getInstance();
         ClientLevel world = client == null ? null : client.level;
@@ -204,27 +209,55 @@ public final class Stacks {
             CompoundTag nbt = NbtIo.readCompressed(
                     new ByteArrayInputStream(raw), NbtAccounter.unlimitedHeap());
             int seen = nbt.getIntOr(SharedConstants.DATA_VERSION_TAG, 0);
-            if (seen > 0) serverDataVersion = seen;
+            if (remember && seen > 0) serverDataVersion = seen;
             RegistryOps<Tag> ops = RegistryOps.create(NbtOps.INSTANCE, world.registryAccess());
-            return ItemStack.CODEC.parse(ops, nbt).result().orElse(null);
+            var parsed = ItemStack.CODEC.parse(ops, nbt);
+            parsed.error().ifPresent(error ->
+                    XeroCode.LOG.warn("[xerocode] предмет с сервера не разобрался: {}", error.message()));
+            return parsed.result().orElse(null);
         } catch (Exception e) {
+            XeroCode.LOG.warn("[xerocode] предмет с сервера не читается: {}", e.toString());
             return null;
         }
     }
 
     private static volatile int serverDataVersion;
 
+    private static final Pattern BASE64 = Pattern.compile("[A-Za-z0-9+/]+=*");
+
     public static Value valueFromServer(String encoded) {
+        if (encoded == null || !BASE64.matcher(encoded).matches()) return null;
         try {
             ItemStack stack = fromServer(encoded);
-            if (stack == null || stack.isEmpty()) return null;
+            if (stack != null && !stack.isEmpty()) {
+                Value v = new Value(Value.ITEM);
+                read(v, stack);
+                v.itemRaw = encoded;
+                v.itemRawHash = v.hash();
+                return v;
+            }
+        } catch (Throwable e) {
+            XeroCode.LOG.warn("[xerocode] предмет с сервера не разобрался", e);
+        }
+        return opaque(encoded);
+    }
+
+    private static Value opaque(String encoded) {
+        try {
+            CompoundTag nbt = NbtIo.readCompressed(
+                    new ByteArrayInputStream(Base64.getDecoder().decode(encoded)), NbtAccounter.unlimitedHeap());
+            String id = nbt.getStringOr("id", "");
+            if (id.isEmpty() || "minecraft:air".equals(id)) return null;
             Value v = new Value(Value.ITEM);
-            read(v, stack);
+            v.itemId = id;
+            v.itemCount = Math.max(1, nbt.getIntOr("count", 1));
+            Tag parts = nbt.get("components");
+            if (parts != null) v.components = parts.toString();
             v.itemRaw = encoded;
             v.itemRawHash = v.hash();
             return v;
         } catch (Throwable e) {
-            XeroCode.LOG.warn("[xerocode] предмет с сервера не разобрался", e);
+            XeroCode.LOG.warn("[xerocode] предмет с сервера не читается даже как NBT: {}", e.toString());
             return null;
         }
     }

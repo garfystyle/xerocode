@@ -28,12 +28,18 @@ public final class CollabNet {
     private final StringBuilder pending = new StringBuilder();
     private final Object sending = new Object();
 
-    private volatile HttpClient client;
     private volatile WebSocket socket;
     private volatile boolean open;
     private volatile boolean dead;
     private volatile String why = "";
     private CompletableFuture<?> tail = CompletableFuture.completedFuture(null);
+
+    private static HttpClient shared;
+
+    private static synchronized HttpClient client() {
+        if (shared == null) shared = HttpClient.newBuilder().executor(POOL).connectTimeout(CONNECT).build();
+        return shared;
+    }
 
     public boolean open() { return open && !dead; }
     public boolean dead() { return dead; }
@@ -41,11 +47,7 @@ public final class CollabNet {
     public JsonObject take() { return inbox.poll(); }
 
     public void connect(String url) {
-        client = HttpClient.newBuilder()
-                .executor(POOL)
-                .connectTimeout(CONNECT)
-                .build();
-        client.newWebSocketBuilder()
+        client().newWebSocketBuilder()
                 .connectTimeout(CONNECT)
                 .buildAsync(URI.create(url), new Ears())
                 .whenComplete((ws, error) -> {

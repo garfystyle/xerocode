@@ -3,6 +3,7 @@ package com.xerocode.ui;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
+import com.xerocode.XeroCode;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -600,7 +601,9 @@ public final class McText {
             }
             JsonElement el = ComponentSerialization.CODEC.encodeStart(JsonOps.INSTANCE, t).result().orElse(null);
             if (el != null) return el.toString();
-        } catch (Throwable ignored) { }
+        } catch (Throwable e) {
+            XeroCode.LOG.warn("[xerocode] текст не собрался в json, пишу простым", e);
+        }
         return writePlain(runs);
     }
 

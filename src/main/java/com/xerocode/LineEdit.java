@@ -4,7 +4,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.xerocode.ui.EditorScreen;
-import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
@@ -140,17 +139,7 @@ public final class LineEdit {
 
     public static String encode(JsonObject handler) {
         byte[] input = handler.toString().getBytes(StandardCharsets.UTF_8);
-        Deflater deflater = new Deflater();
-        deflater.setInput(input);
-        deflater.finish();
-        ByteArrayOutputStream out = new ByteArrayOutputStream(input.length);
-        byte[] buffer = new byte[8192];
-        while (!deflater.finished()) {
-            int n = deflater.deflate(buffer);
-            out.write(buffer, 0, n);
-        }
-        deflater.end();
-        return Base64.getEncoder().encodeToString(out.toByteArray());
+        return Base64.getEncoder().encodeToString(Deflate.pack(input, Deflater.DEFAULT_COMPRESSION, false));
     }
 
     public static JsonObject handlerOf(List<Script.Node> chain) {

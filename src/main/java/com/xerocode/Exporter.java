@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -25,8 +26,31 @@ public final class Exporter {
 
     public record Result(JsonObject json, Report report) {}
 
+    private static Report current;
+
     public static Result export(Script script) {
         Report report = new Report();
+        current = report;
+        try {
+            return export(script, report);
+        } finally {
+            current = null;
+        }
+    }
+
+    public static Map<Script.Root, Integer> positions(Script script) {
+        Report report = new Report();
+        List<Script.Root> roots = new ArrayList<>(script.roots);
+        roots.sort(Comparator.<Script.Root>comparingDouble(r -> r.x).thenComparingDouble(r -> r.y));
+        Map<Script.Root, Integer> out = new IdentityHashMap<>();
+        for (Script.Root root : roots) {
+            if (root.chain.isEmpty() || handler(root.chain.get(0), report) == null) continue;
+            out.put(root, out.size());
+        }
+        return out;
+    }
+
+    private static Result export(Script script, Report report) {
         List<Script.Root> roots = new ArrayList<>(script.roots);
         roots.sort(Comparator.<Script.Root>comparingDouble(r -> r.x).thenComparingDouble(r -> r.y));
 
@@ -90,6 +114,8 @@ public final class Exporter {
 
         Value icon = head.value(Catalog.FN_ICON);
         String encoded = icon == null ? null : Stacks.toServer(icon);
+        if (encoded == null && icon != null && !icon.isBlank() && current != null)
+            current.problem("значок функции «" + Stacks.plainName(icon) + "»");
         if (encoded != null) {
             JsonObject item = new JsonObject();
             item.addProperty("type", Value.ITEM);
@@ -249,7 +275,10 @@ public final class Exporter {
             String name = act.settingNames.get(e.getKey());
             Map<String, String> ids = act.optionIds.get(e.getKey());
             String id = ids == null ? null : ids.get(e.getValue());
-            if (name == null || id == null) continue;
+            if (name == null || id == null) {
+                report.problem("маркер «" + e.getValue() + "» у «" + node.action.name + "»");
+                continue;
+            }
             out.add(entry(name, enumValue(id, node.markerVar(e.getKey()))));
         }
         keptValues(node, out);
@@ -434,7 +463,10 @@ public final class Exporter {
         switch (v.type) {
             case Value.ITEM -> {
                 String encoded = Stacks.toServer(v);
-                if (encoded == null) return null;
+                if (encoded == null) {
+                    if (current != null && !v.isBlank()) current.problem("предмет «" + v.itemId + "»");
+                    return null;
+                }
                 JsonObject o = new JsonObject();
                 o.addProperty("type", Value.ITEM);
                 o.addProperty("item", encoded);

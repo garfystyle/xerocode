@@ -3,10 +3,6 @@ package com.xerocode;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -96,10 +92,9 @@ public final class Pickers {
 
     public static void load() {
         if (loaded()) return;
-        try (InputStream in = Pickers.class.getResourceAsStream("/assets/xerocode/pickers.json")) {
-            if (in == null) { XeroCode.LOG.error("[xerocode] pickers.json not found in the jar"); return; }
-            JsonObject root = JsonParser.parseReader(
-                    new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+        try {
+            JsonObject root = Json.asset(Pickers.class, "pickers.json");
+            if (root == null) return;
 
             if (root.has("sounds")) {
                 for (JsonElement ce : root.getAsJsonArray("sounds")) {
@@ -166,12 +161,6 @@ public final class Pickers {
     public static String potionName(String id) {
         Entry e = potion(id);
         return e != null ? e.name : (id == null ? "" : id.replace("minecraft:", ""));
-    }
-
-    public static List<Entry> search(List<Entry> pool, String query, int limit) {
-        if (query.isBlank()) return new ArrayList<>(pool.subList(0, Math.min(limit, pool.size())));
-        return Search.rank(pool, query, limit,
-                e -> new Search.Fields(e.name, e.id, e.category, e.description));
     }
 
     private Pickers() {}

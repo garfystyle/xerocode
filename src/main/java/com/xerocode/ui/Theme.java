@@ -1,39 +1,36 @@
 package com.xerocode.ui;
 
 public final class Theme {
-    public static int CANVAS        = 0x0F1117;
-    public static int GRID_DOT      = 0x232833;
-    public static int GRID_DOT_BIG  = 0x333B4C;
-    public static int PANEL         = 0x171A21;
-    public static int PANEL_RAISED  = 0x1D212A;
-    public static int LINE          = 0x272C37;
-    public static int SURFACE       = 0x232833;
-    public static int SURFACE_HOVER = 0x2E3441;
-    public static int SURFACE_DOWN  = 0x3B4354;
+    public static int CANVAS;
+    public static int PANEL;
+    public static int PANEL_RAISED;
+    public static int LINE;
+    public static int SURFACE;
+    public static int SURFACE_HOVER;
 
-    public static int TEXT          = 0xEEF1F6;
-    public static int TEXT_DIM      = 0x9BA5B7;
-    public static int TEXT_FAINT    = 0x6B7488;
-    public static int ON_ACCENT     = 0xFFFFFF;
+    public static int TEXT;
+    public static int TEXT_DIM;
+    public static int TEXT_FAINT;
+    public static int ON_ACCENT;
 
-    public static int ACCENT        = 0x59A6FF;
-    public static int DANGER        = 0xFF7373;
-    public static int OK            = 0x63D68E;
-    public static int WARN          = 0xFFD24A;
+    public static int ACCENT;
+    public static int DANGER;
+    public static int OK;
+    public static int WARN;
 
-    public static int GRID          = 0x188FA0C0;
-    public static int GRID_STRONG   = 0x2A8FA0C0;
-    public static int SHADOW        = 0x3A000000;
-    public static int SHADOW_SOFT   = 0x18000000;
-    public static int SCRIM         = 0xC005070B;
+    public static int GRID;
+    public static int GRID_STRONG;
+    public static int SHADOW;
+    public static int SHADOW_SOFT;
+    public static int SCRIM;
 
     public static boolean LIGHT;
 
-    public static int MARKER_BORDER = 0x424B5B;
-    public static int MARKER_TOP    = 0x2A303D;
-    public static int MARKER_BOTTOM = 0x1E232D;
+    public static int MARKER_BORDER;
+    public static int MARKER_TOP;
+    public static int MARKER_BOTTOM;
 
-    public static int GHOST         = 0x5A6579;
+    public static int GHOST;
 
     public static int PALETTE_W = 218;
     public static final int PALETTE_MIN_W = 150;
@@ -42,23 +39,23 @@ public final class Theme {
     public static final int STATUS_H  = 14;
 
     public static final int SEARCH_H     = 20;
-    public static final int CRUMB_H      = 20;
     public static final int ROW_ACTION_H = 20;
     public static final int ROW_CAT_H    = 24;
     public static final int ROW_HEAD_H   = 17;
     public static final int ROW_GAP      = 2;
 
+    static {
+        dark();
+    }
+
     public static void dark() {
         LIGHT         = false;
         CANVAS        = 0x0F1117;
-        GRID_DOT      = 0x232833;
-        GRID_DOT_BIG  = 0x333B4C;
         PANEL         = 0x171A21;
         PANEL_RAISED  = 0x1D212A;
         LINE          = 0x272C37;
         SURFACE       = 0x232833;
         SURFACE_HOVER = 0x2E3441;
-        SURFACE_DOWN  = 0x3B4354;
         TEXT          = 0xEEF1F6;
         TEXT_DIM      = 0x9BA5B7;
         TEXT_FAINT    = 0x6B7488;
@@ -91,19 +88,19 @@ public final class Theme {
         Ui.PRIMARY   = 0x38506E;
         Ui.PRIMARY_H = 0x4E8FE0;
         Ui.DANGER_BG = 0x4A2A32;
+        Ui.ROW_ON    = 0x22405F;
+        Ui.ROW_HOVER = 0x1C222D;
+        Ui.DANGER_WELL = 0x2A2028;
     }
 
     public static void light() {
         LIGHT         = true;
         CANVAS        = 0xE9ECF2;
-        GRID_DOT      = 0xC9D0DC;
-        GRID_DOT_BIG  = 0xB2BCCC;
         PANEL         = 0xFFFFFF;
         PANEL_RAISED  = 0xF4F6FA;
         LINE          = 0xD9DEE7;
         SURFACE       = 0xE7EBF2;
         SURFACE_HOVER = 0xD8DFEA;
-        SURFACE_DOWN  = 0xC4CEDD;
         TEXT          = 0x1A1F28;
         TEXT_DIM      = 0x4E586A;
         TEXT_FAINT    = 0x818B9C;
@@ -136,6 +133,9 @@ public final class Theme {
         Ui.PRIMARY   = 0x2F7BE0;
         Ui.PRIMARY_H = 0x4E93EA;
         Ui.DANGER_BG = 0xF2D3D3;
+        Ui.ROW_ON    = 0xD6E5FA;
+        Ui.ROW_HOVER = 0xE8EDF5;
+        Ui.DANGER_WELL = 0xF8E7E7;
     }
 
     private Theme() {}

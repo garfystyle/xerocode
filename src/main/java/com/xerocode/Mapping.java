@@ -1,11 +1,7 @@
 package com.xerocode;
 
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -79,10 +75,9 @@ public final class Mapping {
 
     public static void load() {
         if (loaded()) return;
-        try (InputStream in = Mapping.class.getResourceAsStream("/assets/xerocode/mapping.json")) {
-            if (in == null) { XeroCode.LOG.error("[xerocode] mapping.json not found in the jar"); return; }
-            JsonObject root = JsonParser.parseReader(
-                    new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+        try {
+            JsonObject root = Json.asset(Mapping.class, "mapping.json");
+            if (root == null) return;
 
             JsonObject events = root.getAsJsonObject("events");
             for (String id : events.keySet()) {

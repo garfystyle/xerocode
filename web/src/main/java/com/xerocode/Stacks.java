@@ -108,6 +108,8 @@ public final class Stacks {
         return name + " " + (roman == null ? String.valueOf(level) : roman);
     }
 
+    public static ItemStack icon(String encoded) { return fromServer(encoded); }
+
     public static ItemStack fromServer(String encoded) {
         if (encoded == null || encoded.isEmpty()) return null;
         try {

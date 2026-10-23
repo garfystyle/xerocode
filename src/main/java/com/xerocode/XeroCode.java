@@ -128,6 +128,7 @@ public final class XeroCode implements ClientModInitializer {
         String plot = plotId(world);
         if (script == null) { scriptPlot = plot; return; }
         if (plot.equals(scriptPlot)) return;
+        if (client.gui.screen() instanceof EditorScreen editor) editor.finishEditing();
         script.save();
         scriptPlot = plot;
         script = Script.load(plot);
@@ -178,6 +179,7 @@ public final class XeroCode implements ClientModInitializer {
         INSTANCE = this;
         preload();
         loadOwn();
+        Endpoints.load();
         Catalog.load();
         Values.load();
         Pickers.load();
@@ -253,7 +255,10 @@ public final class XeroCode implements ClientModInitializer {
             if (retired) return;
             Collab.stop();
             if (script == null) return;
-            if (client.gui.screen() instanceof EditorScreen editor) editor.rememberView();
+            if (client.gui.screen() instanceof EditorScreen editor) {
+                editor.finishEditing();
+                editor.rememberView();
+            }
             script.save();
         });
 
@@ -288,8 +293,10 @@ public final class XeroCode implements ClientModInitializer {
             Backstage.guard(client);
             Codespace.watch();
             Collab.tick();
-            Market.tick();
             Publish.tick();
+            ServerAsk.tick(client);
+            ModuleActions.tick(client);
+            ModulePublish.tick(client);
             if (cover != null) {
                 if (client.gui.screen() == null) client.gui.setScreen(cover);
                 var now = client.gameMode == null ? null
@@ -364,6 +371,8 @@ public final class XeroCode implements ClientModInitializer {
     }
 
     public static void revive() { retired = false; }
+
+    public static boolean retired() { return retired; }
 
     public static void resumed(String from, String trouble, boolean editor) {
         Minecraft mc = Minecraft.getInstance();

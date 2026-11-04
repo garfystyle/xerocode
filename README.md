@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="src/main/resources/assets/xerocode/icon.png" width="120" alt="xerocode">
+  <img src="src/main/resources/assets/xerocode/icon.png" width="128" alt="xerocode">
   <h1>xerocode</h1>
   <p><b>Визуальный редактор кода JustMC Creative+</b></p>
   <p>

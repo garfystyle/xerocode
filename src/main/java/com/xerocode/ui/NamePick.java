@@ -1,9 +1,13 @@
 package com.xerocode.ui;
 
+import com.xerocode.Env;
+import com.xerocode.Placeholders;
+import com.xerocode.Search;
 import com.xerocode.Values;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import net.minecraft.client.gui.Font;
@@ -16,7 +20,10 @@ public final class NamePick {
 
     public interface Pick { void apply(String name, String scope); }
 
-    private static final int ROW_H = 12, PAD = 3, ROWS = 7, MAX = 40, MIN_W = 120, MAX_W = 260;
+    private record Found(Known k, int rank) {}
+
+    private static final int PAD = 3, ROWS = 7, MAX = 40, MIN_W = 120, MAX_W = 260;
+    private final int rowH = Env.touch() ? 22 : 12;
     private static final String HERE = "в этой стопке";
 
     private final List<Known> hits = new ArrayList<>();
@@ -43,29 +50,32 @@ public final class NamePick {
         field = f;
         hits.clear();
         if (f == null || !f.isFocused()) return;
-        String typed = f.getValue().trim().toLowerCase(Locale.ROOT);
-        boolean local = "local".equals(scope) || "line".equals(scope);
-        List<Known> same = new ArrayList<>(), other = new ArrayList<>();
+        String exact = f.getValue().trim().toLowerCase(Locale.ROOT);
+        String typed = Search.fold(exact);
+        String bare = Placeholders.strip(typed);
+        boolean loose = !bare.isBlank() && !bare.equals(typed);
+        List<Found> same = new ArrayList<>(), other = new ArrayList<>();
         for (Known k : pool) {
-            String name = k.name().toLowerCase(Locale.ROOT);
-            boolean named = !scoped && k.scope().toLowerCase(Locale.ROOT).contains(typed);
-            if (!typed.isEmpty() && !name.contains(typed) && !named) continue;
+            String name = Search.fold(k.name());
+            String nameBare = loose ? Placeholders.strip(name) : name;
+            boolean named = !scoped && Search.fold(k.scope()).contains(typed);
+            boolean found = name.contains(typed) || loose && nameBare.contains(bare);
+            if (!typed.isEmpty() && !found && !named) continue;
             boolean mine = !scoped || k.scope().equals(scope);
-            if (mine && name.equals(typed)) continue;
-            if (mine) { if (!local || k.here() || !scoped) same.add(k); }
-            else if (!typed.isEmpty()) other.add(k);
+            if (mine && k.name().toLowerCase(Locale.ROOT).equals(exact)) continue;
+            int rank = name.startsWith(typed) ? 0 : loose && nameBare.startsWith(bare) ? 1 : 2;
+            if (mine) same.add(new Found(k, rank));
+            else if (!typed.isEmpty()) other.add(new Found(k, rank));
         }
-        java.util.Comparator<Known> order = (a, b) -> {
-            if (a.here() != b.here()) return a.here() ? -1 : 1;
-            boolean sa = a.name().toLowerCase(Locale.ROOT).startsWith(typed);
-            boolean sb = b.name().toLowerCase(Locale.ROOT).startsWith(typed);
-            if (sa != sb) return sa ? -1 : 1;
-            return b.uses() - a.uses();
+        Comparator<Found> order = (a, b) -> {
+            if (a.k().here() != b.k().here()) return a.k().here() ? -1 : 1;
+            if (a.rank() != b.rank()) return a.rank() - b.rank();
+            return b.k().uses() - a.k().uses();
         };
         same.sort(order);
         other.sort(order);
-        for (Known k : same) if (hits.size() < MAX) hits.add(k);
-        for (Known k : other) if (hits.size() < MAX) hits.add(k);
+        for (Found h : same) if (hits.size() < MAX) hits.add(h.k());
+        for (Found h : other) if (hits.size() < MAX) hits.add(h.k());
         if (sel >= hits.size()) sel = 0;
         if (!moved) sel = 0;
         place(tr, screenW, screenH, scoped, panelX, panelW);
@@ -89,7 +99,7 @@ public final class NamePick {
         scroll = Math.max(0, Math.min(scroll, hits.size() - rows));
         if (sel < scroll) scroll = sel;
         if (sel >= scroll + rows) scroll = sel - rows + 1;
-        h = PAD * 2 + rows * ROW_H;
+        h = PAD * 2 + rows * rowH;
         int top = field.getY() - 6;
         y = Math.max(2, Math.min(top, screenH - h - 2));
         if (panelX + panelW + 4 + w <= screenW - 2) { x = panelX + panelW + 4; return; }
@@ -131,15 +141,15 @@ public final class NamePick {
     public boolean mouseScrolled(double mx, double my, double amount) {
         if (!active() || mx < x || mx >= x + w || my < y || my >= y + h) return false;
         int rows = Math.min(ROWS, hits.size());
-        scroll = Math.max(0, Math.min(hits.size() - rows, scroll - Ui.rows(amount, 1, ROW_H)));
+        scroll = Math.max(0, Math.min(hits.size() - rows, scroll - Ui.rows(amount, 1, rowH)));
         return true;
     }
 
     private int rowAt(double my) {
         int rows = Math.min(ROWS, hits.size());
         int rel = (int) (my - (y + PAD));
-        if (rel < 0 || rel >= rows * ROW_H) return -1;
-        return scroll + rel / ROW_H;
+        if (rel < 0 || rel >= rows * rowH) return -1;
+        return scroll + rel / rowH;
     }
 
     public void render(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY) {
@@ -152,25 +162,25 @@ public final class NamePick {
             int i = scroll + r;
             if (i >= hits.size()) break;
             Known k = hits.get(i);
-            int ry = y + PAD + r * ROW_H;
+            int ry = y + PAD + r * rowH;
             boolean on = i == sel;
-            if (on) Draw.round(ctx, x + 2, ry, w - 4, ROW_H - 1, 3,
+            if (on) Draw.round(ctx, x + 2, ry, w - 4, rowH - 1, 3,
                     Draw.opaque(Draw.mix(Ui.BTN_HOVER, Theme.ACCENT, 0.35f)));
-            else if (i == hover) Draw.round(ctx, x + 2, ry, w - 4, ROW_H - 1, 3, Draw.opaque(Ui.BTN_HOVER));
+            else if (i == hover) Draw.round(ctx, x + 2, ry, w - 4, rowH - 1, 3, Draw.opaque(Ui.BTN_HOVER));
             Values.Scope s = scopedList ? Values.scope(k.scope()) : null;
             int dot = s == null ? Theme.TEXT_FAINT : s.color();
-            Draw.dot(ctx, x + 6, ry + 3, Draw.opaque(dot));
+            Draw.dot(ctx, x + 6, ry + (rowH - 6) / 2, Draw.opaque(dot));
             String tag = tag(k, scopedList);
             int nameW = Math.min(tr.width(k.name()), w - 20);
             int room = w - 20 - nameW - 6;
             int tagW = tag.isEmpty() || room < 16 ? 0 : Math.min(tr.width(tag), room);
             if (tagW > 0)
-                Draw.textFit(ctx, tr, tag, x + w - 6 - tagW, ry + 2, tagW, Theme.TEXT_FAINT, false);
-            Draw.textFit(ctx, tr, k.name(), x + 14, ry + 2, w - 20 - (tagW == 0 ? 0 : tagW + 6),
+                Draw.textFit(ctx, tr, tag, x + w - 6 - tagW, ry + (rowH - 8) / 2, tagW, Theme.TEXT_FAINT, false);
+            Draw.textFit(ctx, tr, k.name(), x + 14, ry + (rowH - 8) / 2, w - 20 - (tagW == 0 ? 0 : tagW + 6),
                     on ? Theme.TEXT : Theme.TEXT_DIM, false);
         }
         if (hits.size() > rows) {
-            int listH = rows * ROW_H;
+            int listH = rows * rowH;
             int barH = Math.max(6, listH * rows / hits.size());
             int barY = y + PAD + (listH - barH) * scroll / Math.max(1, hits.size() - rows);
             Draw.round(ctx, x + w - 3, barY, 2, barH, 1, Draw.opaque(Ui.BORDER));

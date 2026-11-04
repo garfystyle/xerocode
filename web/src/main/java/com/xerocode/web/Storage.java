@@ -16,6 +16,7 @@ import java.util.stream.Stream;
 public final class Storage {
     private static final Path ROOT = Path.of("/game");
     private static final Map<String, Integer> SAVED = new HashMap<>();
+    private static final Map<String, Double> SEEN = new HashMap<>();
     private static double lastSync;
 
     private Storage() {}
@@ -41,10 +42,12 @@ public final class Storage {
         double now = Js.now();
         if (now - lastSync < 1500) return;
         lastSync = now;
-        sync();
+        sync(false);
     }
 
-    public static void sync() {
+    public static void sync() { sync(true); }
+
+    private static void sync(boolean full) {
         Set<String> seen = new HashSet<>();
         List<Path> files = new ArrayList<>();
         try {
@@ -56,18 +59,22 @@ public final class Storage {
             String key = p.toString().replace('\\', '/');
             seen.add(key);
             try {
+                java.io.File file = p.toFile();
+                double stamp = file.lastModified() * 65536.0 + file.length();
+                Double known = SEEN.put(key, stamp);
+                if (!full && known != null && known == stamp) continue;
                 byte[] bytes = Files.readAllBytes(p);
-                int hash = Arrays.hashCode(bytes) ^ bytes.length;
-                Integer old = SAVED.get(key);
-                if (old != null && old == hash) continue;
+                Integer hash = full ? Integer.valueOf(Arrays.hashCode(bytes) ^ bytes.length) : null;
+                if (hash != null && hash.equals(SAVED.get(key))) continue;
                 SAVED.put(key, hash);
-                Js.store(key, Base64.getEncoder().encodeToString(bytes));
+                Js.storeBytes(key, bytes);
             } catch (IOException ignored) {
             }
         }
         for (String key : new ArrayList<>(SAVED.keySet())) {
             if (seen.contains(key)) continue;
             SAVED.remove(key);
+            SEEN.remove(key);
             Js.unstore(key);
         }
     }

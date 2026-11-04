@@ -21,22 +21,24 @@ final class Selection {
         int screenY(double cy);
     }
 
-    record Piece(Layout.Box head, List<Layout.Box> boxes,
+    record Piece(Layout.Box head, int count, List<Layout.Box> boxes,
                  int x, int y, int w, int h, List<int[]> edge) {}
 
     private final Host host;
-    private final Set<Script.Node> heads = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final Set<Script.Node> units = Collections.newSetFromMap(new IdentityHashMap<>());
     private Set<Script.Node> coveredCache = Set.of();
+    private Map<Script.Node, Script.Node> unitOf = Map.of();
     private int pickedStamp = Integer.MIN_VALUE;
     private List<Piece> pieceCache = List.of();
     private Map<Script.Root, List<Piece>> byRootCache = Map.of();
     private Map<Script.Node, Piece> pieceByNode = Map.of();
     private int pieceStamp = Integer.MIN_VALUE;
     private String saidCache = "";
+    private int blocksCache;
 
     Selection(Host host) { this.host = host; }
 
-    boolean isEmpty() { return heads.isEmpty(); }
+    boolean isEmpty() { return units.isEmpty(); }
 
     Map<Script.Root, List<Piece>> byRoot() {
         pieces();
@@ -49,13 +51,9 @@ final class Selection {
     }
 
     void clear() {
-        if (heads.isEmpty()) return;
-        heads.clear();
+        if (units.isEmpty()) return;
+        units.clear();
         changed();
-    }
-
-    private static void tailNodes(List<Script.Node> owner, int from, Set<Script.Node> out) {
-        for (int i = from; i < owner.size(); i++) subtree(owner.get(i), out);
     }
 
     private static void subtree(Script.Node node, Set<Script.Node> out) {
@@ -64,14 +62,46 @@ final class Selection {
         for (Script.Node kid : node.body) subtree(kid, out);
     }
 
-    private void pick(Layout.Box box) {
-        if (box == null) return;
-        Set<Script.Node> tail = Collections.newSetFromMap(new IdentityHashMap<>());
-        tailNodes(box.owner, box.index, tail);
-        if (covered().contains(box.node)) return;
-        heads.removeIf(tail::contains);
-        heads.add(box.node);
-        changed();
+    private static Set<Script.Node> nodes() {
+        return Collections.newSetFromMap(new IdentityHashMap<>());
+    }
+
+    private void addAll(List<Script.Node> list) {
+        if (list.isEmpty()) return;
+        Set<Script.Node> taken = nodes();
+        taken.addAll(covered());
+        Set<Script.Node> inside = nodes();
+        boolean any = false;
+        for (Script.Node n : list) {
+            if (taken.contains(n)) continue;
+            inside.clear();
+            subtree(n, inside);
+            for (Script.Node k : inside) units.remove(k);
+            units.add(n);
+            taken.addAll(inside);
+            any = true;
+        }
+        if (any) changed();
+    }
+
+    private void dropAll(List<Script.Node> list) {
+        if (list.isEmpty()) return;
+        Map<Script.Node, Script.Node> owners = unitOf();
+        Set<Script.Node> inside = nodes();
+        boolean any = false;
+        for (Script.Node n : list) {
+            Script.Node owner = owners.get(n);
+            if (owner != null) any |= units.remove(owner);
+            inside.clear();
+            subtree(n, inside);
+            for (Script.Node k : inside) any |= units.remove(k);
+        }
+        if (any) changed();
+    }
+
+    private Map<Script.Node, Script.Node> unitOf() {
+        pieces();
+        return unitOf;
     }
 
     Piece pieceOf(Script.Node node) {
@@ -79,26 +109,33 @@ final class Selection {
         return pieceByNode.get(node);
     }
 
-    void unpick(Layout.Box box) {
-        Piece p = box == null ? null : pieceOf(box.node);
-        if (p == null) return;
-        heads.remove(p.head().node);
-        changed();
-    }
-
     void toggle(Layout.Box box) {
         if (box == null) return;
-        if (covered().contains(box.node)) unpick(box); else pick(box);
+        if (covered().contains(box.node)) dropAll(List.of(box.node)); else addAll(List.of(box.node));
+    }
+
+    void unpick(Layout.Box box) {
+        if (box != null) dropAll(List.of(box.node));
+    }
+
+    void toggleTail(Layout.Box box) {
+        if (box == null) return;
+        List<Script.Node> tail = List.copyOf(box.owner.subList(box.index, box.owner.size()));
+        if (covered().contains(box.node)) dropAll(tail); else addAll(tail);
+    }
+
+    void unpickTail(Layout.Box box) {
+        if (box != null) dropAll(List.copyOf(box.owner.subList(box.index, box.owner.size())));
     }
 
     void prune() {
         if (pickedStamp == host.stamp()) return;
         pickedStamp = host.stamp();
         pieceStamp = Integer.MIN_VALUE;
-        if (heads.isEmpty()) return;
-        Set<Script.Node> live = Collections.newSetFromMap(new IdentityHashMap<>());
+        if (units.isEmpty()) return;
+        Set<Script.Node> live = nodes();
         for (Layout.Box b : host.layout().boxes) live.add(b.node);
-        heads.removeIf(n -> !live.contains(n));
+        units.removeIf(n -> !live.contains(n));
     }
 
     Set<Script.Node> covered() {
@@ -116,30 +153,57 @@ final class Selection {
         byRootCache = Map.of();
         pieceByNode = Map.of();
         coveredCache = Set.of();
+        unitOf = Map.of();
         saidCache = "";
-        if (heads.isEmpty()) return pieceCache;
-        List<Layout.Box> found = new ArrayList<>(heads.size());
-        for (Layout.Box b : l.boxes) if (heads.contains(b.node)) found.add(b);
-        Map<Script.Node, Integer> headOf = new IdentityHashMap<>();
-        Set<Script.Node> tail = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (int i = 0; i < found.size(); i++) {
-            Layout.Box head = found.get(i);
-            tail.clear();
-            tailNodes(head.owner, head.index, tail);
-            for (Script.Node n : tail) headOf.put(n, i);
+        blocksCache = 0;
+        if (units.isEmpty()) return pieceCache;
+
+        Map<Script.Node, Layout.Box> boxOf = new IdentityHashMap<>(units.size() * 2);
+        for (Layout.Box b : l.boxes) if (units.contains(b.node)) boxOf.put(b.node, b);
+        Map<List<Script.Node>, List<Layout.Box>> byOwner = new IdentityHashMap<>();
+        for (Layout.Box b : l.boxes)
+            if (boxOf.get(b.node) == b) byOwner.computeIfAbsent(b.owner, k -> new ArrayList<>()).add(b);
+
+        List<Layout.Box> heads = new ArrayList<>();
+        List<Integer> counts = new ArrayList<>();
+        Map<Script.Node, Integer> runOfUnit = new IdentityHashMap<>();
+        for (List<Layout.Box> group : byOwner.values()) {
+            group.sort((a, b) -> a.index - b.index);
+            for (int i = 0; i < group.size(); i++) {
+                Layout.Box b = group.get(i);
+                boolean joins = i > 0 && group.get(i - 1).index == b.index - 1;
+                if (!joins) {
+                    heads.add(b);
+                    counts.add(0);
+                }
+                int run = heads.size() - 1;
+                counts.set(run, counts.get(run) + 1);
+                runOfUnit.put(b.node, run);
+            }
         }
-        int[][] bounds = new int[found.size()][];
-        List<List<int[]>> rects = new ArrayList<>(found.size());
-        List<List<Layout.Box>> mine = new ArrayList<>(found.size());
-        for (int i = 0; i < found.size(); i++) {
+
+        Map<Script.Node, Script.Node> owners = new IdentityHashMap<>();
+        Set<Script.Node> inside = nodes();
+        for (Script.Node u : boxOf.keySet()) {
+            inside.clear();
+            subtree(u, inside);
+            for (Script.Node n : inside) owners.put(n, u);
+        }
+
+        int runs = heads.size();
+        int[][] bounds = new int[runs][];
+        List<List<int[]>> rects = new ArrayList<>(runs);
+        List<List<Layout.Box>> mine = new ArrayList<>(runs);
+        for (int i = 0; i < runs; i++) {
             rects.add(new ArrayList<>());
             mine.add(new ArrayList<>());
             bounds[i] = new int[]{Integer.MAX_VALUE, Integer.MAX_VALUE,
                     Integer.MIN_VALUE, Integer.MIN_VALUE};
         }
         for (Layout.Box b : l.boxes) {
-            Integer at = headOf.get(b.node);
-            if (at == null) continue;
+            Script.Node u = owners.get(b.node);
+            if (u == null) continue;
+            int at = runOfUnit.get(u);
             shapeOf(b, rects.get(at));
             mine.get(at).add(b);
             int[] r = bounds[at];
@@ -148,13 +212,14 @@ final class Selection {
             r[2] = Math.max(r[2], b.x + b.w);
             r[3] = Math.max(r[3], b.bottom());
         }
-        Piece[] made = new Piece[found.size()];
-        List<Piece> out = new ArrayList<>(found.size());
+
+        Piece[] made = new Piece[runs];
+        List<Piece> out = new ArrayList<>(runs);
         int blocks = 0;
-        for (int i = 0; i < found.size(); i++) {
+        for (int i = 0; i < runs; i++) {
             if (rects.get(i).isEmpty()) continue;
             int[] r = bounds[i];
-            made[i] = new Piece(found.get(i), mine.get(i),
+            made[i] = new Piece(heads.get(i), counts.get(i), mine.get(i),
                     r[0], r[1], r[2] - r[0], r[3] - r[1], Outline.of(rects.get(i), 3));
             out.add(made[i]);
             blocks += Script.blocks(chainOf(made[i]));
@@ -163,13 +228,17 @@ final class Selection {
         Map<Script.Root, List<Piece>> byRoot = new IdentityHashMap<>();
         for (Piece p : out)
             byRoot.computeIfAbsent(p.head().root, k -> new ArrayList<>()).add(p);
-        Map<Script.Node, Piece> byNode = new IdentityHashMap<>(headOf.size() * 2);
-        for (Map.Entry<Script.Node, Integer> e : headOf.entrySet())
-            if (made[e.getValue()] != null) byNode.put(e.getKey(), made[e.getValue()]);
+        Map<Script.Node, Piece> byNode = new IdentityHashMap<>(owners.size() * 2);
+        for (Map.Entry<Script.Node, Script.Node> e : owners.entrySet()) {
+            Piece p = made[runOfUnit.get(e.getValue())];
+            if (p != null) byNode.put(e.getKey(), p);
+        }
         pieceCache = out;
         byRootCache = byRoot;
         pieceByNode = byNode;
-        coveredCache = byNode.keySet();
+        unitOf = owners;
+        coveredCache = owners.keySet();
+        blocksCache = blocks;
         saidCache = (out.size() > 1 ? Ui.plural(out.size(), "кусок", "куска", "кусков") + " · " : "")
                 + Ui.plural(blocks, "блок", "блока", "блоков");
         return out;
@@ -183,16 +252,22 @@ final class Selection {
         out.add(new int[]{b.x, arm, b.x + b.w, arm + Layout.ARM_H});
     }
 
-    private static List<Script.Node> copyOf(Piece p) {
+    private static List<Script.Node> chainOf(Piece p) {
         Layout.Box head = p.head();
+        int to = Math.min(head.owner.size(), head.index + p.count());
+        return head.owner.subList(Math.min(head.index, to), to);
+    }
+
+    private static List<Script.Node> copyOf(Piece p) {
         List<Script.Node> out = new ArrayList<>();
-        for (int i = head.index; i < head.owner.size(); i++) out.add(head.owner.get(i).copy());
+        for (Script.Node n : chainOf(p)) out.add(n.copy());
         return out;
     }
 
-    private static List<Script.Node> chainOf(Piece p) {
-        Layout.Box head = p.head();
-        return head.owner.subList(head.index, head.owner.size());
+    private List<Piece> lastFirst() {
+        List<Piece> order = new ArrayList<>(pieces());
+        order.sort((a, b) -> b.head().index - a.head().index);
+        return order;
     }
 
     String said() {
@@ -200,9 +275,15 @@ final class Selection {
         return saidCache;
     }
 
+    int blocks() {
+        if (units.isEmpty()) return 0;
+        pieces();
+        return blocksCache;
+    }
+
     void set(List<Script.Root> roots) {
-        heads.clear();
-        for (Script.Root r : roots) if (!r.chain.isEmpty()) heads.add(r.chain.get(0));
+        units.clear();
+        for (Script.Root r : roots) units.addAll(r.chain);
         changed();
     }
 
@@ -219,26 +300,24 @@ final class Selection {
     }
 
     void cutOut(Script script) {
-        for (Piece p : pieces()) {
-            Layout.Box head = p.head();
-            head.owner.subList(head.index, head.owner.size()).clear();
-        }
+        for (Piece p : lastFirst()) chainOf(p).clear();
         script.roots.removeIf(r -> r.chain.isEmpty());
     }
 
     void moveBy(Script script, int dx, int dy) {
         List<Script.Root> born = new ArrayList<>();
-        for (Piece p : pieces()) {
+        for (Piece p : lastFirst()) {
             Layout.Box head = p.head();
-            if (head.index == 0 && !head.nested && head.root != null) {
+            List<Script.Node> run = chainOf(p);
+            if (head.index == 0 && !head.nested && head.root != null
+                    && run.size() == head.owner.size()) {
                 head.root.x += dx;
                 head.root.y += dy;
                 continue;
             }
-            List<Script.Node> tail = head.owner.subList(head.index, head.owner.size());
             Script.Root r = new Script.Root(head.x + dx, head.y + dy);
-            r.chain.addAll(tail);
-            tail.clear();
+            r.chain.addAll(run);
+            run.clear();
             born.add(r);
         }
         script.roots.addAll(born);
@@ -249,31 +328,31 @@ final class Selection {
     List<Layout.Box> bandHits(double x0, double y0, double x1, double y1) {
         if (x1 - x0 < 3 && y1 - y0 < 3) return List.of();
         List<Layout.Box> out = new ArrayList<>();
-        Set<Script.Node> taken = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (Layout.Box b : host.layout().boxes) {
-            if (taken.contains(b.node)) continue;
-            if (!b.touches(x0, y0, x1, y1)) continue;
-            out.add(b);
-            tailNodes(b.owner, b.index, taken);
-        }
+        for (Layout.Box b : host.layout().boxes) if (b.touches(x0, y0, x1, y1)) out.add(b);
         return out;
     }
 
-    void band(int mode, List<Layout.Box> hit) {
+    void band(int mode, boolean tails, List<Layout.Box> hit) {
         if (hit.isEmpty()) return;
-        Set<Script.Node> was = covered();
-        if (mode == SUB) {
-            for (Layout.Box b : hit) {
-                Piece p = pieceOf(b.node);
-                if (p != null) heads.remove(p.head().node);
-            }
-        } else {
-            Set<Script.Node> tails = Collections.newSetFromMap(new IdentityHashMap<>());
-            for (Layout.Box b : hit) tailNodes(b.owner, b.index, tails);
-            heads.removeIf(tails::contains);
-            for (Layout.Box b : hit) if (!was.contains(b.node)) heads.add(b.node);
+        Set<Script.Node> deeper = nodes();
+        for (Layout.Box b : hit) {
+            for (Script.Node kid : b.node.body) subtree(kid, deeper);
+            if (b.node.cond != null) deeper.add(b.node.cond);
         }
-        changed();
+        Map<List<Script.Node>, int[]> spans = new IdentityHashMap<>();
+        for (Layout.Box b : hit) {
+            if (deeper.contains(b.node)) continue;
+            int[] s = spans.computeIfAbsent(b.owner, k -> new int[]{b.index, b.index});
+            s[0] = Math.min(s[0], b.index);
+            s[1] = Math.max(s[1], b.index);
+        }
+        List<Script.Node> chosen = new ArrayList<>();
+        for (Map.Entry<List<Script.Node>, int[]> e : spans.entrySet()) {
+            List<Script.Node> owner = e.getKey();
+            int to = tails ? owner.size() - 1 : Math.min(e.getValue()[1], owner.size() - 1);
+            for (int i = e.getValue()[0]; i <= to; i++) chosen.add(owner.get(i));
+        }
+        if (mode == SUB) dropAll(chosen); else addAll(chosen);
     }
 
     private void edges(GuiGraphicsExtractor ctx, List<int[]> segments, double dx, double dy, int argb,

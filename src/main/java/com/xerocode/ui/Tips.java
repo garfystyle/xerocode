@@ -42,6 +42,11 @@ final class Tips {
             if (p != null) {
                 for (String line : paramAbout(p, room)) lines.add(Component.literal("§7" + line));
                 lines.add(Component.literal("§8принимает: §7" + p.paramNote()));
+                Value d = p.required ? null : Functions.defaultOf(p);
+                if (d != null) {
+                    List<String> shown = describe("по умолчанию: " + Layout.display(d), room);
+                    if (!shown.isEmpty()) lines.add(Component.literal("§7" + shown.get(0)));
+                }
                 if (Value.ENUM.equals(p.typeKey)) {
                     StringBuilder sb = new StringBuilder();
                     for (Value.Elem e : p.elements) {
@@ -72,18 +77,23 @@ final class Tips {
         } else if (chip.isArg()) {
             Catalog.Arg arg = Layout.chipNode(box.node).args().get(chip.argIndex);
             lines.add(Component.literal(arg.purpose));
-            lines.add(Component.literal("§8слот: §7" + arg.type
+            lines.add(Component.literal("§8слот: §7" + Values.shortType(arg.type)
                     + (arg.list ? " §8· до " + arg.capacity + " значений" : "")));
             Value v = chip.value;
             if (v != null) {
-                lines.add(Component.literal("§8значение: §7" + Values.kindName(v.type)
+                lines.add(Component.literal("§8значение: §7" + Values.shortType(Values.kindName(v.type))
                         + (v.note().isEmpty() ? "" : " §8· " + v.note())));
+                if (chip.cut) {
+                    String full = Value.TEXT.equals(v.type) ? McText.plain(v.text, v.parsing)
+                            : Layout.argText(Layout.chipNode(box.node), chip.argIndex);
+                    for (String line : whole(full, room)) lines.add(Component.literal("§f" + line));
+                }
                 if (Value.GAME_VALUE.equals(v.type)) {
                     Values.GameValue g = Values.gameValue(v.gameValue);
                     if (g != null) {
                         for (String line : describe(g.description, room)) lines.add(Component.literal("§7" + line));
                         if (!g.returns.isEmpty())
-                            lines.add(Component.literal("§8возвращает: §7" + g.returns
+                            lines.add(Component.literal("§8возвращает: §7" + Values.shortType(g.returns)
                                     + (g.returnsNote.isEmpty() ? "" : " §8— " + g.returnsNote)));
                     }
                 }
@@ -95,6 +105,7 @@ final class Tips {
             Script.Node owner = Layout.chipNode(box.node);
             Catalog.Setting s = owner.settings().get(chip.settingIndex);
             lines.add(Component.literal(s.label));
+            if (chip.cut) lines.add(Component.literal("§8выбрано: §f" + owner.marker(chip.settingIndex)));
             Value bound = owner.markerVar(chip.settingIndex);
             if (bound != null && !bound.name.isBlank()) {
                 Values.Scope sc = Values.scope(bound.scope);
@@ -123,7 +134,7 @@ final class Tips {
         if (!a.args.isEmpty()) {
             lines.add(Component.literal("§fАргументы:"));
             for (Catalog.Arg g : a.args)
-                lines.add(Component.literal("§8• §7" + g.purpose + " §8— " + g.type
+                lines.add(Component.literal("§8• §7" + g.purpose + " §8— " + Values.shortType(g.type)
                         + (g.list ? " (до " + g.capacity + ")" : "")));
         }
         if (!a.settings.isEmpty()) {
@@ -136,7 +147,7 @@ final class Tips {
             lines.add(Component.literal("§8• §7" + (node.cond.inverted() ? "НЕ " : "")
                     + node.cond.action.name));
             for (Catalog.Arg g : node.cond.action.args)
-                lines.add(Component.literal("§8• §7" + g.purpose + " §8— " + g.type));
+                lines.add(Component.literal("§8• §7" + g.purpose + " §8— " + Values.shortType(g.type)));
         } else if (node != null && Mapping.hasConditional(a)) {
             lines.add(Component.literal("§eУсловие не выбрано"));
         }
@@ -217,6 +228,18 @@ final class Tips {
         }
         return out;
     }
+
+    private List<String> whole(String text, int room) {
+        List<String> out = new ArrayList<>();
+        for (String part : text.replace("\\n", "\n").split("\n")) out.addAll(describe(part, room));
+        if (out.size() <= WHOLE_MAX) return out;
+        int more = out.size() - (WHOLE_MAX - 1);
+        List<String> head = new ArrayList<>(out.subList(0, WHOLE_MAX - 1));
+        head.add("§8и ещё " + Ui.plural(more, "строка", "строки", "строк"));
+        return head;
+    }
+
+    private static final int WHOLE_MAX = 8;
 
     private List<String> paramAbout(Value p, int room) {
         List<String> out = new ArrayList<>();

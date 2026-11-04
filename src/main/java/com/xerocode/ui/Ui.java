@@ -7,8 +7,11 @@ import java.util.List;
 import java.util.function.IntConsumer;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.MouseButtonInfo;
 import net.minecraft.network.chat.Component;
 
 public final class Ui {
@@ -152,7 +155,7 @@ public final class Ui {
     }
 
     public static EditBox field(Font tr, int x, int y, int w, int h, String hint) {
-        EditBox f = new EditBox(tr, x, y, w, h, Component.literal(hint));
+        EditBox f = new Field(tr, x, y, w, h, Component.literal(hint));
         f.setBordered(false);
         f.setTextShadow(false);
         f.setTextColor(Draw.opaque(Theme.TEXT));
@@ -160,7 +163,7 @@ public final class Ui {
     }
 
     public static EditBox hexField(Font tr, int x, int y, int w, int h, String hint) {
-        EditBox f = new EditBox(tr, x, y, w, h, Component.literal(hint)) {
+        EditBox f = new Field(tr, x, y, w, h, Component.literal(hint)) {
             @Override
             public void insertText(String text) {
                 StringBuilder kept = new StringBuilder();
@@ -345,9 +348,9 @@ public final class Ui {
         boolean hov = hit(mx, my, x, y, w, h);
         controlFace(ctx, x, y, w, h, hov ? BTN_HOVER : BTN, hov, false);
         int kw = 16, kh = 8, kx = x + w - kw - 5, ky = y + (h - kh) / 2;
-        Draw.pill(ctx, kx, ky, kw, kh, Draw.opaque(on ? Theme.ACCENT : 0x39414F));
+        Draw.pill(ctx, kx, ky, kw, kh, Draw.opaque(on ? Theme.ACCENT : Theme.KNOB_OFF));
         Draw.round(ctx, on ? kx + kw - 7 : kx + 1, ky + 1, 6, kh - 2, 3,
-                Draw.opaque(on ? 0xFFFFFF : 0x8A93A6));
+                Draw.opaque(on ? 0xFFFFFF : Theme.KNOB_DOT));
         Draw.textFit(ctx, tr, label, x + 7, y + (h - TEXT_H) / 2, w - kw - 16,
                 on ? Theme.TEXT : Theme.TEXT_DIM, false);
         return hov;
@@ -387,20 +390,219 @@ public final class Ui {
         }
     }
 
-    public static final class Grab {
-        private net.minecraft.client.gui.components.AbstractWidget held;
+    static final class Pull {
+        private final double base, perPx, max;
+        private long at;
+        private double carry;
 
-        public void take(net.minecraft.client.gui.components.AbstractWidget field) {
+        private Pull(double base, double perPx, double max) {
+            this.base = base;
+            this.perPx = perPx;
+            this.max = max;
+        }
+
+        static Pull chars() { return new Pull(6, 1.5, 120); }
+
+        static Pull lines() { return new Pull(4, 0.35, 40); }
+
+        int steps(double over) {
+            long now = System.nanoTime();
+            if (at != 0)
+                carry += Math.min(0.1, (now - at) / 1e9) * Math.min(max, base + Math.max(0, over) * perPx);
+            at = now;
+            int n = (int) carry;
+            carry -= n;
+            return n;
+        }
+
+        void stop() {
+            at = 0;
+            carry = 0;
+        }
+    }
+
+    public static class Field extends EditBox {
+        private final Font tr;
+        private final Pull pull = Pull.chars();
+        private int start;
+        private boolean pulling;
+        private double pullX;
+
+        public Field(Font tr, int x, int y, int w, int h, Component hint) {
+            super(tr, x, y, w, h, hint);
+            this.tr = tr;
+        }
+
+        @Override
+        public void setCursorPosition(int pos) {
+            super.setCursorPosition(pos);
+            follow(getCursorPosition());
+            reveal();
+        }
+
+        @Override
+        public void setHighlightPos(int pos) {
+            super.setHighlightPos(pos);
+            int at = Math.max(0, Math.min(getValue().length(), pos));
+            follow(at);
+            if (at == getCursorPosition()) reveal();
+        }
+
+        @Override
+        public void setWidth(int w) {
+            super.setWidth(w);
+            if (tr == null || shownFrom() == 0) return;
+            int cursor = getCursorPosition();
+            super.setCursorPosition(0);
+            follow(0);
+            super.setCursorPosition(cursor);
+            follow(cursor);
+            reveal();
+        }
+
+        private void reveal() {
+            if (tr == null) return;
+            for (int i = 0; i < 64; i++) {
+                int cursor = getCursorPosition();
+                if (cursor >= shownFrom() && cursor <= shownTo()) return;
+                super.setCursorPosition(cursor);
+                follow(cursor);
+            }
+        }
+
+        private void follow(int pos) {
+            if (tr == null) return;
+            String s = getValue();
+            int inner = getInnerWidth();
+            start = Math.min(start, s.length());
+            int last = start + tr.plainSubstrByWidth(s.substring(start), inner).length();
+            if (pos == start) start -= tr.plainSubstrByWidth(s, inner, true).length();
+            if (pos > last) start += pos - last;
+            else if (pos <= start) start = pos;
+            start = Math.max(0, Math.min(s.length(), start));
+        }
+
+        int shownFrom() { return Math.min(start, getValue().length()); }
+
+        private int shownTo() {
+            int from = shownFrom();
+            return from + tr.plainSubstrByWidth(getValue().substring(from), getInnerWidth()).length();
+        }
+
+        @Override
+        public void onClick(MouseButtonEvent click, boolean doubled) {
+            super.onClick(click, doubled);
+            pulling = false;
+            pull.stop();
+        }
+
+        @Override
+        protected void onDrag(MouseButtonEvent click, double dx, double dy) {
+            pulling = true;
+            pullX = click.x();
+            if (!pullOut()) super.onDrag(click, dx, dy);
+        }
+
+        @Override
+        public void onRelease(MouseButtonEvent click) {
+            super.onRelease(click);
+            pulling = false;
+        }
+
+        @Override
+        public void setFocused(boolean focused) {
+            super.setFocused(focused);
+            if (!focused) pulling = false;
+        }
+
+        @Override
+        public void extractWidgetRenderState(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
+            if (pulling && !Env.leftHeld()) pulling = false;
+            if (pulling) pullOut();
+            super.extractWidgetRenderState(ctx, mouseX, mouseY, delta);
+        }
+
+        private boolean pullOut() {
+            String s = getValue();
+            int from = shownFrom();
+            int left = getX() + (isBordered() ? 4 : 0), right = left + getInnerWidth();
+            int edge = from > 0 && from < s.length()
+                    ? left + tr.width(s.substring(from, s.offsetByCodePoints(from, 1))) : left;
+            int dir = pullX >= right ? 1 : pullX < edge ? -1 : 0;
+            if (dir == 0) {
+                pull.stop();
+                return false;
+            }
+            int n = pull.steps(dir > 0 ? pullX - right : edge - pullX);
+            int cursor = getCursorPosition();
+            int to = dir > 0
+                    ? Math.min(s.length(), shownTo() + n)
+                    : Math.max(0, from - (cursor == from ? n : Math.max(1, n)));
+            if (to != cursor) moveCursorTo(to, true);
+            return true;
+        }
+    }
+
+    public static final class Grab {
+        private static final int AREA_PAD = 4, AREA_LINE = 9;
+
+        private AbstractWidget held;
+        private MultiLineEditBox area;
+        private final Pull pull = Pull.lines();
+        private MouseButtonInfo button;
+        private double pullX, pullY;
+
+        public void take(AbstractWidget field) {
             held = field;
+            area = null;
+            button = null;
+            pull.stop();
+        }
+
+        public void take(MultiLineEditBox box, double pressX) {
+            take(box);
+            if (pressX < box.getX() + box.getWidth()) area = box;
         }
 
         public boolean drag(MouseButtonEvent click, double dx, double dy) {
-            return held != null && held.mouseDragged(click, dx, dy);
+            if (held == null) return false;
+            if (area == null) return held.mouseDragged(click, dx, dy);
+            button = click.buttonInfo();
+            pullX = click.x();
+            pullY = click.y();
+            return area.mouseDragged(new MouseButtonEvent(pullX, inside(area, pullY), button), dx, dy);
+        }
+
+        public void frame() {
+            if (area == null || button == null) return;
+            if (!Env.leftHeld()) {
+                button = null;
+                return;
+            }
+            int top = area.getY() + AREA_PAD, bottom = area.getY() + area.getHeight() - AREA_PAD;
+            int dir = pullY < top ? -1 : pullY >= bottom ? 1 : 0;
+            if (dir == 0) {
+                pull.stop();
+                return;
+            }
+            int n = pull.steps(dir < 0 ? top - pullY : pullY - bottom);
+            if (n == 0) return;
+            area.setScrollAmount(area.scrollAmount() + dir * n * AREA_LINE);
+            area.mouseDragged(new MouseButtonEvent(pullX, inside(area, pullY), button), 0, 0);
+        }
+
+        private static double inside(MultiLineEditBox box, double y) {
+            int top = box.getY() + AREA_PAD, bottom = box.getY() + box.getHeight() - AREA_PAD;
+            return bottom <= top ? top : Math.max(top, Math.min(bottom - 1, y));
         }
 
         public boolean has() { return held != null; }
 
-        public void release() { held = null; }
+        public void release() {
+            held = null;
+            area = null;
+            button = null;
+        }
     }
 
     private static final int BAR_GRAB = 4, BAR_W = 3, THUMB_MIN = 14;
@@ -423,7 +625,7 @@ public final class Ui {
             boolean hot = dragging || over(mx, my);
             Draw.rect(ctx, x, y, BAR_W, trackH, Draw.argb(0x30, 0x000000));
             Draw.round(ctx, x, thumbY, BAR_W, thumbH, 1,
-                    Draw.argb(hot ? 0xFF : 0xB4, hot ? 0x8D9AB4 : 0x5A6478));
+                    Draw.argb(hot ? 0xFF : 0xB4, hot ? Theme.THUMB_HOT : Theme.THUMB));
         }
 
         private boolean over(double mx, double my) {

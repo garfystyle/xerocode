@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.xerocode.ui.Layout;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -28,6 +29,7 @@ public final class Importer {
     public static final String TRANSLATIONS = PRIVATE + "tr_";
     public static final String KEPT_ID = PRIVATE + "id";
     public static final String KEPT_OP = PRIVATE + "op";
+    private static final String PACKED = PRIVATE + "packed";
 
     public static String translationsKey(int arg) {
         String field = Catalog.localizedField(arg);
@@ -85,19 +87,15 @@ public final class Importer {
         int x = startX, y = 40, columnW = 0;
 
         int line = -1;
-        for (JsonElement he : handlers) {
-            if (!he.isJsonObject()) continue;
+        for (JsonObject handler : byPosition(handlers)) {
             line++;
-            JsonObject handler = he.getAsJsonObject();
 
             try {
                 List<Script.Node> chain = chainOf(handler, result, line);
                 if (chain.isEmpty()) continue;
 
-                Layout layout = Layout.ofChain(chain, 0, 0, tr);
-                int h = Layout.chainHeight(chain, tr);
-                int w = 0;
-                for (Layout.Box box : layout.boxes) w = Math.max(w, box.x + box.w);
+                int[] size = Layout.size(chain, tr);
+                int w = size[0], h = size[1];
 
                 if (y > 40 && y + h > COLUMN_MAX_H) {
                     x += columnW + COLUMN_GAP;
@@ -116,6 +114,20 @@ public final class Importer {
             }
         }
         return result;
+    }
+
+    public static List<JsonObject> byPosition(JsonArray handlers) {
+        List<JsonObject> out = new ArrayList<>(handlers.size());
+        for (JsonElement he : handlers) if (he.isJsonObject()) out.add(he.getAsJsonObject());
+        out.sort(Comparator.comparingInt(Importer::positionOf));
+        return out;
+    }
+
+    private static int positionOf(JsonObject handler) {
+        JsonElement p = handler.get("position");
+        if (p == null || !p.isJsonPrimitive() || !p.getAsJsonPrimitive().isNumber())
+            return Integer.MAX_VALUE;
+        return p.getAsInt();
     }
 
     public static List<Script.Node> chainOf(JsonObject handler, Result result) {
@@ -166,6 +178,7 @@ public final class Importer {
                     for (JsonObject cell : cells(value)) {
                         Value p = read(cell);
                         if (p == null || !Value.PARAMETER.equals(p.type)) continue;
+                        Functions.zeroDefault(p);
                         node.valuesOf(Catalog.FN_PARAMS).add(p);
                     }
                 }
@@ -218,8 +231,12 @@ public final class Importer {
             if ("local_variables_mode".equals(name) || "target_mode".equals(name)) {
                 int index = "local_variables_mode".equals(name) ? 0 : 1;
                 String option = staticOption(action, index, str(value, "enum"));
-                if (option == null) keepValue(entry, node);
-                else node.markers.put(index, option);
+                if (option == null) {
+                    keepValue(entry, node);
+                } else {
+                    node.markers.put(index, option);
+                    bindMarker(node, index, value);
+                }
                 continue;
             }
             if (!"args".equals(name) || !value.has("values")
@@ -231,26 +248,41 @@ public final class Importer {
             for (String key : args.keySet()) {
                 String param = paramName(key);
                 if (param.isEmpty() || !args.get(key).isJsonObject()) continue;
-                JsonObject passed = args.getAsJsonObject(key);
                 keys.add(param);
-                int index = keys.size() - 1;
-                if (passed.isEmpty()) continue;
-                if (Value.ARRAY.equals(str(passed, "type")) && passed.has("values")
-                        && passed.get("values").isJsonArray()) {
-                    for (JsonObject cell : cells(passed)) {
-                        Value v = read(cell);
-                        if (v == null) continue;
-                        node.valuesOf(index).add(v);
-                    }
-                } else {
-                    Value v = read(passed);
-                    if (v == null) continue;
-                    node.valuesOf(index).add(v);
-                }
+                Value v = passed(args.getAsJsonObject(key));
+                if (v != null) node.valuesOf(keys.size() - 1).add(v);
             }
         }
         node.dynKeys = keys;
+        if (keys.size() > 1) raw(node).addProperty(PACKED, true);
         return node;
+    }
+
+    public static boolean packed(Script.Node node) {
+        return node.raw != null && node.raw.has(PACKED);
+    }
+
+    public static void unpacked(Script.Node node) {
+        if (node.raw == null) return;
+        node.raw.remove(PACKED);
+        if (node.raw.isEmpty()) node.raw = null;
+    }
+
+    public static Value fromServer(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            JsonElement e = JsonParser.parseString(json);
+            return e.isJsonObject() ? passed(e.getAsJsonObject()) : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static Value passed(JsonObject value) {
+        if (value.isEmpty()) return null;
+        if (!Value.ITEM.equals(str(value, "type"))) return read(value);
+        Value item = item(value);
+        return item != null || empty(str(value, "item")) ? item : read(value);
     }
 
     private static String staticOption(Catalog.Action action, int index, String serverId) {
@@ -317,7 +349,7 @@ public final class Importer {
                     unknown(result, "условие " + condId + " у «Иначе»");
                 }
                 readOperations(op, node.body, result);
-                into.add(Upgrade.node(node));
+                into.add(node);
                 result.blocks++;
                 continue;
             }
@@ -358,7 +390,7 @@ public final class Importer {
             }
             readValues(op, holder, valueAct, valueAction);
             readOperations(op, node.body, result);
-            into.add(Upgrade.node(node));
+            into.add(node);
             result.blocks++;
         }
     }

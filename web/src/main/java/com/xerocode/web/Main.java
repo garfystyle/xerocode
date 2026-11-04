@@ -16,6 +16,7 @@ import org.teavm.jso.JSObject;
 
 public final class Main {
     private static final Renderer RENDERER = new Renderer();
+    private static final String ROOM = "xerocode-room";
     private static int width, height, scale;
     private static double mouseX, mouseY;
     private static int heldButton = -1;
@@ -24,10 +25,15 @@ public final class Main {
     private static boolean scrolling;
     private static double scrollY;
     private static double edited, saved;
+    private static boolean saveDue;
+    private static final long WARM_BUDGET = 6_000_000L;
     private static double tickAccum;
     private static double lastTime;
     private static int mods;
     private static int savedPrint;
+    private static double sessionAt;
+    private static final int CALM_AFTER = 3, CALM_EVERY = 4;
+    private static int calm, rested, shownPrint;
 
     private Main() {}
 
@@ -42,9 +48,16 @@ public final class Main {
             XeroCode.init();
             mc.onScreenClosed(() -> XeroCode.openCanvas(mc));
             XeroCode.openCanvas(mc);
+            Collab.resume(Js.session(ROOM));
             Js.onHide(() -> {
-                XeroCode.saveAll();
-                Storage.sync();
+                Js.journal(true);
+                try {
+                    XeroCode.saveAll();
+                    Storage.sync();
+                } finally {
+                    Js.journal(false);
+                }
+                Js.keepSession(ROOM, Collab.session());
             });
         } catch (Throwable e) {
             fail(e);
@@ -54,7 +67,8 @@ public final class Main {
         while (true) {
             Js.nextFrame();
             try {
-                frame();
+                if (Js.hidden()) idle();
+                else frame();
             } catch (Throwable e) {
                 report(e);
             }
@@ -91,23 +105,20 @@ public final class Main {
         return s;
     }
 
-    private static void resize(Minecraft mc) {
+    private static boolean resize(Minecraft mc) {
         int w = Math.max(1, Js.width()), h = Math.max(1, Js.height());
         int s = autoScale(w, h);
-        if (w == width && h == height && s == scale) return;
+        if (w == width && h == height && s == scale) return false;
         width = w;
         height = h;
         scale = s;
         mc.getWindow().setSize(w, h, s, Js.ratio());
         Screen screen = mc.gui.screen();
         if (screen != null) screen.resize(mc.getWindow().getGuiScaledWidth(), mc.getWindow().getGuiScaledHeight());
+        return true;
     }
 
-    private static void frame() {
-        Minecraft mc = Minecraft.getInstance();
-        resize(mc);
-        events(mc);
-        double now = Js.now();
+    private static void ticks(Minecraft mc, double now) {
         tickAccum += Math.min(250, now - lastTime);
         lastTime = now;
         while (tickAccum >= 50) {
@@ -121,6 +132,40 @@ public final class Main {
             }
         }
         mc.runTasks();
+    }
+
+    private static void idle() {
+        Minecraft mc = Minecraft.getInstance();
+        double now = Js.now();
+        ticks(mc, now);
+        if (!autosave(now)) Storage.tick();
+        keepSession(now);
+    }
+
+    private static void keepSession(double now) {
+        if (now - sessionAt < 1000) return;
+        sessionAt = now;
+        Js.keepSession(ROOM, Collab.session());
+    }
+
+    private static void frame() {
+        Minecraft mc = Minecraft.getInstance();
+        boolean stale = resize(mc) | Js.stale();
+        stale |= events(mc);
+        double now = Js.now();
+        ticks(mc, now);
+        com.xerocode.ui.Tape.loads(Js.loads());
+        if (stale) calm = 0;
+        if (calm < CALM_AFTER || ++rested >= CALM_EVERY) {
+            rested = 0;
+            draw(mc, stale);
+        }
+        boolean busy = autosave(now);
+        if (!busy) Storage.tick();
+        keepSession(now);
+    }
+
+    private static void draw(Minecraft mc, boolean stale) {
         Screen screen = mc.gui.screen();
         GuiRenderState state = new GuiRenderState();
         GuiGraphicsExtractor ctx = new GuiGraphicsExtractor(mc, state);
@@ -131,14 +176,19 @@ public final class Main {
         }
         RENDERER.begin(scale);
         RENDERER.draw(state);
-        Js.render(RENDERER.verts(), RENDERER.vertexCount(), RENDERER.cmds(), RENDERER.cmdCount(), scale);
+        int print = stale ? 0 : RENDERER.print();
+        if (stale || print != shownPrint) {
+            calm = 0;
+            shownPrint = print;
+            Js.render(RENDERER.verts(), RENDERER.vertexCount(), RENDERER.cmds(), RENDERER.cmdCount(), scale);
+        } else {
+            calm++;
+        }
         Js.cursor(ctx.pendingCursor().css());
         Input.flushFocus();
-        autosave(now);
-        Storage.tick();
     }
 
-    private static void events(Minecraft mc) {
+    private static boolean events(Minecraft mc) {
         JSObject q = Js.pollEvents();
         int n = Js.length(q);
         for (int i = 0; i < n; i++) {
@@ -192,6 +242,7 @@ public final class Main {
                     case "h" -> {
                         move(screen, Js.num(q, i, 1), Js.num(q, i, 2));
                         if (screen instanceof EditorScreen editor) editor.touchHold(mouseX, mouseY);
+                        else if (screen instanceof com.xerocode.ui.CodeScreen code) code.touchHold(mouseX, mouseY);
                     }
                     case "w" -> {
                         move(screen, Js.num(q, i, 1), Js.num(q, i, 2));
@@ -207,6 +258,7 @@ public final class Main {
                         move(screen, Js.num(q, i, 1), Js.num(q, i, 2));
                         if (screen instanceof EditorScreen editor) editor.touchZoom(mouseX, mouseY, Js.num(q, i, 3));
                     }
+                    case "v" -> Input.clipboardRead(Js.num(q, i, 1) == 1, Js.str(q, i, 2));
                     case "b" -> {
                         Input.releaseAll();
                         heldButton = -1;
@@ -218,19 +270,28 @@ public final class Main {
                 report(e);
             }
         }
+        return n > 0;
     }
 
-    private static void autosave(double now) {
-        if (edited <= saved) return;
-        if (now - edited < 1500 && now - saved < 10000) return;
-        saved = now;
+    private static boolean autosave(double now) {
         try {
-            int print = XeroCode.script().fingerprint();
-            if (print == savedPrint) return;
+            if (saveDue) {
+                saveDue = false;
+                XeroCode.saveAll();
+                return true;
+            }
+            if (edited <= saved) return false;
+            if (now - edited < 1500 && now - saved < 10000) return false;
+            if (!com.xerocode.Tabs.activeScript().warm(System.nanoTime() + WARM_BUDGET)) return true;
+            saved = now;
+            int print = com.xerocode.Tabs.fingerprint();
+            if (print == savedPrint) return true;
             savedPrint = print;
-            XeroCode.saveAll();
+            saveDue = true;
+            return true;
         } catch (Throwable e) {
             report(e);
+            return false;
         }
     }
 

@@ -40,6 +40,8 @@ public final class ChestMenu implements Overlay {
     private boolean closed;
     private Menus.Cell hover;
     private Menus.Cell picked;
+    private Menus.Cell pressed;
+    private boolean pressedTake;
     private int cell = 20, slot = 18;
     private String heading;
     private Menus.Node found;
@@ -212,8 +214,8 @@ public final class ChestMenu implements Overlay {
                         Draw.opaque(Draw.mix(Ui.WELL, color, 0.40f)),
                         Draw.opaque(Draw.mix(Ui.LINE_IN, color, 0.85f)));
             int at = (slot - icon) / 2;
-            if (icon == 16) ctx.item(Catalog.stackOf(c.item), cx + at, cy + at);
-            else Draw.item(ctx, Catalog.stackOf(c.item), cx + at, cy + at, icon);
+            if (icon == 16) ctx.item(c.icon(), cx + at, cy + at);
+            else Draw.item(ctx, c.icon(), cx + at, cy + at, icon);
         }
         if (touch()) drawFoot(ctx, mouseX, mouseY);
     }
@@ -372,14 +374,32 @@ public final class ChestMenu implements Overlay {
             if (!field.mouseClicked(click, false)) field.onClick(click, false);
             return true;
         }
-        if (touch() && picked != null
-                && Ui.hit(mx, my, takeX(), takeY(), takeW(), TAKE_H)) { open(picked); return true; }
-        Menus.Cell c = cellAt(mx, my);
-        if (c == null) return true;
-        if (c.nav != 0) { turn(c.nav == Menus.PREV ? -1 : 1); return true; }
-        if (touch() && c != picked) { picked = c; return true; }
-        open(c);
+        if (touch() && picked != null && Ui.hit(mx, my, takeX(), takeY(), takeW(), TAKE_H)) {
+            pressedTake = true;
+            return true;
+        }
+        pressed = cellAt(mx, my);
         return true;
+    }
+
+    public void released(double mx, double my) {
+        Menus.Cell c = pressed;
+        boolean take = pressedTake;
+        pressed = null;
+        pressedTake = false;
+        if (take) {
+            if (picked != null && Ui.hit(mx, my, takeX(), takeY(), takeW(), TAKE_H)) open(picked);
+            return;
+        }
+        if (c == null || cellAt(mx, my) != c) return;
+        if (c.nav != 0) { turn(c.nav == Menus.PREV ? -1 : 1); return; }
+        if (touch() && c != picked) { picked = c; return; }
+        open(c);
+    }
+
+    public void hold(double mx, double my) {
+        Menus.Cell c = cellAt(mx, my);
+        if (c != null && c.nav == 0) picked = c;
     }
 
     private void open(Menus.Cell c) {

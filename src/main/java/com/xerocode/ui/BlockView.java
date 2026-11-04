@@ -118,6 +118,7 @@ public final class BlockView {
         boolean lightHead = hovered
                 ? Draw.isLight(Draw.shade(base, grad ? 0.28f : 0.16f)) : box.lightHead;
         int ink = hovered ? Layout.ink(lightHead) : box.ink;
+        if (box.foldX >= 0) foldButton(ctx, box, look, ink, lightHead);
         if (box.card != null) {
             card(ctx, tr, box, look, ink, lightHead, top);
             for (Layout.Chip chip : box.chips) chip(ctx, tr, box, chip, look);
@@ -129,10 +130,21 @@ public final class BlockView {
             Draw.text(ctx, tr, box.target, box.targetX, iconY + 4,
                     Draw.argb(0xC4, ink), !lightHead);
         if (n.action.unavailable)
-            Draw.glyph(ctx, Draw.WARN, box.x + box.w - Layout.PAD - 5, iconY + 5,
+            Draw.glyph(ctx, Draw.WARN, box.titleRight() - 7, iconY + 5,
                     lightHead ? 0x7A5300 : 0xFFE066);
 
         for (Layout.Chip chip : box.chips) chip(ctx, tr, box, chip, look);
+    }
+
+    private static void foldButton(GuiGraphicsExtractor ctx, Layout.Box box, Look look, int ink,
+                                   boolean lightHead) {
+        boolean over = look.hover == box && look.chip == null && !look.dragging
+                && box.hitFoldButton(look.mx, look.my);
+        int s = Layout.FOLD_BTN, bx = box.foldX, by = box.foldY;
+        Draw.round(ctx, bx, by, s, s, 3, Draw.argb(over ? 0x55 : lightHead ? 0x1E : 0x30, 0x000000));
+        String[] g = box.shut() ? Draw.CARET_RIGHT : Draw.CARET_DOWN;
+        Draw.glyph(ctx, g, bx + (s - Draw.glyphW(g)) / 2, by + (s - Draw.glyphH(g)) / 2,
+                over ? ink : Draw.mix(ink, box.top, 0.25f));
     }
 
     private static void tail(GuiGraphicsExtractor ctx, Font tr, Layout.Box box, boolean hovered) {
@@ -211,7 +223,7 @@ public final class BlockView {
         if (c.kind != null)
             Draw.text(ctx, tr, c.kind, c.kindX, c.kindY, mute, !lightHead);
         if (c.missing)
-            Draw.glyph(ctx, Draw.WARN, box.x + box.w - Layout.PAD - 5, c.nameY + (c.scale > 1 ? 4 : 0),
+            Draw.glyph(ctx, Draw.WARN, box.titleRight() - 7, c.nameY + (c.scale > 1 ? 4 : 0),
                     lightHead ? 0x7A5300 : 0xFFE066);
         for (int i = 0; i < c.desc.size(); i++)
             Draw.text(ctx, tr, c.desc.get(i), c.descX,
@@ -307,7 +319,7 @@ public final class BlockView {
                 ? cond.action.category.color : Theme.MARKER_TOP;
         int top = chipPill(ctx, chip, face, set);
         chipBadge(ctx, chip, set && !cond.action.item.isEmpty()
-                ? Catalog.stackOf(cond.action.item) : null, Draw.opaque(Draw.shade(face, -0.55f)));
+                ? cond.action.icon() : null, Draw.opaque(Draw.shade(face, -0.55f)));
         int ink = Draw.isLight(top) ? 0x141821 : set ? 0xFFFFFF : Theme.TEXT_DIM;
         Draw.text(ctx, tr, chip.fitted, chip.x + 15, chip.y + 4, ink, false);
     }

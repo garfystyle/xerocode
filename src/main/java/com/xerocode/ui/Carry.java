@@ -1,6 +1,7 @@
 package com.xerocode.ui;
 
 import com.xerocode.Catalog;
+import com.xerocode.Clip;
 import com.xerocode.Script;
 import com.xerocode.Value;
 import com.xerocode.Values;
@@ -78,6 +79,8 @@ final class Carry {
             dst.set(chip.cell, values.get(0).copy());
             return 1;
         }
+        if (a.list && Catalog.slots(n.action, chip.argIndex) != null)
+            return fill(dst, a.capacity, values);
         if (a.list) {
             int put = 0;
             for (Value v : values) {
@@ -90,6 +93,43 @@ final class Carry {
         dst.clear();
         dst.add(values.get(0).copy());
         return 1;
+    }
+
+    static boolean slotted(Layout.Box box, Layout.Chip chip) {
+        if (box == null || chip == null || !chip.isArg()) return false;
+        Script.Node n = Layout.chipNode(box.node);
+        return chip.argIndex < n.args().size() && Catalog.slots(n.action, chip.argIndex) != null;
+    }
+
+    static int place(Layout.Box box, Layout.Chip chip, List<Clip.Placed> placed) {
+        Script.Node n = Layout.chipNode(box.node);
+        List<Value> dst = n.valuesOf(chip.argIndex);
+        int capacity = n.args().get(chip.argIndex).capacity, put = 0;
+        for (Clip.Placed p : placed) {
+            if (p.slot() >= capacity) continue;
+            while (dst.size() <= p.slot()) dst.add(Value.of(Value.ITEM));
+            dst.set(p.slot(), p.value().copy());
+            put++;
+        }
+        trim(dst);
+        return put;
+    }
+
+    private static int fill(List<Value> dst, int capacity, List<Value> values) {
+        int put = 0, at = 0;
+        for (Value v : values) {
+            while (at < dst.size() && !dst.get(at).isBlank()) at++;
+            if (at >= capacity) break;
+            while (dst.size() <= at) dst.add(Value.of(Value.ITEM));
+            dst.set(at++, v.copy());
+            put++;
+        }
+        trim(dst);
+        return put;
+    }
+
+    private static void trim(List<Value> dst) {
+        while (!dst.isEmpty() && dst.get(dst.size() - 1).isBlank()) dst.remove(dst.size() - 1);
     }
 
     static void draw(GuiGraphicsExtractor ctx, Font font, List<Value> carry, boolean held,
@@ -115,7 +155,7 @@ final class Carry {
         int x = held ? mouseX - w / 2 : mouseX + 11;
         int y = held ? mouseY - h / 2 : mouseY + 13;
         x = Math.max(edge, Math.min(x, screenW - w - 2));
-        y = Math.max(Theme.TOPBAR_H + edge, Math.min(y, screenH - h - 3));
+        y = Math.max(Theme.topH() + edge, Math.min(y, screenH - h - 3));
 
         for (int i = 0; i < shown; i++) pill(ctx, font, carry.get(i), x, y + i * step, w, held);
         if (more != null)
@@ -152,6 +192,6 @@ final class Carry {
     private static void badge(GuiGraphicsExtractor ctx, int x, int y) {
         Draw.round(ctx, x, y, 11, 11, 3, Draw.opaque(Theme.ACCENT));
         Draw.roundOutline(ctx, x, y, 11, 11, 3, Draw.opaque(Draw.shade(Theme.ACCENT, -0.45f)));
-        Draw.glyph(ctx, Draw.PLUS, x + 3, y + 3, Theme.ON_ACCENT);
+        Draw.glyph(ctx, Draw.PLUS, x + 3, y + 3, Theme.ON_FILL);
     }
 }

@@ -347,7 +347,7 @@ public final class Palette {
             right -= 3;
         }
         if (a.unavailable) {
-            right -= 7;
+            right -= 9;
             Draw.glyph(ctx, Draw.WARN, right, y + (e.h - 6) / 2, 0xFFD24A);
             right -= 3;
         }

@@ -195,34 +195,36 @@ final class ItemGen {
         return atlas;
     }
 
-    private record Choice(String model, JsonArray tints, JsonObject special, JsonObject transform, List<Choice> parts) {}
+    private record Choice(String model, JsonArray tints, JsonObject special, double[][] transform, List<Choice> parts) {}
 
     private Icon icon(String item) throws IOException {
         JsonObject def = FontGen.json(jar, "assets/minecraft/items/" + item + ".json");
-        Choice c = choose(def.getAsJsonObject("model"));
+        Choice c = choose(def.getAsJsonObject("model"), null);
         if (c == null) return null;
         return render(c);
     }
 
-    private Choice choose(JsonObject node) {
+    private Choice choose(JsonObject node, double[][] outer) {
         if (node == null) return null;
         String type = node.get("type").getAsString().replace("minecraft:", "");
+        double[][] m = node.has("transformation") ? Entity.matrix(node.getAsJsonObject("transformation")) : null;
+        if (outer != null) m = m == null ? outer : Cube.mul(outer, m);
         switch (type) {
             case "model":
                 return new Choice(node.get("model").getAsString(), node.has("tints") ? node.getAsJsonArray("tints") : null,
-                        null, node.has("transformation") ? node.getAsJsonObject("transformation") : null, null);
+                        null, m, null);
             case "select":
-                if (node.has("fallback")) return choose(node.getAsJsonObject("fallback"));
-                return choose(node.getAsJsonArray("cases").get(0).getAsJsonObject().getAsJsonObject("model"));
+                if (node.has("fallback")) return choose(node.getAsJsonObject("fallback"), m);
+                return choose(node.getAsJsonArray("cases").get(0).getAsJsonObject().getAsJsonObject("model"), m);
             case "condition":
-                return choose(node.getAsJsonObject("on_false"));
+                return choose(node.getAsJsonObject("on_false"), m);
             case "range_dispatch":
-                if (node.has("fallback")) return choose(node.getAsJsonObject("fallback"));
-                return choose(node.getAsJsonArray("entries").get(0).getAsJsonObject().getAsJsonObject("model"));
+                if (node.has("fallback")) return choose(node.getAsJsonObject("fallback"), m);
+                return choose(node.getAsJsonArray("entries").get(0).getAsJsonObject().getAsJsonObject("model"), m);
             case "composite": {
                 List<Choice> parts = new ArrayList<>();
                 for (JsonElement e : node.getAsJsonArray("models")) {
-                    Choice c = choose(e.getAsJsonObject());
+                    Choice c = choose(e.getAsJsonObject(), m);
                     if (c != null) parts.add(c);
                 }
                 if (parts.isEmpty()) return null;
@@ -230,8 +232,7 @@ final class ItemGen {
                 return new Choice(parts.get(0).model(), parts.get(0).tints(), null, null, parts);
             }
             case "special":
-                return new Choice(node.get("base").getAsString(), null, node.getAsJsonObject("model"),
-                        node.has("transformation") ? node.getAsJsonObject("transformation") : null, null);
+                return new Choice(node.get("base").getAsString(), null, node.getAsJsonObject("model"), m, null);
             default:
                 return null;
         }
@@ -350,7 +351,7 @@ final class ItemGen {
                 Resolved pr = resolve(part.model);
                 if (pr.elements == null) continue;
                 quads.addAll(Cube.elements(pr.elements, ref -> textureOrNull(texRef(pr, ref)), tintsOf(part),
-                        part.transform == null ? null : Entity.matrix(part.transform)));
+                        part.transform));
             }
             if (!quads.isEmpty()) return new Icon(Cube.render(quads, r.gui), null, 0, false);
         }
@@ -385,7 +386,7 @@ final class ItemGen {
         }
         if (r.elements != null && !r.entity) {
             return new Icon(Cube.render(Cube.elements(r.elements, ref -> textureOrNull(texRef(r, ref)), tints,
-                    c.transform == null ? null : Entity.matrix(c.transform)), r.gui), null, 0, false);
+                    c.transform), r.gui), null, 0, false);
         }
         String particle = texRef(r, "#particle");
         BufferedImage img = texture(particle);

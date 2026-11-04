@@ -37,9 +37,9 @@ final class Entity {
         return new Part(px, py, pz, rx, ry, rz, 1, List.of(boxes));
     }
 
-    static List<Cube.Quad> quads(JsonObject model, JsonObject transform, Function<String, BufferedImage> tex) {
+    static List<Cube.Quad> quads(JsonObject model, double[][] transform, Function<String, BufferedImage> tex) {
         String type = model.get("type").getAsString().replace("minecraft:", "");
-        double[][] item = transform(transform);
+        double[][] item = transform == null ? identity() : transform;
         List<Cube.Quad> out = new ArrayList<>();
         switch (type) {
             case "chest" -> {
@@ -120,6 +120,12 @@ final class Entity {
                 BufferedImage img = tex.apply("entity/conduit/base");
                 if (img == null) return null;
                 emit(out, item, img, 32, 16, 0xFFFFFFFF, part(0, 0, 0, box(0, 0, -3, -3, -3, 6, 6, 6)));
+            }
+            case "shield" -> {
+                BufferedImage img = tex.apply("entity/shield/shield_base_nopattern");
+                if (img == null) return null;
+                emit(out, item, img, 64, 64, 0xFFFFFFFF, part(0, 0, 0,
+                        box(0, 0, -6, -11, -2, 12, 22, 1), box(26, 0, -1, -3, -1, 2, 6, 6)));
             }
             default -> {
                 return null;

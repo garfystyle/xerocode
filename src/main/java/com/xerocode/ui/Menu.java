@@ -1,13 +1,20 @@
 package com.xerocode.ui;
 
 import com.xerocode.Env;
+import com.xerocode.Search;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.MouseButtonInfo;
 import net.minecraft.network.chat.Component;
+import org.lwjgl.glfw.GLFW;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.ItemStack;
 
@@ -43,7 +50,7 @@ public final class Menu {
         boolean rich() { return stack != null || note != null || !desc.isEmpty(); }
     }
 
-    private static int itemH() { return Env.touch() ? 20 : 15; }
+    private static int itemH() { return Env.touch() ? 28 : 15; }
     private static final int TITLE_H = 16;
     private static final int MAX_H = 232;
     private static final int RICH_W = 360, RICH_MAX_H = 320;
@@ -52,6 +59,8 @@ public final class Menu {
     private static final int RICH_INK_X = 26;
     private static final int FOOT_H = 24;
     private static final int TICK = 9, TICK_W = 14, ALL_W = 46;
+    private static final int SEARCH_H = 21, INPUT_H = 16;
+    private static final String NOTHING = "ничего не нашлось";
 
     private final List<Item> items;
     private final String title;
@@ -69,6 +78,10 @@ public final class Menu {
     private final int footH;
 
     private final int x, y, w, h, listH;
+    private final EditBox search;
+    private final int pinned;
+    private int[] shown, shownOffs;
+    private int shownTotal, found, cursor = -1;
     private double scroll;
     private final Ui.Bar bar = new Ui.Bar();
     private int lastMx, lastMy;
@@ -78,7 +91,14 @@ public final class Menu {
 
     private Menu(int screenW, int screenH, int ax, int ay, Font tr,
                  String title, List<Item> items, int checked, IntConsumer onPick, Multi multi) {
+        this(screenW, screenH, ax, ay, tr, title, items, checked, onPick, multi, null, 0);
+    }
+
+    private Menu(int screenW, int screenH, int ax, int ay, Font tr,
+                 String title, List<Item> items, int checked, IntConsumer onPick, Multi multi,
+                 String hint, int pinned) {
         this.items = items;
+        this.pinned = Math.max(0, Math.min(pinned, items.size()));
         this.title = title;
         this.checked = checked;
         this.onPick = onPick;
@@ -116,19 +136,92 @@ public final class Menu {
         }
         this.total = at;
 
-        int wanted = total + PAD * 2 + (title == null ? 0 : TITLE_H) + footH;
+        int searchH = hint == null ? 0 : SEARCH_H;
+        int wanted = total + PAD * 2 + (title == null ? 0 : TITLE_H) + searchH + footH
+                + (hint == null ? 0 : itemH());
         this.h = Math.min(Math.min(rich ? RICH_MAX_H : MAX_H, screenH - 8), wanted);
-        this.listH = h - PAD * 2 - (title == null ? 0 : TITLE_H) - footH;
+        this.listH = h - PAD * 2 - (title == null ? 0 : TITLE_H) - searchH - footH;
 
         int px = Math.max(2, Math.min(ax, screenW - w - 2));
         int py = ay + h > screenH - 2 ? Math.max(2, screenH - h - 2) : ay;
         this.x = px;
         this.y = py;
 
+        this.shown = new int[items.size()];
+        this.shownOffs = new int[items.size()];
+        for (int i = 0; i < items.size(); i++) { shown[i] = i; shownOffs[i] = offs[i]; }
+        this.found = items.size() - this.pinned;
+        this.shownTotal = total;
+
+        if (hint == null) {
+            this.search = null;
+        } else {
+            int fx = x + 6 + 15;
+            this.search = Ui.field(tr, fx, searchY() + (INPUT_H - 8) / 2, Math.max(8, x + w - 10 - fx), 10, hint);
+            search.setMaxLength(64);
+            search.setResponder(text -> filter());
+            search.setFocused(true);
+            cursor = checked >= 0 && checked < items.size() ? checked : -1;
+        }
+
         if (checked >= 0 && checked < items.size()) {
             double target = offs[checked] - listH / 2.0 + rowH(items.get(checked)) / 2.0;
             scroll = Math.max(0, Math.min(maxScroll(), target));
         }
+    }
+
+    private int searchY() { return y + PAD + (title == null ? 0 : TITLE_H) + 1; }
+
+    private void filter() {
+        String q = search.getValue().trim();
+        int n = items.size(), lead = n - pinned;
+        List<Integer> pool = new ArrayList<>(lead);
+        for (int i = 0; i < lead; i++) pool.add(i);
+        List<Integer> hits = q.isEmpty() ? pool : Search.rank(pool, q, lead, i -> {
+            Item it = items.get(i);
+            return new Search.Fields(it.label, it.note == null ? "" : it.note, "", String.join(" ", it.desc));
+        });
+        found = hits.size();
+        int count = found + pinned;
+        shown = new int[count];
+        shownOffs = new int[count];
+        int at = !q.isEmpty() && found == 0 ? itemH() : 0;
+        for (int k = 0; k < count; k++) {
+            int i = k < found ? hits.get(k) : lead + (k - found);
+            shown[k] = i;
+            shownOffs[k] = at;
+            at += rowH(items.get(i));
+        }
+        shownTotal = at;
+        scroll = 0;
+        cursor = q.isEmpty() ? (checked >= 0 && checked < lead ? checked : -1)
+                : found > 0 ? hits.get(0) : -1;
+        if (q.isEmpty() && cursor >= 0) reveal(cursor);
+    }
+
+    private int slotOf(int item) {
+        for (int k = 0; k < shown.length; k++) if (shown[k] == item) return k;
+        return -1;
+    }
+
+    private void reveal(int item) {
+        int k = slotOf(item);
+        if (k < 0) return;
+        int top = shownOffs[k], bottom = top + rowH(items.get(item));
+        if (top < scroll) scroll = top;
+        else if (bottom > scroll + listH) scroll = bottom - listH;
+        scroll = Math.max(0, Math.min(maxScroll(), scroll));
+    }
+
+    private void move(int delta) {
+        if (shown.length == 0) return;
+        int k = cursor < 0 ? (delta > 0 ? -1 : shown.length) : slotOf(cursor);
+        for (int step = 0; step < shown.length; step++) {
+            k = Math.floorMod(k + delta, shown.length);
+            if (items.get(shown[k]).enabled) break;
+        }
+        cursor = shown[k];
+        reveal(cursor);
     }
 
     private static int rowH(Item it) {
@@ -152,6 +245,12 @@ public final class Menu {
     public static Menu picker(int screenW, int screenH, int x, int y, Font tr,
                               String title, List<Item> items, int checked, IntConsumer onPick) {
         return new Menu(screenW, screenH, x, y, tr, title, items, checked, onPick, null);
+    }
+
+    public static Menu searching(int screenW, int screenH, int x, int y, Font tr, String title,
+                                 List<Item> items, int checked, int pinned, String hint,
+                                 IntConsumer onPick) {
+        return new Menu(screenW, screenH, x, y, tr, title, items, checked, onPick, null, hint, pinned);
     }
 
     public static Menu multi(int screenW, int screenH, int x, int y, Font tr,
@@ -182,18 +281,16 @@ public final class Menu {
         Draw.round(ctx, x, y, TICK, TICK, 2, Draw.opaque(on ? Theme.ACCENT : Ui.WELL));
         Draw.roundOutline(ctx, x, y, TICK, TICK, 2,
                 Draw.opaque(on ? Draw.shade(Theme.ACCENT, -0.30f) : hov ? Ui.BORDER : Ui.LINE_IN));
-        if (on) Draw.glyph(ctx, Draw.CHECK, x + 2, y + 2, Theme.ON_ACCENT);
+        if (on) Draw.glyph(ctx, Draw.CHECK, x + 2, y + 2, Theme.ON_FILL);
     }
 
-    private double maxScroll() { return Math.max(0, total - listH); }
-    private int listTop() { return y + PAD + (title == null ? 0 : TITLE_H); }
+    private double maxScroll() { return Math.max(0, shownTotal - listH); }
+    private int listTop() { return y + PAD + (title == null ? 0 : TITLE_H) + (search == null ? 0 : SEARCH_H); }
 
     public boolean isClosed() { return closed; }
     public void close() { closed = true; }
 
     public void render(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY) {
-        lastMx = mouseX;
-        lastMy = mouseY;
         Draw.shadow(ctx, x, y, w, h, 5);
         Draw.card(ctx, x, y, w, h, 5, Draw.opaque(Ui.PANEL), Draw.opaque(Ui.BORDER));
 
@@ -208,13 +305,24 @@ public final class Menu {
             Draw.rect(ctx, x + 6, y + TITLE_H - 2, w - 12, 1, Draw.opaque(Ui.LINE));
         }
 
+        if (search != null) drawSearch(ctx, tr, mouseX, mouseY);
+
         int top = listTop();
         ctx.enableScissor(x + 1, top, x + w - 1, top + listH);
-        int hovered = indexAt(mouseX, mouseY);
-        for (int i = 0; i < items.size(); i++) {
+        int under = indexAt(mouseX, mouseY);
+        boolean moved = mouseX != lastMx || mouseY != lastMy;
+        lastMx = mouseX;
+        lastMy = mouseY;
+        if (search != null && moved && under >= 0) cursor = under;
+        int hovered = search == null ? under : cursor;
+        if (search != null && found == 0 && !search.getValue().isBlank())
+            Draw.textFit(ctx, tr, NOTHING, x + 10, top + (itemH() - 7) / 2 - (int) Math.round(scroll),
+                    w - 20, Theme.TEXT_FAINT, false);
+        for (int k = 0; k < shown.length; k++) {
+            int i = shown[k];
             Item it = items.get(i);
             int rh = rowH(it);
-            int iy = top + offs[i] - (int) Math.round(scroll);
+            int iy = top + shownOffs[k] - (int) Math.round(scroll);
             if (iy + rh < top || iy > top + listH) continue;
             if (i == hovered && it.enabled) Draw.round(ctx, x + 3, iy, w - 6, rh - 1, 3,
                     Draw.opaque(it.danger ? Ui.DANGER_BG : Ui.BTN_HOVER));
@@ -224,7 +332,7 @@ public final class Menu {
             if (it.rich()) {
                 int textX = x + inkX;
                 int nameY = iy + RICH_PAD;
-                if (i > 0) Draw.rect(ctx, x + 6, iy - 1, w - 12, 1, Draw.opaque(Ui.LINE));
+                if (k > 0) Draw.rect(ctx, x + 6, iy - 1, w - 12, 1, Draw.opaque(Ui.LINE));
                 if (multi()) tickBox(ctx, x + 7, iy + (rh - TICK) / 2, ticked[i], i == hovered);
                 if (it.stack != null && !it.stack.isEmpty())
                     ctx.item(it.stack, x + (multi() ? 6 + TICK_W : 6), iy + (rh - 16) / 2);
@@ -247,10 +355,10 @@ public final class Menu {
                 }
                 continue;
             }
-            if (anyRich && i > 0) Draw.rect(ctx, x + 6, iy - 1, w - 12, 1, Draw.opaque(Ui.LINE));
+            if (anyRich && k > 0) Draw.rect(ctx, x + 6, iy - 1, w - 12, 1, Draw.opaque(Ui.LINE));
             if (multi()) tickBox(ctx, x + 7, iy + (itemH() - TICK) / 2, ticked[i], i == hovered);
             else if (checked >= 0 && i == checked)
-                Draw.glyph(ctx, Draw.CHECK, x + 7, iy + (itemH() - 7) / 2, Theme.ACCENT);
+                Draw.glyph(ctx, Draw.CHECK, x + 7, iy + (itemH() - Draw.glyphH(Draw.CHECK)) / 2, Theme.ACCENT);
             if (it.icon != null)
                 Draw.glyph(ctx, it.icon, x + (anyRich ? 9 : 7) + (multi() ? TICK_W : 0),
                         iy + (itemH() - Draw.glyphH(it.icon)) / 2,
@@ -264,10 +372,20 @@ public final class Menu {
         ctx.disableScissor();
 
         if (maxScroll() > 0)
-            bar.draw(ctx, x + w - 5, top, listH, total, listH, (int) Math.round(scroll),
+            bar.draw(ctx, x + w - 5, top, listH, shownTotal, listH, (int) Math.round(scroll),
                     lastMx, lastMy);
 
         if (multi()) drawFoot(ctx, tr, mouseX, mouseY, ticks);
+    }
+
+    private void drawSearch(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY) {
+        int sy = searchY();
+        boolean typed = !search.getValue().isEmpty();
+        Ui.input(ctx, x + 6, sy, w - 12, INPUT_H, search.isFocused());
+        Draw.glyph(ctx, Draw.SEARCH, x + 10, sy + (INPUT_H - Draw.glyphH(Draw.SEARCH)) / 2,
+                typed ? Theme.ACCENT : Theme.TEXT_FAINT);
+        search.extractRenderState(ctx, mouseX, mouseY, 0);
+        Ui.placeholder(ctx, tr, search);
     }
 
     private void drawFoot(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY, int ticks) {
@@ -288,8 +406,8 @@ public final class Menu {
         int top = listTop();
         if (my < top || my >= top + listH) return -1;
         double rel = my - top + scroll;
-        for (int i = 0; i < items.size(); i++)
-            if (rel >= offs[i] && rel < offs[i] + rowH(items.get(i))) return i;
+        for (int k = 0; k < shown.length; k++)
+            if (rel >= shownOffs[k] && rel < shownOffs[k] + rowH(items.get(shown[k]))) return shown[k];
         return -1;
     }
 
@@ -311,6 +429,12 @@ public final class Menu {
             }
             return true;
         }
+        if (search != null && Ui.hit(mx, my, x + 6, searchY(), w - 12, INPUT_H)) {
+            search.setFocused(true);
+            MouseButtonEvent click = new MouseButtonEvent(mx, my, new MouseButtonInfo(0, 0));
+            if (!search.mouseClicked(click, false)) search.onClick(click, false);
+            return true;
+        }
         if (bar.grabbed(mx, my, 1, (int) maxScroll(), v -> scroll = v)) return true;
         int i = indexAt(mx, my);
         if (i >= 0 && !items.get(i).enabled) return true;
@@ -320,6 +444,34 @@ public final class Menu {
             onPick.accept(i);
         }
         return true;
+    }
+
+    public boolean keyPressed(KeyEvent input) {
+        if (search == null) return false;
+        switch (input.key()) {
+            case GLFW.GLFW_KEY_ESCAPE -> {
+                if (search.getValue().isEmpty()) closed = true;
+                else search.setValue("");
+                return true;
+            }
+            case GLFW.GLFW_KEY_DOWN -> { move(1); return true; }
+            case GLFW.GLFW_KEY_UP -> { move(-1); return true; }
+            case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {
+                if (cursor >= 0 && cursor < items.size() && items.get(cursor).enabled) {
+                    closed = true;
+                    onPick.accept(cursor);
+                }
+                return true;
+            }
+            default -> {
+                search.keyPressed(input);
+                return true;
+            }
+        }
+    }
+
+    public boolean charTyped(CharacterEvent input) {
+        return search != null && search.charTyped(input);
     }
 
     public boolean mouseDragged(double my) {

@@ -13,6 +13,8 @@ public final class DataComponents {
             new DataComponentType<>("minecraft:item_name", NbtText::of);
     public static final DataComponentType<PotionContents> POTION_CONTENTS =
             new DataComponentType<>("minecraft:potion_contents", DataComponents::potion);
+    public static final DataComponentType<Boolean> ENCHANTMENT_GLINT_OVERRIDE =
+            new DataComponentType<>("minecraft:enchantment_glint_override", b -> Nbt.ofByte(b ? 1 : 0));
 
     private DataComponents() {}
 

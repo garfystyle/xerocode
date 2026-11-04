@@ -4,3 +4,5 @@ com/xerocode/Release.java
 com/xerocode/Swap.java
 com/xerocode/ui/UpdateScreen.java
 com/xerocode/ServerAsk.java
+com/xerocode/KeyGate.java
+com/xerocode/Link.java

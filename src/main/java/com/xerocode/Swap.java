@@ -411,6 +411,7 @@ public final class Swap {
 
     private static final class Loader extends URLClassLoader {
         private static final String OWN = "com.xerocode.";
+        private static final String CORE = "xero.";
 
         private final Path jar;
 
@@ -425,7 +426,7 @@ public final class Swap {
                 Enumeration<? extends ZipEntry> all = zip.entries();
                 while (all.hasMoreElements()) {
                     String name = all.nextElement().getName();
-                    if (name.startsWith("com/xerocode/") && name.endsWith(".class"))
+                    if ((name.startsWith("com/xerocode/") || name.startsWith("xero/")) && name.endsWith(".class"))
                         names.add(name.substring(0, name.length() - 6).replace('/', '.'));
                 }
             }
@@ -439,7 +440,7 @@ public final class Swap {
 
         @Override
         protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-            if (!name.startsWith(OWN)) return super.loadClass(name, resolve);
+            if (!name.startsWith(OWN) && !name.startsWith(CORE)) return super.loadClass(name, resolve);
             synchronized (getClassLoadingLock(name)) {
                 Class<?> c = findLoadedClass(name);
                 if (c == null) c = findClass(name);

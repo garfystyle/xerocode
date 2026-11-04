@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.xerocode.Env;
 import com.xerocode.Settings;
 import com.xerocode.Symbols;
 import com.xerocode.Value;
@@ -32,6 +33,8 @@ public final class TextStudio implements Overlay {
     private static final int SW_GAP = 3, SL_H = 8, CELL = 18, OUT_ROW = 16, SIGN_W = 90;
     private static final int HEX_W = 66, SEARCH_H = 18, CAT_H = 15, RECENT_W = 16;
     private static final int RECENT_MAX = 14, UNDO_MAX = 64, SPR = 20, CHAT_W = 320, CHAT_LINE = 9;
+    private static final int SRC_MAX = 40;
+    private final Sizer sizer = new Sizer("text", 320, 200, true);
     private static final int BOARD_W = 96, BOARD_H = 48, SIGN_LINE = 10, SIGN_SHADE = 0xFFCCCCCC;
     private static final int NAME_H = 17, SWATCH = 16, GRAD_BAR = 24;
 
@@ -154,7 +157,7 @@ public final class TextStudio implements Overlay {
     private boolean recents() { return !compact; }
 
     private void layout() {
-        w = Ui.fitW(screenW, 780);
+        w = sizer.w(screenW, Ui.fitW(screenW, 780));
         one = inner() < 460;
         lw = one ? inner() : (inner() - GUTTER) / 2;
         rw = one ? inner() : inner() - GUTTER - lw;
@@ -170,7 +173,7 @@ public final class TextStudio implements Overlay {
         if (!headMode) modeW = Math.min(modeW, inner());
         placeTools();
 
-        int fullH = Ui.fitH(screenH, 10000);
+        int fullH = sizer.h(screenH, Ui.fitH(screenH, 10000));
         compact = false;
         srcLines = 4;
         int natural = measure();
@@ -178,11 +181,16 @@ public final class TextStudio implements Overlay {
             compact = true;
             srcLines = 2;
             natural = measure();
+        } else if (sizer.sizedH()) {
+            while (natural + WrapField.LINE <= fullH && srcLines < SRC_MAX) {
+                srcLines++;
+                natural = measure();
+            }
         } else if (natural + WrapField.LINE <= fullH) {
             srcLines++;
             natural = measure();
         }
-        h = Ui.fitH(screenH, natural);
+        h = Math.min(natural, fullH);
         x = Ui.midX(screenW, w);
         y = Ui.midY(screenH, h);
         footY = h - FOOT_H;
@@ -500,6 +508,7 @@ public final class TextStudio implements Overlay {
 
         Ui.hairline(ctx, x + 1, y + footY - 1, w - 2);
         drawFooter(ctx, mouseX, mouseY);
+        sizer.draw(ctx, mouseX, mouseY, x, y, w, h);
 
         if (menu != null) {
             ctx.nextStratum();
@@ -663,7 +672,7 @@ public final class TextStudio implements Overlay {
         if (overTool(mx, my, T_GRAD)) return "плавный переход цвета по выделению";
         if (overTool(mx, my, T_RAIN)) return "все цвета радуги по выделению";
         if (overTool(mx, my, T_UNDO)) return "отменить · Ctrl+Z";
-        if (overTool(mx, my, T_REDO)) return "вернуть · Ctrl+Y";
+        if (overTool(mx, my, T_REDO)) return "вернуть · Ctrl+Y или Ctrl+Shift+Z";
         if (!pane.inBody(my, y)) return "";
         if (tab == 0) {
             int sw = swatchAt(mx, my);
@@ -775,7 +784,7 @@ public final class TextStudio implements Overlay {
         int thumb = Math.max(12, trackH * trackH / (trackH + max));
         int ty = gy + (trackH - thumb) * at / Math.max(1, max);
         Draw.rect(ctx, lx + lw - 2, gy, 2, trackH, Draw.argb(0x30, 0x000000));
-        Draw.round(ctx, lx + lw - 2, ty, 2, thumb, 1, Draw.opaque(0x5A6478));
+        Draw.round(ctx, lx + lw - 2, ty, 2, thumb, 1, Draw.opaque(Theme.THUMB));
     }
 
     private void drawSprites(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
@@ -902,9 +911,16 @@ public final class TextStudio implements Overlay {
                     Draw.opaque(hov ? Ui.BTN_HOVER : Draw.mix(Ui.WELL, Ui.PANEL, 0.4f)));
             Draw.text(ctx, tr, Values.parsingName(otherModes.get(i)), px + 6, ry + 3,
                     hov ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
-            Draw.textFit(ctx, tr, otherText.get(i), px + mcol, ry + 3,
-                    rw - (hov ? 22 : 8) - mcol, hov ? Theme.TEXT : Theme.TEXT_DIM, false);
+            int room = rw - (hov ? 22 : 8) - mcol;
+            Draw.textFit(ctx, tr, otherText.get(i), px + mcol, ry + 3, room,
+                    hov ? Theme.TEXT : Theme.TEXT_DIM, false);
             if (hov) Draw.glyph(ctx, Draw.COPY, px + rw - 14, ry + 3, Theme.TEXT_DIM);
+            if (hov && tr.width(otherText.get(i)) > room) {
+                List<Component> tip = new ArrayList<>();
+                for (String line : Ui.wrap(tr, otherText.get(i), Math.min(360, screenW - 40), 12))
+                    tip.add(Component.literal(line));
+                ctx.setComponentTooltipForNextFrame(tr, tip, mouseX, mouseY);
+            }
         }
     }
 
@@ -933,8 +949,9 @@ public final class TextStudio implements Overlay {
     private void drawFooter(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int fy = y + footY + (FOOT_H - 18) / 2;
         int doneW = Ui.buttonW(tr, "Готово"), cancelW = Ui.buttonW(tr, "Отмена");
-        Draw.textFit(ctx, tr, "Enter — готово · Shift+Enter — новая строка · Esc — отмена",
-                x + PAD, fy + 5, inner() - doneW - cancelW - 16, Theme.TEXT_FAINT, false);
+        if (!Env.touch())
+            Draw.textFit(ctx, tr, "Enter — готово · Shift+Enter — новая строка · Esc — отмена",
+                    x + PAD, fy + 5, inner() - doneW - cancelW - 16, Theme.TEXT_FAINT, false);
         Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - doneW, fy, doneW, 18, "Готово", Ui.ACCENT);
         Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - doneW - 4 - cancelW, fy, cancelW, 18,
                 "Отмена", Ui.GHOST);
@@ -1129,6 +1146,10 @@ public final class TextStudio implements Overlay {
         if (menu != null) {
             menu.mouseClicked(mx, my);
             if (menu.isClosed()) menu = null;
+            return true;
+        }
+        if (sizer.press(click, doubled, x, y, w, h)) {
+            if (!sizer.active()) layout();
             return true;
         }
         if (complete.mouseClicked(mx, my)) { syncPreview(); return true; }
@@ -1355,6 +1376,10 @@ public final class TextStudio implements Overlay {
 
     public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (menu != null && menu.mouseDragged(click.y())) return true;
+        if (sizer.drag(click.x(), click.y())) {
+            layout();
+            return true;
+        }
         if (bar.dragged(click.y(), 1, pane.max(), v -> { pane.scroll = v; placeFields(); }))
             return true;
         if (dragging != 0) { dragPicker(click.x(), click.y()); return true; }
@@ -1363,6 +1388,7 @@ public final class TextStudio implements Overlay {
     }
 
     public void mouseReleased() {
+        sizer.release();
         dragging = 0;
         bar.release();
         grab.release();
@@ -1421,7 +1447,7 @@ public final class TextStudio implements Overlay {
                 } else if (!shown.isEmpty()) insert(shown.get(0).glyph());
                 return true;
             }
-            if (shift) {
+            if (shift || Env.touch()) {
                 insert(TextLines.BREAK);
                 syncComplete();
                 return true;
@@ -1473,6 +1499,6 @@ public final class TextStudio implements Overlay {
 
     private void syncComplete() {
         area.follow();
-        complete.update(input.isFocused() ? input : null, tr, screenW, screenH);
+        complete.update(input.isFocused() ? input : null, tr, screenW, screenH, false, McText.MINI.equals(parsing));
     }
 }

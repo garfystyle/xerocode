@@ -314,13 +314,13 @@ public final class Stacks {
     public static ItemStack build(Value v) {
         ItemStack st = stack(v.itemId);
         if (st.isEmpty()) return st;
-        st.setCount(Math.max(1, Math.min(99, v.itemCount)));
 
         try {
             DataComponentPatch extra = extras(v.components);
             if (!extra.isEmpty()) st.applyComponentsAndValidate(extra);
         } catch (RuntimeException ignored) {
         }
+        st.setCount(Math.max(1, Math.min(99, v.itemCount)));
 
         if (!v.itemName.isEmpty())
             st.set(DataComponents.CUSTOM_NAME, styled(v.itemName, v.itemParsing, false));
@@ -372,6 +372,30 @@ public final class Stacks {
         apply(v, stack.getComponentsPatch());
         CompoundTag nbt = encode(stack.getComponentsPatch());
         v.components = nbt == null || nbt.isEmpty() ? "" : nbt.toString();
+    }
+
+    public static void swapItem(Value v, ItemStack picked) {
+        String id = idOf(picked);
+        if (id == null || id.isEmpty()) return;
+        v.itemId = id;
+        CompoundTag theirs = encode(picked.getComponentsPatch());
+        if (theirs == null || theirs.isEmpty()) return;
+        CompoundTag mine = v.components.isBlank() ? new CompoundTag() : compound(v.components);
+        if (mine == null) return;
+        for (String key : theirs.keySet())
+            if (!MODELLED.contains(key)) mine.put(key, theirs.get(key).copy());
+        v.components = mine.isEmpty() ? "" : mine.toString();
+    }
+
+    public static void reset(Value v) {
+        ItemStack plain = stack(v.itemId);
+        if (!plain.isEmpty()) read(v, plain);
+    }
+
+    public static boolean customized(Value v) {
+        return v.itemCount != 1 || !v.itemName.isEmpty() || !v.lore.isEmpty() || !v.enchants.isEmpty()
+                || v.unbreakable || v.itemDamage > 0 || v.modelData >= 0 || v.glint != 0
+                || v.hideTooltip || !v.hidden.isEmpty() || extraCount(v.components) > 0;
     }
 
     public static void readText(Value v) {
@@ -624,7 +648,7 @@ public final class Stacks {
         if (nbt == null) return snbt;
         CompoundTag mine = new CompoundTag();
         for (String[] t : tags) {
-            String key = t[0].trim();
+            String key = TagNames.clean(t[0]);
             if (!key.isEmpty()) mine.putString(TAG_PREFIX + key, t[1]);
         }
         mergeTags(nbt, mine);

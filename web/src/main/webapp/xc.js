@@ -2,14 +2,61 @@
 (function () {
   var canvas = document.getElementById('screen');
   var typer = document.getElementById('type');
+  var stale = true, loads = 0;
   var gl = canvas.getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: false });
   var queue = [];
   var clip = '';
   var readyCbs = [], isReady = false;
   var textures = {}, named = {}, nextTex = 1;
-  var store = {}, db = null;
+  var store = {}, db = null, journaling = false;
+  var JOURNAL = 'xc-journal:';
+  function commit(p, v, del) {
+    var j = JOURNAL + p, val = del ? '' : v;
+    try {
+      if (journaling) localStorage.setItem(j, val);
+      else localStorage.removeItem(j);
+    } catch (e) { }
+    if (!db) return;
+    var t = db.transaction('files', 'readwrite'), f = t.objectStore('files');
+    if (del) f.delete(p); else f.put(v, p);
+    t.oncomplete = function () {
+      try { if (localStorage.getItem(j) === val) localStorage.removeItem(j); } catch (e) { }
+    };
+  }
+  function replayJournal() {
+    var keys = [];
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf(JOURNAL) === 0) keys.push(k);
+      }
+    } catch (e) { return; }
+    if (!keys.length) return;
+    var t = db ? db.transaction('files', 'readwrite') : null, files = t ? t.objectStore('files') : null;
+    keys.forEach(function (k) {
+      var p = k.substring(JOURNAL.length), v = localStorage.getItem(k);
+      if (v) { store[p] = v; if (files) files.put(v, p); }
+      else { delete store[p]; if (files) files.delete(p); }
+    });
+    if (t) t.oncomplete = function () {
+      keys.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) { } });
+    };
+  }
   var params = new URLSearchParams(location.search);
   var sockets = {}, nextSocket = 1;
+  var frameCb = null;
+  function fireFrame() { var f = frameCb; frameCb = null; if (f) f(); }
+  try {
+    var pulse = new Worker(URL.createObjectURL(new Blob(['setInterval(function () { postMessage(0); }, 500);'],
+      { type: 'text/javascript' })));
+    pulse.onmessage = function () { if (document.hidden) fireFrame(); };
+  } catch (e) {
+    setInterval(function () { if (document.hidden) fireFrame(); }, 500);
+  }
+  document.addEventListener('visibilitychange', function () {
+    stale = true;
+    if (!document.hidden && frameCb) requestAnimationFrame(fireFrame);
+  });
   function toB64(bytes) {
     var s = '', CH = 0x8000;
     for (var i = 0; i < bytes.length; i += CH) s += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
@@ -83,8 +130,8 @@
     }
     queue.push(['k', code, 0, m]);
     var printable = e.key && e.key.length === 1 && !ctrl && !e.altKey;
-    if (!printable && !(ctrl && (code === 67 || code === 88))) e.preventDefault();
-    if (ctrl && code !== 67 && code !== 88) e.preventDefault();
+    var native = ctrl && !e.shiftKey && !e.altKey && (code === 67 || code === 88);
+    if (!printable && !native) e.preventDefault();
   }
   function keyUp(e) {
     if (soft(e)) return;
@@ -159,6 +206,7 @@
     var p = pos(e);
     var b = e.button === 1 ? 2 : e.button === 2 ? 1 : e.button;
     queue.push(['d', p[0], p[1], b, glfwMods(e), 0]);
+    if (b === 0 && inRects(pasteRects, p)) readClip();
     e.preventDefault();
     focusTyper();
   });
@@ -187,16 +235,33 @@
   var coarse = !!(window.matchMedia && matchMedia('(hover: none) and (pointer: coarse)').matches);
   var touchNow = coarse, lastTouch = 0;
   var fingers = {}, tmode = null, t0 = null, longTimer = 0, prevMid = null, prevDist = 0;
-  var textOn = false, textRects = [], textScale = 1;
+  var textOn = false, textRects = [], textScale = 1, pasteRects = [], reading = false, readAt = 0;
   var LONG = 450, SLOP = 10;
   function fingerList() { return Object.keys(fingers).map(function (k) { return fingers[k]; }); }
-  function inText(p) {
-    for (var i = 0; i + 3 < textRects.length; i += 4) {
-      var x = textRects[i] * textScale, y = textRects[i + 1] * textScale;
-      var w = textRects[i + 2] * textScale, h = textRects[i + 3] * textScale;
+  function inRects(list, p) {
+    for (var i = 0; i + 3 < list.length; i += 4) {
+      var x = list[i] * textScale, y = list[i + 1] * textScale;
+      var w = list[i + 2] * textScale, h = list[i + 3] * textScale;
       if (p[0] >= x && p[0] < x + w && p[1] >= y && p[1] < y + h) return true;
     }
     return false;
+  }
+  function inText(p) { return inRects(textRects, p); }
+  function readClip() {
+    var now = Date.now();
+    if (reading || now - readAt < 1000) return;
+    reading = true;
+    readAt = now;
+    function done(ok, t) {
+      reading = false;
+      if (ok && t) clip = t;
+      queue.push(['v', ok ? 1 : 0, ok ? (t || '') : '']);
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText)
+        navigator.clipboard.readText().then(function (t) { done(true, t); }, function () { done(false); });
+      else done(false);
+    } catch (err) { done(false); }
   }
   function twoState() {
     var f = fingerList();
@@ -290,6 +355,7 @@
         if (!cancelled) {
           var again = textOn && keyboardShown() && inFocused([t0.x, t0.y]);
           queue.push(['d', t0.x, t0.y, 0, 0, 1]); queue.push(['r', t0.x, t0.y, 0, 0]);
+          if (inRects(pasteRects, [t0.x, t0.y])) readClip();
           tapKeyboard([t0.x, t0.y]);
           if (again) askBar(!barWanted);
           else if (barWanted) askBar(false);
@@ -461,11 +527,50 @@
     if (exactW && Math.abs(exactW - w) <= 2 && Math.abs(exactH - h) <= 2) { w = exactW; h = exactH; }
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
   }
+  var CODE_ATLAS = 1024;
+  var code = { canvas: null, c: null, tex: 0, cellW: 1, cellH: 1, cols: 1, count: 0, map: {}, dirty: false,
+    family: 'monospace', px: 15, cell: 8, row: 18, base: 14, stamp: 1, fonts: {} };
+  function codeSetup() {
+    if (!code.canvas) {
+      code.canvas = document.createElement('canvas');
+      code.canvas.width = code.canvas.height = CODE_ATLAS;
+      code.c = code.canvas.getContext('2d', { willReadFrequently: false });
+    }
+    var c = code.c, face = code.px + 'px "' + code.family + '", monospace';
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, CODE_ATLAS, CODE_ATLAS);
+    c.font = face;
+    c.textBaseline = 'alphabetic';
+    c.fillStyle = '#fff';
+    var m = c.measureText('M');
+    var ascent = Math.ceil(m.fontBoundingBoxAscent || code.px), descent = Math.ceil(m.fontBoundingBoxDescent || code.px / 4);
+    code.cell = Math.max(1, Math.round(m.width));
+    code.row = Math.max(code.px + 2, ascent + descent + Math.max(1, Math.floor(code.px / 6)));
+    code.base = Math.floor((code.row - ascent - descent) / 2) + ascent;
+    code.cellW = code.cell * 2;
+    code.cellH = code.row;
+    code.cols = Math.floor(CODE_ATLAS / code.cellW);
+    code.count = 0;
+    code.map = {};
+    code.dirty = true;
+    code.stamp++;
+    stale = true;
+  }
+  function codeLoad(family, face) {
+    code.fonts[family] = 1;
+    face.load().then(function (f) {
+      document.fonts.add(f);
+      code.fonts[family] = 2;
+      if (code.family === family) codeSetup();
+    }, function (e) { console.warn('шрифт не загрузился', family, e); });
+  }
   function uploadTexture(img, mips) {
     var t = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, !!mips);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    stale = true;
+    loads++;
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     if (mips) { gl.generateMipmap(gl.TEXTURE_2D); t.mips = true; t.premul = true; }
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -571,7 +676,12 @@
       }).catch(function (e) { step(0, 'Не загрузилось (' + e.message + ') — обнови страницу'); console.error(e); });
     },
     ready: function (f) { if (isReady) f(); else readyCbs.push(f); },
-    nextFrame: function (f) { requestAnimationFrame(function () { f(); }); },
+    nextFrame: function (f) { frameCb = f; if (!document.hidden) requestAnimationFrame(fireFrame); },
+    hidden: function () { return document.hidden; },
+    session: function (k) { try { return sessionStorage.getItem(k) || ''; } catch (e) { return ''; } },
+    keepSession: function (k, v) {
+      try { if (v) sessionStorage.setItem(k, v); else sessionStorage.removeItem(k); } catch (e) {}
+    },
     width: function () { resizeCanvas(); return canvas.width; },
     height: function () { return canvas.height; },
     ratio: function () { return dpr(); },
@@ -608,14 +718,22 @@
         gl.drawElements(gl.TRIANGLES, count / 4 * 6, gl.UNSIGNED_INT, first / 4 * 6 * 4);
       }
     },
-    pollEvents: function () { var q = queue; queue = []; return q; },
+    pollEvents: function () {
+      var q = queue;
+      queue = [];
+      return q;
+    },
+    stale: function () { var was = stale; stale = false; return was; },
+    loads: function () { return loads; },
+    redraw: function () { stale = true; },
     cursor: function (css) { if (canvas.style.cursor !== css) canvas.style.cursor = css; },
     setClipboard: function (t) {
       clip = t;
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).catch(function () {});
     },
     clipboard: function () { return clip; },
-    textFocus: function (on, x, y, rects, scale, sel, all, focus) {
+    readClipboard: function () { readClip(); },
+    textFocus: function (on, x, y, rects, scale, sel, all, focus, paste) {
       selNow = sel || ''; allNow = all || '';
       caretDev = [x, y];
       var fresh = Date.now() - barAskedAt < 700;
@@ -625,6 +743,7 @@
       caretCss = y / k;
       typer.style.left = (x / k) + 'px'; typer.style.top = Math.max(0, y / k - shift) + 'px';
       textRects = rects ? rects.split(',').map(Number) : [];
+      pasteRects = paste ? paste.split(',').map(Number) : [];
       textScale = scale;
       if (touchNow) {
         if (!on && textOn && document.activeElement === typer) typer.blur();
@@ -645,8 +764,15 @@
     },
     storedPaths: function () { return Object.keys(store).join('\n'); },
     stored: function (p) { return store[p] || ''; },
-    store: function (p, b64) { store[p] = b64; if (db) tx('readwrite').put(b64, p); },
-    unstore: function (p) { delete store[p]; if (db) tx('readwrite').delete(p); },
+    storeBytes: function (p, bytes) {
+      var u = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length), s = '';
+      for (var i = 0; i < u.length; i += 32768) s += String.fromCharCode.apply(null, u.subarray(i, i + 32768));
+      var b64 = btoa(s);
+      store[p] = b64;
+      commit(p, b64, false);
+    },
+    unstore: function (p) { delete store[p]; commit(p, null, true); },
+    journal: function (on) { journaling = !!on; },
     pickFile: function (accept, cb) {
       pickLocal(accept, cb);
     },
@@ -663,6 +789,62 @@
     saveFile: function (name, b64, mime) {
       var a = document.createElement('a'); a.href = 'data:' + (mime || 'application/octet-stream') + ';base64,' + b64;
       a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    },
+    codeFont: function (family, url, px) {
+      if (url && !code.fonts[family]) codeLoad(family, new FontFace(family, 'url(' + url + ')'));
+      code.family = family;
+      code.px = px;
+      codeSetup();
+    },
+    codeFontBytes: function (family, b64, px) {
+      if (!code.fonts[family]) codeLoad(family, new FontFace(family, fromB64(b64).buffer));
+      code.family = family;
+      code.px = px;
+      codeSetup();
+    },
+    codeInfo: function (i) {
+      switch (i) {
+        case 0: return code.stamp;
+        case 1: return code.cell;
+        case 2: return code.row;
+        case 3: return code.cellW;
+        case 4: return code.cellH;
+        case 5: return code.cols;
+        default: return CODE_ATLAS;
+      }
+    },
+    codeGlyph: function (cp) {
+      var at = code.map[cp];
+      if (at !== undefined) return at;
+      if (code.count >= code.cols * Math.floor(CODE_ATLAS / code.cellH)) codeSetup();
+      at = code.count++;
+      code.map[cp] = at;
+      var x = at % code.cols * code.cellW, y = Math.floor(at / code.cols) * code.cellH;
+      code.c.save();
+      code.c.beginPath();
+      code.c.rect(x, y, code.cellW, code.cellH);
+      code.c.clip();
+      code.c.fillText(String.fromCodePoint(cp), x, y + code.base);
+      code.c.restore();
+      code.dirty = true;
+      return at;
+    },
+    codeTexture: function () {
+      if (!code.tex) {
+        var t = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        code.tex = nextTex++;
+        textures[code.tex] = t;
+      }
+      if (code.dirty) {
+        code.dirty = false;
+        gl.bindTexture(gl.TEXTURE_2D, textures[code.tex]);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, code.canvas);
+        stale = true;
+      }
+      return code.tex;
     },
     texture: function (n) { return named[n] || 0; },
     loadTexture: function (url, cb) {
@@ -693,7 +875,7 @@
       ws.onclose = function (e) { delete sockets[id]; cb(id, 'close', e.reason || '', e.code); };
     },
     socketSend: function (id, text) { var ws = sockets[id]; if (ws && ws.readyState === 1) ws.send(text); },
-    socketClose: function (id, code, reason) { var ws = sockets[id]; if (ws) try { ws.close(code === 1000 ? 1000 : 1000, reason); } catch (e) {} },
+    socketClose: function (id, code, reason) { var ws = sockets[id]; if (ws) try { ws.close(code === 1000 ? 1000 : 4000, reason); } catch (e) {} },
     ed: {
       generate: function (cb) {
         crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']).then(function (pair) {
@@ -770,17 +952,17 @@
   function openDb() {
     return new Promise(function (ok) {
       var req;
-      try { req = indexedDB.open('xerocode', 1); } catch (e) { ok(); return; }
+      try { req = indexedDB.open('xerocode', 1); } catch (e) { replayJournal(); ok(); return; }
       req.onupgradeneeded = function () { req.result.createObjectStore('files'); };
-      req.onerror = function () { ok(); };
+      req.onerror = function () { replayJournal(); ok(); };
       req.onsuccess = function () {
         db = req.result;
         var cur = tx('readonly').openCursor();
         cur.onsuccess = function () {
           var c = cur.result;
-          if (c) { store[c.key] = c.value; c.continue(); } else ok();
+          if (c) { store[c.key] = c.value; c.continue(); } else { replayJournal(); ok(); }
         };
-        cur.onerror = function () { ok(); };
+        cur.onerror = function () { replayJournal(); ok(); };
       };
     });
   }

@@ -135,7 +135,7 @@ public final class Peers {
         }
         if (shown == 0) return;
 
-        int back = Theme.LIGHT ? 0xF4F6FA : 0x141821;
+        int back = Theme.PEER_BACK;
         Draw.batch(Batch.open(ctx, area, area, 96 * shown + 64));
         for (int i = 0; i < shown; i++) {
             Spot spot = POOL.get(i);

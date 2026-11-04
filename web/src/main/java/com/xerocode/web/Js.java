@@ -58,6 +58,12 @@ public final class Js {
             script = "XC.render(verts, vcount, cmds, ccount, scale);")
     public static native void render(@JSByRef int[] verts, int vcount, @JSByRef int[] cmds, int ccount, double scale);
 
+    @JSBody(script = "return XC.loads();")
+    public static native int loads();
+
+    @JSBody(script = "return XC.stale();")
+    public static native boolean stale();
+
     @JSBody(script = "return XC.pollEvents();")
     public static native JSObject pollEvents();
 
@@ -79,10 +85,28 @@ public final class Js {
     @JSBody(script = "return XC.clipboard();")
     public static native String clipboard();
 
-    @JSBody(params = {"on", "x", "y", "rects", "scale", "sel", "all", "focus"},
-            script = "XC.textFocus(on, x, y, rects, scale, sel, all, focus);")
+    @JSBody(script = "XC.readClipboard();")
+    public static native void readClipboard();
+
+    @JSBody(params = {"on", "x", "y", "rects", "scale", "sel", "all", "focus", "paste"},
+            script = "XC.textFocus(on, x, y, rects, scale, sel, all, focus, paste);")
     public static native void textFocus(boolean on, double x, double y, String rects, int scale,
-                                        String sel, String all, int focus);
+                                        String sel, String all, int focus, String paste);
+
+    @JSBody(params = {"family", "url", "px"}, script = "XC.codeFont(family, url, px);")
+    public static native void codeFont(String family, String url, int px);
+
+    @JSBody(params = {"family", "base64", "px"}, script = "XC.codeFontBytes(family, base64, px);")
+    public static native void codeFontBytes(String family, String base64, int px);
+
+    @JSBody(params = {"i"}, script = "return XC.codeInfo(i);")
+    public static native int codeInfo(int i);
+
+    @JSBody(params = {"cp"}, script = "return XC.codeGlyph(cp);")
+    public static native int codeGlyph(int cp);
+
+    @JSBody(script = "return XC.codeTexture();")
+    public static native int codeTexture();
 
     @JSBody(script = "return XC.touch();")
     public static native boolean touch();
@@ -102,8 +126,8 @@ public final class Js {
     @JSBody(params = "path", script = "return XC.stored(path);")
     public static native String stored(String path);
 
-    @JSBody(params = {"path", "base64"}, script = "XC.store(path, base64);")
-    public static native void store(String path, String base64);
+    @JSBody(params = {"path", "bytes"}, script = "XC.storeBytes(path, bytes);")
+    public static native void storeBytes(String path, @JSByRef byte[] bytes);
 
     @JSBody(params = "path", script = "XC.unstore(path);")
     public static native void unstore(String path);
@@ -128,6 +152,18 @@ public final class Js {
 
     @JSBody(params = "key", script = "return XC.param(key);")
     public static native String param(String key);
+
+    @JSBody(script = "return XC.hidden();")
+    public static native boolean hidden();
+
+    @JSBody(params = "key", script = "return XC.session(key);")
+    public static native String session(String key);
+
+    @JSBody(params = {"key", "value"}, script = "XC.keepSession(key, value);")
+    public static native void keepSession(String key, String value);
+
+    @JSBody(params = "on", script = "XC.journal(on);")
+    public static native void journal(boolean on);
 
     @JSBody(params = "f", script = "window.addEventListener('pagehide', function(){ f(); }); "
             + "document.addEventListener('visibilitychange', function(){ if (document.hidden) f(); });")

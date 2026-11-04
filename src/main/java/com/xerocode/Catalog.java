@@ -7,6 +7,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntUnaryOperator;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
@@ -24,7 +26,11 @@ public final class Catalog {
         }
 
         public static Arg cell(String purpose) {
-            return new Arg("any", purpose, false, 1, new int[0]);
+            return cell(purpose, "any");
+        }
+
+        public static Arg cell(String purpose, String type) {
+            return new Arg(type, purpose, false, 1, new int[0]);
         }
     }
 
@@ -51,19 +57,23 @@ public final class Catalog {
         public final List<Setting> settings;
         public final boolean unavailable;
         public final boolean deprecated;
+        public final boolean glint;
+        public String sign = "";
+        public String skin = "";
         public Category category;
         public String subcategory;
+        String key, serverId;
         Action(int id, String name, String item, String description, List<Arg> args,
                List<Setting> settings, boolean unavailable) {
-            this(id, name, item, description, args, settings, unavailable, false);
+            this(id, name, item, description, args, settings, unavailable, false, false);
         }
         Action(int id, String name, String item, String description, List<Arg> args,
-               List<Setting> settings, boolean unavailable, boolean deprecated) {
+               List<Setting> settings, boolean unavailable, boolean deprecated, boolean glint) {
             this.id = id; this.name = name; this.item = item; this.description = description;
             this.args = args; this.settings = settings; this.unavailable = unavailable;
-            this.deprecated = deprecated;
+            this.deprecated = deprecated; this.glint = glint;
         }
-        public ItemStack icon() { return stackOf(item); }
+        public ItemStack icon() { return stackOf(item, glint, skin); }
     }
 
     public static final class Category {
@@ -150,7 +160,7 @@ public final class Catalog {
             Map.entry("Эффект частиц",   0xF08FC0),
             Map.entry("Список",          0xE8D33A),
             Map.entry("Словарь",         0x8B5A2B),
-            Map.entry("Параметр",        0x63C9E0));
+            Map.entry("Параметр",        0x3A7CF2));
 
     public static final List<Category> CATEGORIES = new ArrayList<>();
     public static final List<Action> ACTIONS = new ArrayList<>();
@@ -175,10 +185,10 @@ public final class Catalog {
         return null;
     }
 
-    public static void applyColors(Map<String, Integer> overrides) {
+    public static void applyColors(Map<String, Integer> overrides, IntUnaryOperator tone) {
         for (Category c : CATEGORIES) {
             Integer color = overrides == null ? null : overrides.get(c.name);
-            c.color = color == null ? c.baseColor : color;
+            c.color = color == null ? tone.applyAsInt(c.baseColor) : color;
         }
     }
 
@@ -468,9 +478,12 @@ public final class Catalog {
         boolean unavailable = false;
         if (o.has("f")) for (JsonElement fe : o.getAsJsonArray("f"))
             if ("unavailable_in_world".equals(fe.getAsString())) unavailable = true;
-        return new Action(id, o.get("n").getAsString(), o.get("i").getAsString(),
+        Action action = new Action(id, o.get("n").getAsString(), o.get("i").getAsString(),
                 o.has("d") ? o.get("d").getAsString() : "", args, settings, unavailable,
-                o.has("h"));
+                o.has("h"), o.has("g"));
+        if (o.has("w")) action.sign = o.get("w").getAsString();
+        if (o.has("t")) action.skin = o.get("t").getAsString();
+        return action;
     }
 
     public static final String UNKNOWN_EVENT_CAT = "Неизвестное событие";
@@ -520,10 +533,11 @@ public final class Catalog {
     }
 
     public static String keyOf(Action a) {
-        if (a != ELSE && a.subcategory != null && a.category != null
-                && ELSE_CATEGORY.equals(a.category.name))
-            return key(a.category.name, a.subcategory + "|" + a.name);
-        return key(a.category.name, a.name);
+        if (a.key != null) return a.key;
+        a.key = a != ELSE && a.subcategory != null && a.category != null
+                && ELSE_CATEGORY.equals(a.category.name)
+                ? key(a.category.name, a.subcategory + "|" + a.name) : key(a.category.name, a.name);
+        return a.key;
     }
 
     public record Slots(int size, int cols, int hotbar, String title) {}
@@ -586,13 +600,23 @@ public final class Catalog {
 
     private static List<Action> rank(List<Action> pool, String query, int limit) {
         return Search.rank(pool, query, limit, a -> new Search.Fields(a.name, "",
-                a.category == null ? "" : a.category.name, a.description));
+                a.category == null ? "" : a.category.name, a.description, a.sign));
     }
 
     private static final Map<String, ItemStack> ICONS = new HashMap<>();
+    private static final String GLINT_KEY = "#glint";
 
     public static ItemStack stackOf(String id) {
-        ItemStack cached = ICONS.get(id);
+        return stackOf(id, false);
+    }
+
+    public static ItemStack stackOf(String id, boolean glint) {
+        return stackOf(id, glint, "");
+    }
+
+    public static ItemStack stackOf(String id, boolean glint, String skin) {
+        String key = (glint ? id + GLINT_KEY : id) + (skin.isEmpty() ? "" : "#" + skin);
+        ItemStack cached = ICONS.get(key);
         if (cached != null) return cached;
         ItemStack made = new ItemStack(Items.STONE);
         try {
@@ -601,10 +625,13 @@ public final class Catalog {
                 var item = BuiltInRegistries.ITEM.getOptional(ident);
                 if (item.isPresent()) made = new ItemStack(item.get());
             }
+            if (glint) made.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
+            Heads.dress(made, skin);
         } catch (Exception ignored) {}
-        ICONS.put(id, made);
+        ICONS.put(key, made);
         return made;
     }
+
 
     private Catalog() {}
 }

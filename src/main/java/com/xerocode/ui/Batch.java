@@ -14,15 +14,18 @@ import org.joml.Vector2f;
 
 public final class Batch implements GuiElementRenderState {
     private static final int STRIDE = 6;
+    private static final int[] NONE = new int[0];
 
     private final Matrix3x2f pose;
     private final ScreenRectangle scissor;
     private final ScreenRectangle bounds;
     private int[] data;
     private int count;
-    private Cache cache;
+    private Part[] parts;
+    private int partCount;
 
     static final class Cache {
+        private static final Vector2f SPOT = new Vector2f();
         private final Matrix3x2f pose = new Matrix3x2f();
         private float[] xy;
         private boolean filled;
@@ -32,7 +35,7 @@ public final class Batch implements GuiElementRenderState {
 
         private void transform(Matrix3x2fc p, int[] data, int count) {
             if (xy == null || xy.length != count * 8) xy = new float[count * 8];
-            Vector2f v = new Vector2f();
+            Vector2f v = SPOT;
             for (int i = 0, at = 0, o = 0; i < count; i++, at += STRIDE, o += 8) {
                 int x0 = data[at], y0 = data[at + 1], x1 = data[at + 2], y1 = data[at + 3];
                 p.transformPosition(x0, y0, v); xy[o] = v.x; xy[o + 1] = v.y;
@@ -44,6 +47,15 @@ public final class Batch implements GuiElementRenderState {
             filled = true;
             blob.drop();
         }
+    }
+
+    static final class Part {
+        final int[] quads;
+        private final Cache cache = new Cache();
+
+        Part(int[] quads) { this.quads = quads; }
+
+        int count() { return quads.length / STRIDE; }
     }
 
     private Batch(Matrix3x2fc pose, ScreenRectangle scissor, ScreenRectangle bounds, int[] data) {
@@ -68,11 +80,12 @@ public final class Batch implements GuiElementRenderState {
         return add(ctx, scissor, bounds, buffer.length == 0 ? new int[STRIDE * 1024] : buffer);
     }
 
-    static Batch replay(GuiGraphicsExtractor ctx, ScreenRectangle scissor, ScreenRectangle bounds, int[] data,
-                        Cache cache) {
-        Batch batch = add(ctx, scissor, bounds, data);
-        batch.count = data.length / STRIDE;
-        batch.cache = cache;
+    static Batch replay(GuiGraphicsExtractor ctx, ScreenRectangle scissor, ScreenRectangle bounds, Part[] parts,
+                        int n) {
+        Batch batch = add(ctx, scissor, bounds, NONE);
+        batch.parts = parts;
+        batch.partCount = n;
+        for (int i = 0; i < n; i++) batch.count += parts[i].count();
         return batch;
     }
 
@@ -97,16 +110,14 @@ public final class Batch implements GuiElementRenderState {
 
     public int size() { return count; }
 
-    int[] snapshot() { return copyFrom(0); }
+    int[] copy(int from, int to) { return Arrays.copyOfRange(data, from * STRIDE, to * STRIDE); }
 
-    int[] copyFrom(int from) { return Arrays.copyOfRange(data, from * STRIDE, count * STRIDE); }
-
-    void append(int[] more) {
-        int n = more.length / STRIDE;
-        if (n == 0) return;
+    void append(int[] more, int from, int to) {
+        int n = to - from;
+        if (n <= 0) return;
         int need = (count + n) * STRIDE;
         if (need > data.length) data = Arrays.copyOf(data, Math.max(need, data.length * 2));
-        System.arraycopy(more, 0, data, count * STRIDE, more.length);
+        System.arraycopy(more, from * STRIDE, data, count * STRIDE, n * STRIDE);
         count += n;
     }
 
@@ -116,7 +127,14 @@ public final class Batch implements GuiElementRenderState {
             for (int k = 0; k < 4; k++) vc.addVertexWith2DPose(pose, 0, 0).setColor(0);
             return;
         }
-        if (cache != null) { buildCached(vc); return; }
+        if (parts != null) {
+            for (int i = 0; i < partCount; i++) {
+                Part p = parts[i];
+                int n = p.count();
+                if (n > 0) buildCached(vc, p.quads, n, p.cache);
+            }
+            return;
+        }
         for (int i = 0, at = 0; i < count; i++, at += STRIDE) {
             int x0 = data[at], y0 = data[at + 1], x1 = data[at + 2], y1 = data[at + 3];
             int top = data[at + 4], bottom = data[at + 5];
@@ -127,8 +145,7 @@ public final class Batch implements GuiElementRenderState {
         }
     }
 
-    private void buildCached(VertexConsumer vc) {
-        Cache c = cache;
+    private void buildCached(VertexConsumer vc, int[] data, int count, Cache c) {
         int vertices = count * 4;
         boolean still = c.holds(pose);
         if (still && c.blob.push(vc, vertices)) return;

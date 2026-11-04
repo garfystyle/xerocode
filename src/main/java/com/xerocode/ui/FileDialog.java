@@ -5,6 +5,7 @@ import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
@@ -27,6 +28,40 @@ final class FileDialog {
         }, "xerocode-file-dialog");
         thread.setDaemon(true);
         thread.start();
+    }
+
+    static void save(String title, Path suggested, String[] masks, String kind, byte[] bytes,
+                     Consumer<Path> done) {
+        Minecraft client = Minecraft.getInstance();
+        Thread thread = new Thread(() -> {
+            Path written = null;
+            try {
+                String picked = askSave(title, suggested.toAbsolutePath().toString(), masks, kind);
+                if (picked != null && !picked.isEmpty()) {
+                    Path path = Path.of(picked.toLowerCase(java.util.Locale.ROOT).endsWith(".json")
+                            ? picked : picked + ".json");
+                    if (path.getParent() != null) Files.createDirectories(path.getParent());
+                    Files.write(path, bytes);
+                    written = path;
+                }
+            } catch (Throwable e) {
+                XeroCode.LOG.error("[xerocode] файл не записался", e);
+            }
+            Path result = written;
+            client.execute(() -> done.accept(result));
+        }, "xerocode-file-dialog");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private static String askSave(String title, String start, String[] masks, String kind) {
+        TinyFileDialogs.tinyfd_setGlobalInt("tinyfd_winUtf8", 1);
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            PointerBuffer filter = stack.mallocPointer(masks.length);
+            for (String mask : masks) filter.put(stack.UTF8(mask));
+            filter.flip();
+            return TinyFileDialogs.tinyfd_saveFileDialog(title, start, filter, kind);
+        }
     }
 
     private static String ask(String title, String start, String[] masks, String kind) {

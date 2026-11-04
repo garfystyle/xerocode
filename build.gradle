@@ -14,6 +14,16 @@ repositories {
     maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
 }
 
+def xeroCore = file('../xero/core/src/main')
+
+sourceSets {
+    main {
+        java {
+            srcDir new File(xeroCore, 'java')
+        }
+    }
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
@@ -38,6 +48,10 @@ processResources {
     inputs.property 'version', project.version
     filesMatching('fabric.mod.json') {
         expand 'version': project.version
+    }
+    from(new File(xeroCore, 'resources/xero/data')) {
+        include 'minecraft.json', 'jmcc.json'
+        into 'xero/data'
     }
 }
 

@@ -11,19 +11,29 @@ import net.minecraft.client.Minecraft;
 public final class Clip {
     private static final String MARK = "xerocode";
 
+    private static final String SLOTS = "slots";
+
     private static List<Script.Node> held = new ArrayList<>();
-    private static JsonArray heldRoots, heldValues;
+    private static JsonArray heldRoots, heldValues, heldSlots;
+
+    public record Placed(int slot, Value value) {}
 
     private static void forget() {
         held = new ArrayList<>();
         heldRoots = null;
         heldValues = null;
+        heldSlots = null;
     }
 
     private static void publish(String key, JsonArray body) {
+        publish(key, body, null);
+    }
+
+    private static void publish(String key, JsonArray body, JsonArray slots) {
         JsonObject root = new JsonObject();
         root.addProperty(MARK, 1);
         root.add(key, body);
+        if (slots != null) root.add(SLOTS, slots);
         write(root.toString());
     }
 
@@ -59,6 +69,46 @@ public final class Clip {
         publish("values", arr);
     }
 
+    public static void copySlots(List<Value> cells) {
+        forget();
+        JsonArray arr = new JsonArray(), at = new JsonArray();
+        for (int i = 0; i < cells.size(); i++) {
+            Value v = cells.get(i);
+            if (v == null || v.isBlank()) continue;
+            arr.add(v.toJson());
+            at.add(i);
+        }
+        if (arr.isEmpty()) return;
+        heldValues = arr;
+        heldSlots = at;
+        publish("values", arr, at);
+    }
+
+    public static List<Placed> pasteSlots() {
+        JsonObject o = readMark();
+        if (o == null) return placed(heldValues, heldSlots);
+        return placed(Json.arr(o, "values"), Json.arr(o, SLOTS));
+    }
+
+    public static List<Placed> boardSlots() {
+        JsonObject o = readMark();
+        return o == null ? List.of() : placed(Json.arr(o, "values"), Json.arr(o, SLOTS));
+    }
+
+    private static List<Placed> placed(JsonArray values, JsonArray slots) {
+        if (values == null || slots == null || values.size() != slots.size()) return List.of();
+        List<Placed> out = new ArrayList<>(values.size());
+        for (int i = 0; i < values.size(); i++) {
+            try {
+                int slot = slots.get(i).getAsInt();
+                if (slot >= 0 && values.get(i).isJsonObject())
+                    out.add(new Placed(slot, Value.fromJson(values.get(i).getAsJsonObject())));
+            } catch (Throwable ignored) {
+            }
+        }
+        return out;
+    }
+
     private static JsonArray taken(String key, JsonArray fallback) {
         JsonObject o = readMark();
         if (o == null) return fallback;
@@ -66,7 +116,15 @@ public final class Clip {
     }
 
     public static List<Value> pasteValues() {
-        JsonArray arr = taken("values", heldValues);
+        return values(taken("values", heldValues));
+    }
+
+    public static List<Value> boardValues() {
+        JsonObject o = readMark();
+        return o == null || !o.has("values") ? List.of() : values(Json.arr(o, "values"));
+    }
+
+    private static List<Value> values(JsonArray arr) {
         if (arr == null) return List.of();
         List<Value> out = new ArrayList<>(arr.size());
         for (JsonElement e : arr) {
@@ -76,6 +134,10 @@ public final class Clip {
             }
         }
         return out;
+    }
+
+    public static boolean ours() {
+        return readMark() != null;
     }
 
     public static boolean has() {

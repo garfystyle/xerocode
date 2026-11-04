@@ -14,9 +14,16 @@ import net.minecraft.network.chat.Style;
 
 public final class Complete {
     private static final int ROW_H = 12, PAD = 3, ROWS = 7, MAX_HITS = 40;
-    private static final int MIN_W = 132, MAX_W = 240, DESC_LINES = 3;
+    private static final int MIN_W = 132, MAX_W = 240, DESC_LINES = 3, SWATCH = 7;
 
-    private final List<Placeholders.Item> hits = new ArrayList<>();
+    record Hint(String label, String insert, int caret, String kind, String about, int swatch) {
+        static Hint of(Placeholders.Item it) {
+            return new Hint(it.insert(), it.insert(), it.caret(), Placeholders.categoryName(it.category()),
+                    it.description(), -1);
+        }
+    }
+
+    private final List<Hint> hits = new ArrayList<>();
     private final List<String> desc = new ArrayList<>();
 
     private EditBox field;
@@ -25,8 +32,9 @@ public final class Complete {
     private int start = -1;
     private int sel, scroll;
     private int dismissed = -1;
-    private int x, y, w, h, listH;
-    private boolean numbersOnly;
+    private int x, y, w, h, listH, indent;
+    private String lastTyped = "";
+    private boolean numbersOnly, styled, tags;
 
     public boolean active() { return start >= 0 && !hits.isEmpty(); }
 
@@ -34,15 +42,13 @@ public final class Complete {
         field = null;
         start = -1;
         dismissed = -1;
+        lastTyped = "";
         hits.clear();
     }
 
-    public void update(EditBox f, Font tr, int screenW, int screenH) {
-        update(f, tr, screenW, screenH, false);
-    }
-
-    public void update(EditBox f, Font tr, int screenW, int screenH, boolean numbersOnly) {
+    public void update(EditBox f, Font tr, int screenW, int screenH, boolean numbersOnly, boolean styled) {
         this.numbersOnly = numbersOnly;
+        this.styled = styled;
         this.tr = tr;
         this.screenW = screenW;
         this.screenH = screenH;
@@ -58,14 +64,24 @@ public final class Complete {
         String text = f.getValue();
         int cursor = Math.max(0, Math.min(f.getCursorPosition(), text.length()));
         int p = tokenStart(text, cursor);
-        if (p < 0) { dismissed = -1; return; }
-        if (dismissed == p) return;
+        TagHints.Found tag = styled ? TagHints.find(text, cursor, MAX_HITS) : null;
+        tags = tag != null && tag.start() > p;
+        int at = tags ? tag.start() : p;
+        if (at < 0) { dismissed = -1; return; }
+        if (dismissed == at) return;
         dismissed = -1;
 
-        hits.addAll(Placeholders.match(text.substring(p + 1, cursor), MAX_HITS, numbersOnly));
+        if (tags) hits.addAll(tag.hints());
+        else for (Placeholders.Item it : Placeholders.match(text.substring(p + 1, cursor), MAX_HITS,
+                numbersOnly)) hits.add(Hint.of(it));
         if (hits.isEmpty()) return;
-        start = p;
-        if (sel >= hits.size()) sel = 0;
+        start = at;
+        String typed = at + ":" + text.substring(at, cursor);
+        if (!typed.equals(lastTyped) || sel >= hits.size()) {
+            sel = 0;
+            scroll = 0;
+        }
+        lastTyped = typed;
         place();
     }
 
@@ -97,11 +113,12 @@ public final class Complete {
     }
 
     private void place() {
+        indent = 0;
+        for (Hint it : hits) if (it.swatch() >= 0) indent = SWATCH + 4;
         int textW = MIN_W;
-        for (Placeholders.Item it : hits) {
-            textW = Math.max(textW, tr.width(it.insert())
-                    + tr.width(Placeholders.categoryName(it.category())) + 22);
-            if (!it.description().isBlank()) textW = MAX_W;
+        for (Hint it : hits) {
+            textW = Math.max(textW, tr.width(it.label()) + tr.width(it.kind()) + 22 + indent);
+            if (!it.about().isBlank()) textW = MAX_W;
         }
         w = Math.min(Math.min(MAX_W, Math.max(40, screenW - 4)), textW);
 
@@ -113,7 +130,7 @@ public final class Complete {
 
         int below = field.getY() + field.getHeight() + 2;
         int space = Math.max(screenH - 2 - below, field.getY() - 4) - PAD * 2 - listH - 2;
-        String about = hits.get(sel).description().trim();
+        String about = hits.get(sel).about().trim();
         int cut = about.indexOf('\n');
         wrapDesc(cut > 0 ? about.substring(0, cut) : about, w - PAD * 2 - 2,
                 Math.min(DESC_LINES, Math.max(1, space / 9)));
@@ -148,10 +165,15 @@ public final class Complete {
     }
 
     private void accept() {
-        Placeholders.Item pick = hits.get(sel);
+        Hint pick = hits.get(sel);
         String text = field.getValue();
         int cursor = Math.max(0, Math.min(field.getCursorPosition(), text.length()));
-        String made = text.substring(0, start) + pick.insert() + text.substring(cursor);
+        int end = cursor;
+        if (tags) {
+            while (end < text.length() && TagHints.word(text.charAt(end))) end++;
+            if (pick.insert().endsWith(">") && end < text.length() && text.charAt(end) == '>') end++;
+        }
+        String made = text.substring(0, start) + pick.insert() + text.substring(end);
         field.setValue(made);
         if (!field.getValue().equals(made)) {
             field.setValue(text);
@@ -196,7 +218,7 @@ public final class Complete {
         for (int r = 0; r < rows; r++) {
             int i = scroll + r;
             if (i >= hits.size()) break;
-            Placeholders.Item it = hits.get(i);
+            Hint it = hits.get(i);
             int ry = y + PAD + r * ROW_H;
             boolean on = i == sel;
             if (on) Draw.round(ctx, x + 2, ry, w - 4, ROW_H - 1, 3,
@@ -204,17 +226,21 @@ public final class Complete {
             else if (i == hover) Draw.round(ctx, x + 2, ry, w - 4, ROW_H - 1, 3,
                     Draw.opaque(Ui.BTN_HOVER));
             int right = x + w - 6;
-            boolean firstOfKind = r == 0
-                    || !hits.get(i - 1).category().equals(it.category());
+            boolean firstOfKind = r == 0 || !hits.get(i - 1).kind().equals(it.kind());
             int tagW = 0;
             if (firstOfKind) {
-                String tag = Placeholders.categoryName(it.category());
-                tagW = tr.width(tag);
-                Draw.text(ctx, tr, Draw.ordered(tag), right - tagW, ry + 2,
+                tagW = tr.width(it.kind());
+                Draw.text(ctx, tr, Draw.ordered(it.kind()), right - tagW, ry + 2,
                         on ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
             }
-            Draw.textFit(ctx, tr, it.insert(), x + 6, ry + 2,
-                    right - (tagW == 0 ? 0 : tagW + 8) - (x + 6),
+            int lx = x + 6 + indent;
+            if (it.swatch() >= 0) {
+                int sx = x + 6, sy = ry + (ROW_H - 1 - SWATCH) / 2;
+                Draw.round(ctx, sx, sy, SWATCH, SWATCH, 2, Draw.opaque(Ui.BORDER));
+                Draw.round(ctx, sx + 1, sy + 1, SWATCH - 2, SWATCH - 2, 1, Draw.opaque(it.swatch()));
+            }
+            Draw.textFit(ctx, tr, it.label(), lx, ry + 2,
+                    right - (tagW == 0 ? 0 : tagW + 8) - lx,
                     on ? Theme.TEXT : Theme.TEXT_DIM, false);
         }
 

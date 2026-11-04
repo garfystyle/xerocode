@@ -62,6 +62,8 @@ final class WrapField {
     private int seenCursor = -1;
     private long movedAt;
     private boolean dragging;
+    private double dragX, dragY;
+    private final Ui.Pull pull = Ui.Pull.lines();
 
     WrapField(Font tr, Box box, Supplier<String> parsing) {
         this.tr = tr;
@@ -225,6 +227,8 @@ final class WrapField {
 
     void render(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
         lay();
+        if (dragging && !Env.leftHeld()) dragging = false;
+        if (dragging) pullLines(false);
         tint();
         String s = box.getValue();
         int cursor = Math.min(box.getCursorPosition(), s.length());
@@ -272,7 +276,7 @@ final class WrapField {
             int thumb = Math.max(10, track * viewH() / (starts.length * LINE));
             int ty = y + 3 + (track - thumb) * scroll / maxScroll();
             Draw.round(ctx, x + w - BAR_W - 2, ty, BAR_W, thumb, 1,
-                    Draw.opaque(Ui.hit(mx, my, x, y, w, h) ? 0x8D9AB4 : 0x5A6478));
+                    Draw.opaque(Ui.hit(mx, my, x, y, w, h) ? Theme.THUMB_HOT : Theme.THUMB));
         }
 
         anchor();
@@ -294,6 +298,9 @@ final class WrapField {
         } else {
             box.moveCursorTo(p, click.hasShiftDown());
             dragging = true;
+            dragX = click.x();
+            dragY = click.y();
+            pull.stop();
         }
         return true;
     }
@@ -311,11 +318,25 @@ final class WrapField {
 
     boolean drag(double mx, double my) {
         if (!dragging) return false;
-        if (my < y + PAD_Y) scroll -= LINE / 2;
-        else if (my > y + h - PAD_Y) scroll += LINE / 2;
-        clamp();
-        box.moveCursorTo(indexAt(mx, my), true);
+        dragX = mx;
+        dragY = my;
+        pullLines(true);
         return true;
+    }
+
+    private void pullLines(boolean moved) {
+        int top = y + PAD_Y, bottom = y + h - PAD_Y;
+        int dir = dragY < top ? -1 : dragY >= bottom ? 1 : 0;
+        if (dir == 0) {
+            pull.stop();
+            if (!moved) return;
+        } else {
+            int n = pull.steps(dir < 0 ? top - dragY : dragY - bottom);
+            if (n == 0 && !moved) return;
+            scroll += dir * n * LINE;
+            clamp();
+        }
+        box.moveCursorTo(indexAt(dragX, Math.max(top, Math.min(bottom - 1, dragY))), true);
     }
 
     void release() { dragging = false; }

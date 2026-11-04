@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.xerocode.Catalog;
 import com.xerocode.Collab;
 import com.xerocode.Env;
+import com.xerocode.Search;
 import com.xerocode.Settings;
 import com.xerocode.Settings.Hot;
 import org.lwjgl.glfw.GLFW;
@@ -52,16 +53,22 @@ public final class SettingsPanel implements Overlay {
     private static final int CAP_H = 10;
     private static final int GAP = 10;
     private static final int MEMBER_H = 14;
+    private static final int CARD_H = 40, CARD_MIN_W = 72, CARD_GAP = 6, CARD_RAIL = 14;
     private static final long CONFIRM_MS = 3000;
     private static final String WAITING = "жду клавишу или кнопку…";
     private static final String UNSET = "не задано";
     private static final String NOTHING = "ничего не нашлось";
     private static final String CONFIRM = "Точно сбросить?";
     private static final String PRESET = "Классическая палитра";
+    private static final String GAMMA = "ГАММА", BLOCKS = "БЛОКИ";
 
-    private static final List<String> TABS = List.of("Клавиши", "Внешний вид", "Цвета", "Вместе");
-    private static final int TAB_KEYS = 0, TAB_LOOK = 1, TAB_COLORS = 2, TAB_COLLAB = 3;
-    private static final String[] RESET_LABELS = {"Сбросить клавиши", "Сбросить вид", "Сбросить цвета"};
+    private static final List<String> TABS = List.of("Клавиши", "Внешний вид", "Цвета", "Поведение", "Вместе");
+    private static final List<String> STRIP = List.of("Клавиши", "Вид", "Цвета", "Поведение", "Вместе");
+    private static final int TAB_KEYS = 0, TAB_LOOK = 1, TAB_COLORS = 2, TAB_ACT = 3, TAB_COLLAB = 4;
+    private static final String[] RESET_LABELS = {"Сбросить клавиши", "Сбросить вид", "Сбросить цвета",
+            "Сбросить поведение"};
+    private static final int OWN_TONES = 2;
+    private static final int PLAIN = 0, PREVIEW = 1, CARDS = 2, PALETTE = 3, TONE = 4;
 
     private record KeyGroup(String caption, List<Hot> keys) {}
 
@@ -70,11 +77,12 @@ public final class SettingsPanel implements Overlay {
     private static List<KeyGroup> keyGroups() {
         List<KeyGroup> groups = new ArrayList<>(List.of(
                 new KeyGroup("ОСНОВНОЕ", List.of(Hot.OPEN, Hot.SETTINGS, Hot.MODE, Hot.SAVE,
-                        Hot.UPLOAD, Hot.UNDO, Hot.REDO)),
+                        Hot.SAVE_TAB, Hot.UPLOAD, Hot.UNDO, Hot.REDO)),
                 new KeyGroup("ПРАВКА", List.of(Hot.QUICK_ADD, Hot.COPY, Hot.COPY_ONE, Hot.CUT, Hot.CUT_ONE,
-                        Hot.PASTE, Hot.DUPLICATE, Hot.DUP_ONE, Hot.DELETE, Hot.DEL_STACK, Hot.SELECT)),
+                        Hot.PASTE, Hot.DUPLICATE, Hot.DUP_ONE, Hot.WRAP, Hot.DELETE, Hot.DEL_STACK,
+                        Hot.SELECT, Hot.RENAME)),
                 new KeyGroup("НАВИГАЦИЯ", List.of(Hot.SEARCH, Hot.FIND, Hot.FIT, Hot.PREV_LINE,
-                        Hot.NEXT_LINE, Hot.GO_DEF, Hot.GO_BACK, Hot.FOLD, Hot.FOLD_ALL,
+                        Hot.NEXT_LINE, Hot.GO_DEF, Hot.GO_BACK, Hot.USAGE_NEXT, Hot.USAGE_PREV, Hot.FOLD, Hot.FOLD_ALL,
                         Hot.FOLD_STACK, Hot.FOLD_STACKS, Hot.TIDY)),
                 new KeyGroup("РЮКЗАК И МОДУЛИ", List.of(Hot.BACKPACK, Hot.STASH, Hot.MARKET)),
                 new KeyGroup("ИГРА", List.of(Hot.PLAY, Hot.BUILD, Hot.RESTART, Hot.EDIT_LINE))));
@@ -145,17 +153,33 @@ public final class SettingsPanel implements Overlay {
         }
     }
 
-    private record Item(int y, int h, String caption, Hot hot, Row row) {
-        boolean preview() { return caption == null && hot == null && row == null; }
+    private record Item(int y, int h, String caption, Hot hot, Row row, int tone, int kind) {
+        Item(int y, int h, String caption, Hot hot, Row row) {
+            this(y, h, caption, hot, row, -1, caption == null && hot == null && row == null ? PREVIEW : PLAIN);
+        }
+
+        static Item of(int y, int h, int kind) { return new Item(y, h, null, null, null, -1, kind); }
+
+        static Item tone(int y, int h, int tone) { return new Item(y, h, null, null, null, tone, TONE); }
+
+        boolean preview() { return kind == PREVIEW; }
     }
+
+    private record Tone(String name, IntSupplier rgb, BooleanSupplier custom, IntConsumer set, Runnable clear) {}
 
     private final Settings s = Settings.get();
     private final Font tr;
     private final List<Row> rows = new ArrayList<>();
+    private final List<Row> actRows = new ArrayList<>();
+    private final List<Row> colorRows = new ArrayList<>();
     private final List<Catalog.Category> categories = new ArrayList<>();
+    private final List<Tone> tones = new ArrayList<>();
+    private int[][] cardTones;
+    private int cardKey;
 
     private int screenW, screenH;
     private int W, SV_W, side;
+    private final Sizer sizer = new Sizer("settings", 320, 200, true);
     private int x, y, h;
     private int tab = Env.touch() ? TAB_LOOK : TAB_KEYS;
     private final int[] scroll = new int[TABS.size()];
@@ -177,22 +201,44 @@ public final class SettingsPanel implements Overlay {
     public SettingsPanel(Font tr, int screenW, int screenH) {
         this.tr = tr;
         categories.addAll(Catalog.CATEGORIES);
+        tones.add(new Tone("Акцент", s::accentRgb, this::ownGamma,
+                rgb -> { s.customAccent(rgb); s.apply(); }, () -> { s.plainAccent(); s.apply(); }));
+        tones.add(new Tone("Оттенок фона", s::tintRgb, this::ownGamma,
+                rgb -> { s.customTint(rgb); s.apply(); }, () -> { s.plainTint(); s.apply(); }));
+        for (Catalog.Category cat : categories)
+            tones.add(new Tone(cat.name, () -> cat.color, () -> s.colors.containsKey(cat.name),
+                    rgb -> s.setColor(cat.name, rgb), () -> s.clearColor(cat.name)));
         build(screenW, screenH);
+    }
+
+    private boolean ownGamma() { return s.gamma == Gamma.CUSTOM; }
+
+    private void clearRows() {
+        rows.clear();
+        actRows.clear();
+        colorRows.clear();
     }
 
     public void resize(int sw, int sh) {
         if (sw == screenW && sh == screenH) return;
-        rows.clear();
+        clearRows();
         binding = null;
         closeColor();
         build(sw, sh);
+    }
+
+    private void refit() {
+        clearRows();
+        binding = null;
+        closeColor();
+        build(screenW, screenH);
     }
 
     private void build(int screenW, int screenH) {
         stale();
         this.screenW = screenW;
         this.screenH = screenH;
-        this.W = Ui.fitW(screenW, WANT_W);
+        this.W = sizer.w(screenW, Ui.fitW(screenW, WANT_W));
         this.side = W >= SIDE_FROM ? SIDE_W : 0;
         this.SV_W = Math.min(WANT_SV_W, cw() - 12 - 74);
 
@@ -204,22 +250,32 @@ public final class SettingsPanel implements Overlay {
         rows.add(new Row(look, "Блоки", "",
                 Settings.BLOCK_NAMES, () -> s.gradient ? 0 : 1, v -> s.gradient = v == 0));
         rows.add(Row.toggle(look, "Тени", "", () -> s.shadows, v -> s.shadows = v));
+        rows.add(new Row(look, "Затемнение за окнами", "",
+                Settings.DIM_NAMES, () -> s.dim, v -> s.dim = v));
         if (Env.browser())
             rows.add(new Row(look, "Масштаб", "", Settings.SCALE_NAMES, () -> s.webScale, v -> s.webScale = v));
         rows.add(new Row(canvas, "Сетка", "",
                 Settings.GRID_NAMES, () -> s.grid, v -> s.grid = v));
+        rows.add(new Row(canvas, "Шаг сетки", "",
+                Settings.GRID_STEP_NAMES, () -> s.gridSize, v -> s.gridSize = v));
         rows.add(Row.toggle(canvas, "Номера строк", "", () -> s.lineNumbers, v -> s.lineNumbers = v));
         rows.add(Row.toggle(canvas, "Мини-карта", "", () -> s.minimap, v -> s.minimap = v));
+        rows.add(new Row(canvas, "Размер мини-карты", "",
+                Settings.MAP_NAMES, () -> s.mapSize, v -> s.mapSize = v));
         rows.add(Row.toggle(canvas, "Мелкий текст", "сглаживать при отдалении",
                 () -> s.smoothText, v -> s.smoothText = v));
         rows.add(Row.toggle(canvas, "Строка состояния", "мир, строки и блоки внизу",
                 () -> s.statusBar, v -> s.statusBar = v));
         rows.add(new Row(canvas, "Каталог блоков", "",
                 Settings.CATALOG_NAMES, () -> s.chests ? 1 : 0, v -> s.chests = v == 1));
+        addColorRows();
+        addActRows();
         for (Row r : rows) r.measure(tr, cw());
+        for (Row r : actRows) r.measure(tr, cw());
+        for (Row r : colorRows) r.measure(tr, cw());
 
         this.x = Ui.midX(screenW, W);
-        this.h = Ui.fitH(screenH, Ui.tall(screenH, WANT_H));
+        this.h = sizer.h(screenH, Ui.fitH(screenH, Ui.tall(screenH, WANT_H)));
         this.y = Ui.midY(screenH, h);
 
         String hadName = nameField == null ? s.collabName : nameField.getValue();
@@ -231,6 +287,49 @@ public final class SettingsPanel implements Overlay {
         codeField.setResponder(t -> s.collabCode = t.trim());
         searchField = Ui.field(tr, hadQuery, "поиск настройки", 40);
         searchField.setResponder(t -> searched());
+    }
+
+    private void addColorRows() {
+        colorRows.add(new Row(GAMMA, "Контраст фона", "",
+                Settings.CONTRAST_NAMES, () -> s.contrast, v -> s.contrast = v));
+        colorRows.add(new Row(GAMMA, "Подсветка кода", "",
+                Settings.CODE_TONE_NAMES, () -> s.codeTone, v -> s.codeTone = v));
+        colorRows.add(new Row(BLOCKS, "Цвет блоков", "",
+                Settings.BLOCK_TONE_NAMES, () -> s.blockTone, v -> s.blockTone = v));
+    }
+
+    private void addActRows() {
+        String mouse = "МЫШЬ", editor = "РЕДАКТОР", game = "В ИГРЕ", code = "РЕЖИМ «КОД»";
+        if (!Env.touch()) {
+            actRows.add(new Row(mouse, "Колесо на полотне", "с Ctrl — наоборот", Settings.WHEEL_NAMES,
+                    () -> s.wheelZooms ? 0 : 1, v -> s.wheelZooms = v == 0));
+            actRows.add(new Row(mouse, "Скорость колеса", "",
+                    Settings.SPEED_NAMES, () -> s.wheelSpeed, v -> s.wheelSpeed = v));
+            actRows.add(Row.toggle(mouse, "Обратное колесо", "", () -> s.wheelInvert, v -> s.wheelInvert = v));
+        }
+        actRows.add(Row.toggle(editor, "Плавные переходы", "камера к строке и блоку",
+                () -> s.glide, v -> s.glide = v));
+        actRows.add(Row.toggle(editor, "Подсказки при наведении", "", () -> s.tooltips, v -> s.tooltips = v));
+        actRows.add(new Row(editor, "Сообщения внизу", "",
+                Settings.TOAST_NAMES, () -> s.toastTime, v -> s.toastTime = v));
+        actRows.add(new Row(editor, "Шагов отмены", "",
+                Settings.UNDO_NAMES, () -> s.undoSteps, v -> s.undoSteps = v));
+        if (!Env.browser()) {
+            actRows.add(new Row(game, "Заливать код на", "сайт для /module loadUrl",
+                    Settings.UPLOAD_NAMES, () -> s.upload, v -> s.upload = v));
+            actRows.add(Row.toggle(game, "Открывать при входе в /dev", "",
+                    () -> s.autoOpen, v -> s.autoOpen = v));
+            actRows.add(Row.toggle(game, "Сверять с миром", "предлагать код мира, если он другой",
+                    () -> s.worldCheck, v -> s.worldCheck = v));
+            actRows.add(Row.toggle(game, "Спрашивать при выходе", "«Сохранить код в блоках?»",
+                    () -> s.askExit, v -> s.askExit = v));
+        }
+        actRows.add(Row.toggle(code, "Скобки и кавычки парой", "", () -> s.codePairs, v -> s.codePairs = v));
+        actRows.add(Row.toggle(code, "Подсказки при наборе", "", () -> s.codeHints, v -> s.codeHints = v));
+        actRows.add(Row.toggle(code, "Линии отступов", "", () -> s.codeGuides, v -> s.codeGuides = v));
+        actRows.add(Row.toggle(code, "Текущая строка", "", () -> s.codeLine, v -> s.codeLine = v));
+        actRows.add(Row.toggle(code, "Такие же слова", "", () -> s.codeWords, v -> s.codeWords = v));
+        actRows.add(Row.toggle(code, "Мигающий курсор", "", () -> s.codeBlink, v -> s.codeBlink = v));
     }
 
     public boolean isClosed() { return closed; }
@@ -274,32 +373,40 @@ public final class SettingsPanel implements Overlay {
     }
 
     private String query() {
-        return searchField == null ? "" : searchField.getValue().trim().toLowerCase(Locale.ROOT);
+        return searchField == null ? "" : Search.fold(searchField.getValue().trim());
     }
 
     private static boolean has(String text, String q) {
-        return text.toLowerCase(Locale.ROOT).contains(q);
+        return Search.fold(text).contains(q);
     }
 
     private boolean keyMatches(Hot hot, String q) {
-        return q.isEmpty() || has(hot.label, q) || has(s.label(hot), q);
+        return q.isEmpty() || has(hot.label, q) || has(s.labels(hot), q);
     }
 
     private List<Integer> visibleColors() {
         String q = query();
         List<Integer> out = new ArrayList<>();
-        for (int i = 0; i < categories.size(); i++)
-            if (q.isEmpty() || has(categories.get(i).name, q)) out.add(i);
+        for (int i = 0; i < tones.size(); i++)
+            if (q.isEmpty() || has(tones.get(i).name(), q)) out.add(i);
         return out;
     }
 
+    private boolean cardsMatch(String q) {
+        if (q.isEmpty() || has(GAMMA, q) || has(Gamma.CUSTOM_NAME, q)) return true;
+        for (Gamma.Preset p : Gamma.PRESETS) if (has(p.name(), q)) return true;
+        return false;
+    }
+
     private boolean framing;
-    private List<Item> keyCache, lookCache;
+    private List<Item> keyCache, lookCache, actCache, colorCache;
     private int[] countCache;
 
     private void stale() {
         keyCache = null;
         lookCache = null;
+        actCache = null;
+        colorCache = null;
         countCache = null;
     }
 
@@ -321,7 +428,9 @@ public final class SettingsPanel implements Overlay {
         return switch (t) {
             case TAB_KEYS -> (int) Arrays.stream(Hot.values()).filter(h -> keyMatches(h, q)).count();
             case TAB_LOOK -> (int) rows.stream().filter(r -> r.matches(q)).count();
-            case TAB_COLORS -> visibleColors().size();
+            case TAB_ACT -> (int) actRows.stream().filter(r -> r.matches(q)).count();
+            case TAB_COLORS -> visibleColors().size() + (cardsMatch(q) ? 1 : 0)
+                    + (int) colorRows.stream().filter(r -> r.matches(q)).count();
             default -> 0;
         };
     }
@@ -357,8 +466,78 @@ public final class SettingsPanel implements Overlay {
 
     private List<Item> lookItems() {
         if (lookCache != null) return lookCache;
-        List<Item> out = buildLookItems();
+        List<Item> out = buildRowItems(rows, true);
         if (framing) lookCache = out;
+        return out;
+    }
+
+    private List<Item> actItems() {
+        if (actCache != null) return actCache;
+        List<Item> out = buildRowItems(actRows, false);
+        if (framing) actCache = out;
+        return out;
+    }
+
+    private List<Item> colorItems() {
+        if (colorCache != null) return colorCache;
+        List<Item> out = buildColorItems();
+        if (framing) colorCache = out;
+        return out;
+    }
+
+    private List<Row> colorRows(String section, String q) {
+        List<Row> out = new ArrayList<>();
+        for (Row r : colorRows) if (r.section.equals(section) && r.matches(q)) out.add(r);
+        return out;
+    }
+
+    private int addRows(List<Item> out, int at, List<Row> list) {
+        for (Row r : list) {
+            out.add(new Item(at, r.h, null, null, r));
+            at += r.h + 1;
+        }
+        return at;
+    }
+
+    private int addTones(List<Item> out, int at, List<Integer> list) {
+        for (int i : list) {
+            int h = COLOR_H + ROW_GAP + (openColor == i ? pickerH() : 0);
+            out.add(Item.tone(at, h, i));
+            at += h;
+        }
+        return at;
+    }
+
+    private List<Item> buildColorItems() {
+        String q = query();
+        List<Item> out = new ArrayList<>();
+        List<Integer> own = new ArrayList<>(), blocks = new ArrayList<>();
+        for (int i : visibleColors()) (i < OWN_TONES ? own : blocks).add(i);
+        List<Row> gammaRows = colorRows(GAMMA, q), blockRows = colorRows(BLOCKS, q);
+        boolean cards = cardsMatch(q);
+        int at = 0;
+        if (cards || !own.isEmpty() || !gammaRows.isEmpty()) {
+            out.add(new Item(at, CAP_ROW, GAMMA, null, null));
+            at += CAP_ROW;
+        }
+        if (cards) {
+            out.add(Item.of(at, cardsH(), CARDS));
+            at += cardsH() + 6;
+        }
+        at = addRows(out, addTones(out, at, own), gammaRows);
+        boolean palette = q.isEmpty();
+        if (palette || !blocks.isEmpty() || !blockRows.isEmpty()) {
+            if (!out.isEmpty()) at += GROUP_GAP;
+            out.add(new Item(at, CAP_ROW, BLOCKS, null, null));
+            at += CAP_ROW;
+        }
+        at = addRows(out, at, blockRows);
+        if (palette) {
+            at += 3;
+            out.add(Item.of(at, BTN_H, PALETTE));
+            at += BTN_H + 6;
+        }
+        addTones(out, at, blocks);
         return out;
     }
 
@@ -381,16 +560,16 @@ public final class SettingsPanel implements Overlay {
         return out;
     }
 
-    private List<Item> buildLookItems() {
+    private List<Item> buildRowItems(List<Row> list, boolean preview) {
         String q = query();
         List<Item> out = new ArrayList<>();
         int at = 0;
-        if (q.isEmpty()) {
+        if (preview && q.isEmpty()) {
             out.add(new Item(0, PREVIEW_H, null, null, null));
             at = PREVIEW_H + 12;
         }
         String section = null;
-        for (Row r : rows) {
+        for (Row r : list) {
             if (!q.isEmpty() && !r.matches(q)) continue;
             if (!r.section.equals(section)) {
                 if (section != null) at += GROUP_GAP;
@@ -414,8 +593,8 @@ public final class SettingsPanel implements Overlay {
         return switch (tab) {
             case TAB_KEYS -> end(keyItems()) + 22;
             case TAB_LOOK -> Math.max(end(lookItems()), 20) + 4;
-            case TAB_COLORS -> colorsTop() + visibleColors().size() * (COLOR_H + ROW_GAP) - ROW_GAP
-                    + (openColor >= 0 ? pickerH() : 0) + 4;
+            case TAB_ACT -> Math.max(end(actItems()), 20) + 4;
+            case TAB_COLORS -> Math.max(end(colorItems()), 20) + 4;
             default -> collab(null, 0, 0, 0, null, false, 0, 0);
         };
     }
@@ -441,14 +620,15 @@ public final class SettingsPanel implements Overlay {
 
         if (side == 0)
             Ui.segmented(ctx, tr, mouseX, mouseY, x + PAD, tabsY(), W - PAD * 2, TAB_H,
-                    TABS, tab, Theme.ACCENT);
+                    STRIP, tab, Theme.ACCENT);
 
         int cy = contentY(), ch = contentH();
         ctx.enableScissor(x + side + 1, cy, x + W - 1, cy + ch);
         int top = cy - scroll();
         switch (tab) {
             case TAB_KEYS -> drawKeys(ctx, mouseX, mouseY, top);
-            case TAB_LOOK -> drawLook(ctx, mouseX, mouseY, top);
+            case TAB_LOOK -> drawRows(ctx, mouseX, mouseY, top, lookItems());
+            case TAB_ACT -> drawRows(ctx, mouseX, mouseY, top, actItems());
             case TAB_COLORS -> drawColors(ctx, mouseX, mouseY, delta, top);
             default -> collab(ctx, mouseX, mouseY, top, null, false, 0, 0);
         }
@@ -465,6 +645,7 @@ public final class SettingsPanel implements Overlay {
         int doneW = doneW();
         Ui.button(ctx, tr, mouseX, mouseY, x + W - PAD - doneW, footerY(), doneW, BTN_H,
                 "Готово", Ui.ACCENT);
+        sizer.draw(ctx, mouseX, mouseY, x, y, W, h);
         framing = false;
     }
 
@@ -479,7 +660,8 @@ public final class SettingsPanel implements Overlay {
         return switch (tab) {
             case TAB_KEYS -> s.keysDefault();
             case TAB_LOOK -> s.lookDefault();
-            case TAB_COLORS -> s.colors.isEmpty();
+            case TAB_ACT -> s.actDefault();
+            case TAB_COLORS -> s.colors.isEmpty() && s.gammaDefault();
             default -> true;
         };
     }
@@ -488,7 +670,11 @@ public final class SettingsPanel implements Overlay {
         switch (tab) {
             case TAB_KEYS -> s.resetKeys();
             case TAB_LOOK -> s.resetLook();
-            case TAB_COLORS -> s.applyPreset(Map.of());
+            case TAB_ACT -> s.resetAct();
+            case TAB_COLORS -> {
+                s.applyPreset(Map.of());
+                s.resetGamma();
+            }
             default -> { return; }
         }
         binding = null;
@@ -535,6 +721,7 @@ public final class SettingsPanel implements Overlay {
         String[] g = switch (i) {
             case TAB_KEYS -> Draw.KEYBOARD;
             case TAB_LOOK -> Draw.IMAGE;
+            case TAB_ACT -> Draw.CURSOR;
             default -> Draw.USERS;
         };
         Draw.glyph(ctx, g, left + (9 - Draw.glyphW(g)) / 2, midY - Draw.glyphH(g) / 2, ink);
@@ -692,8 +879,7 @@ public final class SettingsPanel implements Overlay {
                 clash ? Theme.DANGER : Theme.TEXT, false);
     }
 
-    private void drawLook(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int top) {
-        List<Item> items = lookItems();
+    private void drawRows(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int top, List<Item> items) {
         if (items.isEmpty()) { drawNothing(ctx, top); return; }
         for (Item it : items) {
             int ry = top + it.y();
@@ -748,7 +934,7 @@ public final class SettingsPanel implements Overlay {
 
     private void drawPreviewGrid(GuiGraphicsExtractor ctx, int gx, int gy, int gw, int gh) {
         if (s.grid == Settings.GRID_NONE) return;
-        int step = 13;
+        int step = Settings.gridStep() / 2;
         for (int i = 0; gx + i * step < gx + gw; i++) {
             for (int j = 0; gy + j * step < gy + gh; j++) {
                 int cx = gx + i * step, cy = gy + j * step;
@@ -929,64 +1115,120 @@ public final class SettingsPanel implements Overlay {
         dragField = field;
     }
 
-    private int colorsTop() { return BTN_H + 10; }
-
-    private int rowY(int pos) {
-        int at = colorsTop() + pos * (COLOR_H + ROW_GAP);
-        if (openColor >= 0) {
-            int open = visibleColors().indexOf(openColor);
-            if (open >= 0 && pos > open) at += pickerH();
-        }
-        return at;
-    }
-
     private int pickerH() { return SV_H + HUE_H + 12 + ROW_H + 8; }
 
     private int presetW() { return Ui.buttonW(tr, PRESET); }
+
+    private int cardCols() {
+        return Math.max(2, Math.min(5, (cw() + CARD_GAP) / (CARD_MIN_W + CARD_GAP)));
+    }
+
+    private int cardW() {
+        int n = cardCols();
+        return (cw() - (n - 1) * CARD_GAP) / n;
+    }
+
+    private int cardsH() {
+        int lines = (Gamma.COUNT + cardCols() - 1) / cardCols();
+        return lines * CARD_H + (lines - 1) * CARD_GAP;
+    }
+
+    private int cardAt(double mx, double local) {
+        int n = cardCols(), w = cardW();
+        for (int i = 0; i < Gamma.COUNT; i++) {
+            int kx = cx() + i % n * (w + CARD_GAP), ky = i / n * (CARD_H + CARD_GAP);
+            if (Ui.hit(mx, local, kx, ky, w, CARD_H)) return i;
+        }
+        return -1;
+    }
+
+    private int[] cardTone(int i) {
+        int key = (((s.theme * 31 + s.contrast) * 31 + s.gamma) * 31 + s.gammaAccent) * 31 + s.gammaTint;
+        if (cardTones == null || key != cardKey) {
+            cardKey = key;
+            cardTones = new int[Gamma.COUNT][];
+            for (int k = 0; k < Gamma.COUNT; k++)
+                cardTones[k] = Theme.sample(s.theme == Settings.THEME_LIGHT, s.tone(k));
+        }
+        return cardTones[i];
+    }
+
+    private void drawCards(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int top) {
+        int n = cardCols(), w = cardW();
+        for (int i = 0; i < Gamma.COUNT; i++) {
+            int kx = cx() + i % n * (w + CARD_GAP), ky = top + i / n * (CARD_H + CARD_GAP);
+            drawCard(ctx, i, kx, ky, w, over(mouseX, mouseY, ky, CARD_H) && Ui.hit(mouseX, mouseY, kx, ky, w, CARD_H));
+        }
+    }
+
+    private void drawCard(GuiGraphicsExtractor ctx, int i, int kx, int ky, int w, boolean hov) {
+        int[] c = cardTone(i);
+        boolean on = s.gamma == i;
+        int edge = on ? Theme.ACCENT : hov ? Ui.BORDER : Ui.LINE_IN;
+        Draw.card(ctx, kx, ky, w, CARD_H, Ui.R_SM, Draw.opaque(c[0]), Draw.opaque(edge));
+        if (on) Draw.roundOutline(ctx, kx + 1, ky + 1, w - 2, CARD_H - 2, Math.max(0, Ui.R_SM - 1), Draw.opaque(edge));
+        int top = ky + 4, inner = CARD_H - 19;
+        Draw.round(ctx, kx + 4, top, CARD_RAIL, inner, 2, Draw.opaque(c[1]));
+        Draw.rect(ctx, kx + 6, top + 4, CARD_RAIL - 4, 2, Draw.opaque(c[5]));
+        Draw.rect(ctx, kx + 6, top + 8, CARD_RAIL - 6, 2, Draw.opaque(c[5]));
+        int bx = kx + 4 + CARD_RAIL + 4, bw = w - CARD_RAIL - 12;
+        Draw.round(ctx, bx, top, bw, 9, 2, Draw.opaque(c[4]));
+        Draw.round(ctx, bx, top + 12, bw * 2 / 3, inner - 12, 2, Draw.opaque(c[2]));
+        String name = i == Gamma.CUSTOM ? Gamma.CUSTOM_NAME : Gamma.PRESETS[i].name();
+        int room = w - 10 - (on ? Draw.glyphW(Draw.CHECK) + 3 : 0);
+        Draw.textFit(ctx, tr, name, kx + 5, ky + CARD_H - 12, room, c[3], false);
+        if (on) Draw.glyph(ctx, Draw.CHECK, kx + w - 5 - Draw.glyphW(Draw.CHECK), ky + CARD_H - 11, c[4]);
+    }
 
     private int pickRx() { return cx() + SV_W + 12; }
 
     private int pickRw() { return cw() - SV_W - 12; }
 
     private void drawColors(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, int top) {
-        int presetW = presetW();
-        Ui.button(ctx, tr, mouseX, mouseY, cx(), top, presetW, BTN_H, PRESET, Ui.GHOST);
-        Draw.textFit(ctx, tr, Ui.rmb() + " — вернуть цвет", cx() + presetW + 10, top + (BTN_H - Ui.TEXT_H) / 2,
-                cw() - presetW - 10, Theme.TEXT_FAINT, false);
-
-        List<Integer> shown = visibleColors();
-        if (shown.isEmpty()) { drawNothing(ctx, top + colorsTop()); return; }
-        for (int pos = 0; pos < shown.size(); pos++) {
-            int i = shown.get(pos);
-            Catalog.Category cat = categories.get(i);
-            int ry = top + rowY(pos);
-            boolean hov = over(mouseX, mouseY, ry, COLOR_H);
-            boolean open = openColor == i;
-            if (open) rowBack(ctx, ry, COLOR_H, Ui.BTN_ON);
-            else if (hov) rowBack(ctx, ry, COLOR_H, Ui.BTN);
-            Ui.swatch(ctx, cx(), ry + 3, 12, 12, cat.color, true, false);
-            boolean custom = s.colors.containsKey(cat.name);
-            int ink = open ? (Settings.outlined() ? Theme.TEXT : Theme.ON_ACCENT) : Theme.TEXT;
-            Draw.textFit(ctx, tr, cat.name, cx() + 18, ry + (COLOR_H - Ui.TEXT_H) / 2,
-                    cw() - 18 - 62, ink, false);
-            String value = String.format("#%06X", cat.color);
-            Draw.textRight(ctx, tr, value, cx() + cw() - (custom ? 12 : 0),
-                    ry + (COLOR_H - Ui.TEXT_H) / 2,
-                    open ? ink : Theme.TEXT_FAINT, false);
-            if (custom) Draw.dot(ctx, cx() + cw() - 6, ry + COLOR_H / 2 - 2,
-                    Draw.opaque(Theme.ACCENT));
-            if (open) drawPicker(ctx, mouseX, mouseY, delta, ry + COLOR_H + 4, cat);
+        List<Item> items = colorItems();
+        if (items.isEmpty()) { drawNothing(ctx, top); return; }
+        for (Item it : items) {
+            int ry = top + it.y();
+            if (it.caption() != null) drawCaption(ctx, it.caption(), ry);
+            else if (it.row() != null) drawLookRow(ctx, mouseX, mouseY, it.row(), ry);
+            else if (it.kind() == CARDS) drawCards(ctx, mouseX, mouseY, ry);
+            else if (it.kind() == PALETTE) drawPalette(ctx, mouseX, mouseY, ry);
+            else drawTone(ctx, mouseX, mouseY, delta, it.tone(), ry);
         }
     }
 
-    private void drawPicker(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, int py,
-                            Catalog.Category cat) {
+    private void drawPalette(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int ry) {
+        int presetW = presetW();
+        Ui.button(ctx, tr, mouseX, mouseY, cx(), ry, presetW, BTN_H, PRESET, Ui.GHOST);
+        Draw.textFit(ctx, tr, Ui.rmb() + " — вернуть цвет", cx() + presetW + 10, ry + (BTN_H - Ui.TEXT_H) / 2,
+                cw() - presetW - 10, Theme.TEXT_FAINT, false);
+    }
+
+    private void drawTone(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, int i, int ry) {
+        Tone tone = tones.get(i);
+        int rgb = tone.rgb().getAsInt();
+        boolean hov = over(mouseX, mouseY, ry, COLOR_H);
+        boolean open = openColor == i;
+        if (open) rowBack(ctx, ry, COLOR_H, Ui.BTN_ON);
+        else if (hov) rowBack(ctx, ry, COLOR_H, Ui.BTN);
+        Ui.swatch(ctx, cx(), ry + 3, 12, 12, rgb, true, false);
+        boolean custom = tone.custom().getAsBoolean();
+        int ink = open ? (Settings.outlined() ? Theme.TEXT : Theme.ON_ACCENT) : Theme.TEXT;
+        Draw.textFit(ctx, tr, tone.name(), cx() + 18, ry + (COLOR_H - Ui.TEXT_H) / 2,
+                cw() - 18 - 62, ink, false);
+        Draw.textRight(ctx, tr, String.format("#%06X", rgb), cx() + cw() - (custom ? 12 : 0),
+                ry + (COLOR_H - Ui.TEXT_H) / 2, open ? ink : Theme.TEXT_FAINT, false);
+        if (custom) Draw.dot(ctx, cx() + cw() - 6, ry + COLOR_H / 2 - 2, Draw.opaque(Theme.ACCENT));
+        if (open) drawPicker(ctx, mouseX, mouseY, delta, ry + COLOR_H + 4, tone);
+    }
+
+    private void drawPicker(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta, int py, Tone tone) {
         int lx = cx();
         Ui.svSquare(ctx, lx, py, SV_W, SV_H, pick.h, pick.s, pick.v, 3);
         Ui.hueBar(ctx, lx, py + SV_H + 4, SV_W, HUE_H, pick.h);
 
         int rx = pickRx(), rw = pickRw();
-        Ui.swatch(ctx, rx, py, rw, 22, cat.color, true, false);
+        Ui.swatch(ctx, rx, py, rw, 22, tone.rgb().getAsInt(), true, false);
         boolean focused = hexField != null && hexField.isFocused();
         Ui.input(ctx, rx, py + 26, rw, ROW_H, focused);
         Draw.text(ctx, tr, "#", rx + 6, py + 26 + (ROW_H - Ui.TEXT_H) / 2, Theme.TEXT_FAINT, false);
@@ -998,7 +1240,7 @@ public final class SettingsPanel implements Overlay {
             Ui.placeholder(ctx, tr, hexField);
         }
         Ui.button(ctx, tr, mouseX, mouseY, rx, py + 26 + ROW_H + 4, rw, ROW_H, "Вернуть",
-                Ui.GHOST, s.colors.containsKey(cat.name));
+                Ui.GHOST, tone.custom().getAsBoolean());
     }
 
     public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
@@ -1006,6 +1248,10 @@ public final class SettingsPanel implements Overlay {
         double mx = click.x(), my = click.y();
         int button = click.button();
         if (binding != null && bindMouse(button, click.modifiers())) return true;
+        if (sizer.press(click, doubled, x, y, W, h)) {
+            if (!sizer.active()) refit();
+            return true;
+        }
         if (!contains(mx, my)) { close(); return true; }
         if (bar.grabbed(mx, my, 1, maxScroll(), v -> scroll[tab] = v)) return true;
         if (hexField != null) {
@@ -1061,7 +1307,8 @@ public final class SettingsPanel implements Overlay {
         double dy = my + scroll() - cy;
         switch (tab) {
             case TAB_KEYS -> keysClicked(mx, dy, button);
-            case TAB_LOOK -> lookClicked(mx, dy);
+            case TAB_LOOK -> rowsClicked(lookItems(), mx, dy);
+            case TAB_ACT -> rowsClicked(actItems(), mx, dy);
             case TAB_COLORS -> colorsClicked(mx, dy, button);
             default -> {
                 if (nameField != null) nameField.setFocused(false);
@@ -1106,76 +1353,100 @@ public final class SettingsPanel implements Overlay {
         return mx >= ix && mx < ix + 14 && rowDy >= iy && rowDy < iy + 14;
     }
 
-    private void lookClicked(double mx, double dy) {
-        for (Item it : lookItems()) {
-            Row r = it.row();
-            if (r == null || dy < it.y() || dy >= it.y() + it.h()) continue;
-            if (r.flag) {
-                if (!inRowX(mx)) return;
-                r.set.accept(r.on() ? 1 : 0);
-            } else {
-                int ox = r.inline ? cx() + cw() - r.ctrlW() : cx();
-                int i = r.cells.indexAt(mx, dy, ox, it.y() + r.ctrlY());
-                if (i < 0) return;
-                r.set.accept(i);
-            }
-            s.apply();
-            changed = true;
+    private void rowsClicked(List<Item> items, double mx, double dy) {
+        for (Item it : items) {
+            if (it.row() == null || dy < it.y() || dy >= it.y() + it.h()) continue;
+            rowClicked(it, mx, dy);
             return;
         }
     }
 
+    private void rowClicked(Item it, double mx, double dy) {
+        Row r = it.row();
+        if (r.flag) {
+            if (!inRowX(mx)) return;
+            r.set.accept(r.on() ? 1 : 0);
+        } else {
+            int ox = r.inline ? cx() + cw() - r.ctrlW() : cx();
+            int i = r.cells.indexAt(mx, dy, ox, it.y() + r.ctrlY());
+            if (i < 0) return;
+            r.set.accept(i);
+        }
+        s.apply();
+        changed = true;
+    }
+
     private void colorsClicked(double mx, double dy, int button) {
-        if (dy >= 0 && dy < BTN_H) {
-            if (mx >= cx() && mx < cx() + presetW()) {
-                s.applyPreset(Catalog.classicPalette());
-                closeColor();
-                changed = true;
-            }
+        for (Item it : colorItems()) {
+            if (dy < it.y() || dy >= it.y() + it.h()) continue;
+            if (it.row() != null) rowClicked(it, mx, dy);
+            else if (it.kind() == CARDS) cardClicked(mx, dy - it.y());
+            else if (it.kind() == PALETTE) paletteClicked(mx);
+            else if (it.kind() == TONE) toneClicked(it.tone(), mx, dy - it.y(), button);
             return;
         }
-        List<Integer> shown = visibleColors();
-        for (int pos = 0; pos < shown.size(); pos++) {
-            int i = shown.get(pos);
-            int ry = rowY(pos);
-            if (dy >= ry && dy < ry + COLOR_H) {
-                Catalog.Category cat = categories.get(i);
-                if (button == 1) {
-                    s.clearColor(cat.name);
-                    if (openColor == i) { pick.set(cat.color); syncHexField(cat.color); }
-                    changed = true;
-                    return;
-                }
-                if (openColor == i) { closeColor(); return; }
-                openColor = i;
-                pick.set(cat.color);
-                openHexField(cat.color);
+    }
+
+    private void cardClicked(double mx, double local) {
+        int i = cardAt(mx, local);
+        if (i < 0) return;
+        s.pickGamma(i);
+        s.apply();
+        closeColor();
+        changed = true;
+    }
+
+    private void paletteClicked(double mx) {
+        if (mx < cx() || mx >= cx() + presetW()) return;
+        s.applyPreset(Catalog.classicPalette());
+        closeColor();
+        changed = true;
+    }
+
+    private void toneClicked(int i, double mx, double local, int button) {
+        Tone tone = tones.get(i);
+        if (local < COLOR_H) {
+            if (button == 1) {
+                clearTone(tone, i);
                 return;
             }
-            if (openColor != i) continue;
-            int py = ry + COLOR_H + 4;
-            Catalog.Category cat = categories.get(i);
-            int lx = cx();
-            if (mx >= lx && mx < lx + SV_W && dy >= py && dy < py + SV_H) {
-                dragging = 1;
-                dragSv(mx, dy - py);
-                return;
-            }
-            int hy = py + SV_H + 4;
-            if (mx >= lx && mx < lx + SV_W && dy >= hy - 2 && dy < hy + HUE_H + 2) {
-                dragging = 2;
-                dragHue(mx);
-                return;
-            }
-            if (Ui.hit(mx, dy, pickRx(), py + 26 + ROW_H + 4, pickRw(), ROW_H)
-                    && s.colors.containsKey(cat.name)) {
-                s.clearColor(cat.name);
-                pick.set(cat.color);
-                syncHexField(cat.color);
-                changed = true;
-                return;
-            }
+            if (openColor == i) { closeColor(); return; }
+            int rgb = tone.rgb().getAsInt();
+            openColor = i;
+            pick.set(rgb);
+            openHexField(rgb);
+            return;
         }
+        if (openColor != i) return;
+        int py = COLOR_H + 4, lx = cx();
+        if (mx >= lx && mx < lx + SV_W && local >= py && local < py + SV_H) {
+            dragging = 1;
+            dragSv(mx, local - py);
+            return;
+        }
+        int hy = py + SV_H + 4;
+        if (mx >= lx && mx < lx + SV_W && local >= hy - 2 && local < hy + HUE_H + 2) {
+            dragging = 2;
+            dragHue(mx);
+            return;
+        }
+        if (Ui.hit(mx, local, pickRx(), py + 26 + ROW_H + 4, pickRw(), ROW_H)) clearTone(tone, i);
+    }
+
+    private void clearTone(Tone tone, int i) {
+        if (!tone.custom().getAsBoolean()) return;
+        tone.clear().run();
+        if (openColor == i) {
+            int rgb = tone.rgb().getAsInt();
+            pick.set(rgb);
+            syncHexField(rgb);
+        }
+        changed = true;
+    }
+
+    private int toneY(int tone) {
+        for (Item it : colorItems()) if (it.tone() == tone) return it.y();
+        return -1;
     }
 
     private void openHexField(int rgb) {
@@ -1185,7 +1456,7 @@ public final class SettingsPanel implements Overlay {
         pick.bind(hexField, t -> {
             if (t.length() != 6 || openColor < 0) return;
             int color = McText.hexRgb(t);
-            s.setColor(categories.get(openColor).name, color);
+            tones.get(openColor).set().accept(color);
             pick.set(color);
             changed = true;
         });
@@ -1222,7 +1493,7 @@ public final class SettingsPanel implements Overlay {
     private void applyPick() {
         if (openColor < 0) return;
         int rgb = pick.rgb();
-        s.setColor(categories.get(openColor).name, rgb);
+        tones.get(openColor).set().accept(rgb);
         syncHexField(rgb);
         changed = true;
     }
@@ -1230,6 +1501,10 @@ public final class SettingsPanel implements Overlay {
     public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         stale();
         double mx = click.x(), my = click.y();
+        if (sizer.drag(mx, my)) {
+            refit();
+            return true;
+        }
         if (bar.dragged(my, 1, maxScroll(), v -> scroll[tab] = v)) return true;
         if (dragField != null) {
             dragField.mouseDragged(click, dx, dy);
@@ -1242,9 +1517,9 @@ public final class SettingsPanel implements Overlay {
         if (dragging == 0) return false;
         double inside = my + scroll() - contentY();
         if (dragging == 1) {
-            int pos = visibleColors().indexOf(openColor);
-            if (pos < 0) return true;
-            dragSv(mx, inside - (rowY(pos) + COLOR_H + 4));
+            int at = toneY(openColor);
+            if (at < 0) return true;
+            dragSv(mx, inside - (at + COLOR_H + 4));
         } else {
             dragHue(mx);
         }
@@ -1253,6 +1528,7 @@ public final class SettingsPanel implements Overlay {
 
     public void mouseReleased() {
         stale();
+        sizer.release();
         dragging = 0;
         hexDrag = false;
         dragField = null;

@@ -45,7 +45,7 @@ public final class SmoothText {
 
     public static boolean draw(GuiGraphicsExtractor ctx, Font tr, FormattedCharSequence text,
                                int x, int y, int argb, boolean shadow) {
-        if (!smoothing(ctx)) return false;
+        if (!canvas()) return false;
         try {
             return submit(ctx, tr.prepareText(text, x, y, argb, shadow, false, 0));
         } catch (Throwable e) {
@@ -56,7 +56,7 @@ public final class SmoothText {
 
     public static boolean draw(GuiGraphicsExtractor ctx, Font tr, String text,
                                int x, int y, int argb, boolean shadow) {
-        if (!smoothing(ctx)) return false;
+        if (!canvas()) return false;
         try {
             return submit(ctx, tr.prepareText(text, x, y, argb, shadow, 0));
         } catch (Throwable e) {
@@ -65,8 +65,12 @@ public final class SmoothText {
         }
     }
 
+    private static boolean canvas() {
+        return !broken && clip != null;
+    }
+
     private static boolean enabled() {
-        return !broken && clip != null && Settings.smoothText();
+        return canvas() && Settings.smoothText();
     }
 
     private static float screenScale(GuiGraphicsExtractor ctx) {
@@ -121,12 +125,14 @@ public final class SmoothText {
         final Matrix4f pose;
         final ScreenRectangle scissor;
         final GuiRenderState state;
+        final boolean linear;
         boolean fresh = true;
 
         Pen(GuiGraphicsExtractor ctx) {
             pose = new Matrix4f().mul(new Matrix3x2f(ctx.pose()));
             scissor = clip;
             state = ctx.guiRenderState;
+            linear = smoothing(ctx);
         }
 
         void add(TextRenderable drawable) {
@@ -134,10 +140,10 @@ public final class SmoothText {
             GpuTextureView view = drawable.textureView();
             Run run = last;
             boolean joins = run != null && run.state == state && run.pipeline == pipeline
-                    && run.view == view && run.scissor == scissor
+                    && run.view == view && run.scissor == scissor && run.linear == linear
                     && (!fresh || stillLast(state, run));
             if (!joins) {
-                run = new Run(state, pipeline, view, scissor);
+                run = new Run(state, pipeline, view, scissor, linear);
                 state.addGlyphToCurrentLayer(run);
                 last = run;
             }
@@ -313,6 +319,7 @@ public final class SmoothText {
     }
 
     private static final class Baked extends Delegate {
+        private static final Vector3f SPOT = new Vector3f();
         final TextRenderable source;
         final float[] f;
         final int[] i;
@@ -333,7 +340,7 @@ public final class SmoothText {
         private void transform(Matrix4fc m) {
             int n = i.length / 2;
             if (moved == null) moved = new float[n * 3];
-            Vector3f v = new Vector3f();
+            Vector3f v = SPOT;
             for (int k = 0, a = 0; k < n; k++, a += 5) {
                 m.transformPosition(f[a], f[a + 1], f[a + 2], v);
                 moved[k * 3] = v.x();
@@ -364,16 +371,19 @@ public final class SmoothText {
         final RenderPipeline pipeline;
         final GpuTextureView view;
         final ScreenRectangle scissor;
+        final boolean linear;
         private TextureSetup setup;
         private TextRenderable[] items = new TextRenderable[8];
         private Matrix4fc[] poses = new Matrix4fc[8];
         private int size;
 
-        Run(GuiRenderState state, RenderPipeline pipeline, GpuTextureView view, ScreenRectangle scissor) {
+        Run(GuiRenderState state, RenderPipeline pipeline, GpuTextureView view, ScreenRectangle scissor,
+            boolean linear) {
             this.state = state;
             this.pipeline = pipeline;
             this.view = view;
             this.scissor = scissor;
+            this.linear = linear;
         }
 
         void add(TextRenderable r, Matrix4fc pose) {
@@ -397,8 +407,8 @@ public final class SmoothText {
         @Override
         public TextureSetup textureSetup() {
             if (setup == null)
-                setup = TextureSetup.singleTextureWithLightmap(view,
-                        RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
+                setup = TextureSetup.singleTextureWithLightmap(view, RenderSystem.getSamplerCache()
+                        .getClampToEdge(linear ? FilterMode.LINEAR : FilterMode.NEAREST));
             return setup;
         }
 

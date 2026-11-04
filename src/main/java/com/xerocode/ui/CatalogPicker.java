@@ -3,6 +3,7 @@ package com.xerocode.ui;
 import com.xerocode.Env;
 import com.xerocode.Catalog;
 import com.xerocode.Search;
+import com.xerocode.Values;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -18,10 +19,16 @@ import net.minecraft.world.item.ItemStack;
 
 public final class CatalogPicker extends PickerPanel {
     public record Item(String id, String name, String category, String icon,
-                       String description, String badge, String note, ItemStack stack) {
+                       String description, String badge, String note, ItemStack stack,
+                       String alias) {
         public Item(String id, String name, String category, String icon,
                     String description, String badge, String note) {
-            this(id, name, category, icon, description, badge, note, null);
+            this(id, name, category, icon, description, badge, note, null, "");
+        }
+
+        public Item(String id, String name, String category, String icon,
+                    String description, String badge, String note, ItemStack stack) {
+            this(id, name, category, icon, description, badge, note, stack, "");
         }
 
         public ItemStack picture() {
@@ -41,6 +48,8 @@ public final class CatalogPicker extends PickerPanel {
 
         default void select(String id) {}
 
+        default void picked(String id) { select(id); }
+
         default boolean mouseClicked(int mx, int my, int x, int y, int w, int h) { return false; }
 
         default boolean mouseDragged(int mx, int x, int y, int w, int h) { return false; }
@@ -49,11 +58,16 @@ public final class CatalogPicker extends PickerPanel {
 
         default boolean keyPressed(KeyEvent in) { return false; }
 
+        default boolean mouseScrolled(double mx, double my, double amount, int x, int y, int w, int h) {
+            return false;
+        }
+
         default String hint() { return null; }
     }
 
-    private static final int CAT_H = 16;
-    private static final int ROW_H = 18;
+    private final int catH = Env.touch() ? 24 : 16;
+    private final int rowH = Env.touch() ? 26 : 18;
+    private final int lift = (rowH - 18) / 2;
     private static final int LIST_MIN = 200;
 
     private final Done done;
@@ -66,6 +80,8 @@ public final class CatalogPicker extends PickerPanel {
     private String category;
     private String selected;
     private int scroll;
+    private boolean blocks;
+    private int pressedRow = -1;
     private final Ui.Bar bar = new Ui.Bar();
     private int rows;
     private final int stripH;
@@ -89,16 +105,17 @@ public final class CatalogPicker extends PickerPanel {
 
     @Override
     protected void layout() {
-        int panelW = Ui.fitW(screenW, 620);
+        int panelW = sizer().w(screenW, Ui.fitW(screenW, 620));
         int measured = tr.width("Всё") + 46;
         for (String c : this.categories.keySet()) measured = Math.max(measured, tr.width(c) + 46);
         int rail = railW(panelW, measured);
         int det = Math.min(DET_W, panelW - rail - Math.min(LIST_MIN, panelW * 45 / 100));
         det = det < 120 ? 0 : det;
 
-        int wanted = Ui.fitH(screenH, Ui.tall(screenH, HEAD_H + 2 + 14 * ROW_H + stripH + FOOT_H));
-        this.rows = Math.max(3, (wanted - HEAD_H - FOOT_H - stripH - 2) / ROW_H);
-        place(panelW, HEAD_H + 2 + rows * ROW_H + stripH + FOOT_H, rail, det, "найти…");
+        int wanted = sizer().h(screenH,
+                Ui.fitH(screenH, Ui.tall(screenH, HEAD_H + 2 + 14 * rowH + stripH + footH())));
+        this.rows = Math.max(3, (wanted - HEAD_H - footH() - stripH - 2) / rowH);
+        place(panelW, HEAD_H + 2 + rows * rowH + stripH + footH(), rail, det, "найти…");
         scroll = Math.max(0, Math.min(maxScroll(), scroll));
     }
 
@@ -109,7 +126,10 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     @Override
-    protected int bodyH() { return rows * ROW_H; }
+    protected String sizeKey() { return "catalog"; }
+
+    @Override
+    protected int bodyH() { return rows * rowH; }
 
     private int listX() { return railX() + railW + 1; }
     private int listW() { return detX() - 1 - listX(); }
@@ -125,7 +145,7 @@ public final class CatalogPicker extends PickerPanel {
         for (Item i : all) if (category == null || category.equals(i.category())) pool.add(i);
         hits = q.isEmpty() ? pool
                 : Search.rank(pool, q, pool.size(), i -> new Search.Fields(
-                        i.name(), i.id(), i.category(), i.description()));
+                        i.name(), i.id(), i.category(), i.description(), i.alias()));
         if (resetScroll) scroll = 0;
         scroll = Math.max(0, Math.min(maxScroll(), scroll));
     }
@@ -176,7 +196,7 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     @Override
-    protected int railRowH() { return CAT_H; }
+    protected int railRowH() { return catH; }
 
     @Override
     protected int railActive() {
@@ -218,24 +238,24 @@ public final class CatalogPicker extends PickerPanel {
             int i = scroll + r;
             if (i < 0 || i >= hits.size()) break;
             Item it = hits.get(i);
-            int ry = ly + r * ROW_H;
+            int ry = ly + r * rowH;
             boolean on = it.id().equals(selected);
             if (on) {
-                Draw.rect(ctx, lx, ry, lw, ROW_H, Draw.opaque(Ui.BTN_ON));
-                Draw.rect(ctx, lx, ry, 2, ROW_H, Draw.opaque(Theme.ACCENT));
+                Draw.rect(ctx, lx, ry, lw, rowH, Draw.opaque(Ui.BTN_ON));
+                Draw.rect(ctx, lx, ry, 2, rowH, Draw.opaque(Theme.ACCENT));
             } else if (i == hovered) {
-                Draw.rect(ctx, lx, ry, lw, ROW_H, Draw.opaque(Ui.BTN_HOVER));
+                Draw.rect(ctx, lx, ry, lw, rowH, Draw.opaque(Ui.BTN_HOVER));
             } else if (i % 2 == 1) {
-                Draw.rect(ctx, lx, ry, lw, ROW_H, Draw.opaque(Ui.WELL));
+                Draw.rect(ctx, lx, ry, lw, rowH, Draw.opaque(Ui.WELL));
             }
-            ctx.item(it.picture(), lx + 6, ry + 1);
-            String badge = it.badge();
-            int badgeW = badge.isEmpty() ? 0 : Draw.badgeWidth(tr, badge) + 6;
-            Draw.textFit(ctx, tr, it.name(), lx + 27, ry + 5, lw - 33 - badgeW,
+            ctx.item(it.picture(), lx + 6, ry + 1 + lift);
+            String badge = it.badge(), shown = Values.shortType(badge);
+            int badgeW = badge.isEmpty() ? 0 : Draw.badgeWidth(tr, shown) + 6;
+            Draw.textFit(ctx, tr, it.name(), lx + 27, ry + 5 + lift, lw - 33 - badgeW,
                     on || i == hovered ? Theme.TEXT : Theme.TEXT_DIM, false);
             if (!badge.isEmpty()) {
                 int bc = Catalog.TYPE_COLORS.getOrDefault(badge, 0x8A93A6);
-                Draw.badge(ctx, tr, badge, lx + lw - 6 - Draw.badgeWidth(tr, badge), ry + 4,
+                Draw.badge(ctx, tr, shown, lx + lw - 6 - Draw.badgeWidth(tr, shown), ry + 4 + lift,
                         Draw.opaque(Draw.shade(bc, -0.66f)), Draw.shade(bc, 0.15f));
             }
         }
@@ -243,7 +263,7 @@ public final class CatalogPicker extends PickerPanel {
         if (hits.isEmpty())
             Draw.textFit(ctx, tr, "ничего не найдено", lx + 10, ly + 6, lw - 16,
                     Theme.TEXT_FAINT, false);
-        bar.draw(ctx, lx + lw - 4, ly + 1, lh - 2, hits.size() * ROW_H, lh, scroll * ROW_H,
+        bar.draw(ctx, lx + lw - 4, ly + 1, lh - 2, hits.size() * rowH, lh, scroll * rowH,
                 lastMx, lastMy);
     }
 
@@ -298,17 +318,44 @@ public final class CatalogPicker extends PickerPanel {
     protected int indexAt(double mx, double my) {
         int lx = listX(), ly = bodyY();
         if (mx < lx || mx >= lx + listW() || my < ly || my >= ly + bodyH()) return -1;
-        int i = scroll + (int) ((my - ly) / ROW_H);
+        int i = scroll + (int) ((my - ly) / rowH);
         return i >= 0 && i < hits.size() ? i : -1;
+    }
+
+    public CatalogPicker forBlocks() {
+        blocks = true;
+        return this;
+    }
+
+    public void released(double mx, double my) {
+        int i = pressedRow;
+        pressedRow = -1;
+        if (i < 0 || i >= hits.size() || indexAt(mx, my) != i) return;
+        String id = hits.get(i).id();
+        boolean focused = id.equals(selected);
+        selected = id;
+        if (extra != null) extra.picked(selected);
+        if (focused || !Env.touch()) finish();
+    }
+
+    public void hold(double mx, double my) {
+        int i = indexAt(mx, my);
+        if (!blocks || i < 0) return;
+        selected = hits.get(i).id();
+        if (extra != null) extra.picked(selected);
     }
 
     @Override
     protected boolean bodyClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
-        if (bar.grabbed(mx, my, ROW_H, maxScroll(), v -> scroll = v)) return true;
+        if (bar.grabbed(mx, my, rowH, maxScroll(), v -> scroll = v)) return true;
         int i = indexAt(mx, my);
+        if (i >= 0 && blocks) {
+            pressedRow = i;
+            return true;
+        }
         if (i >= 0) {
             selected = hits.get(i).id();
-            if (extra != null) extra.select(selected);
+            if (extra != null) extra.picked(selected);
             if (doubled) finish();
             return true;
         }
@@ -321,7 +368,7 @@ public final class CatalogPicker extends PickerPanel {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
-        if (bar.dragged(click.y(), ROW_H, maxScroll(), v -> scroll = v)) return true;
+        if (bar.dragged(click.y(), rowH, maxScroll(), v -> scroll = v)) return true;
         if (extra != null && extra.mouseDragged((int) click.x(), stripX(), stripY(), stripW(),
                 stripBodyH())) return true;
         return super.mouseDragged(click, dx, dy);
@@ -335,7 +382,9 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     public boolean mouseScrolled(double mx, double my, double amount) {
-        scroll = Math.max(0, Math.min(maxScroll(), scroll - Ui.rows(amount, 3, ROW_H)));
+        if (extra != null && extra.mouseScrolled(mx, my, amount, stripX(), stripY(), stripW(),
+                stripBodyH())) return true;
+        scroll = Math.max(0, Math.min(maxScroll(), scroll - Ui.rows(amount, 3, rowH)));
         return true;
     }
 

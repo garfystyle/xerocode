@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -37,24 +36,26 @@ public final class Json {
     }
 
     public static void write(Path path, JsonElement data) throws IOException {
+        write(path, data.toString());
+    }
+
+    public static void write(Path path, String data) throws IOException {
+        write(path, data.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static void write(Path path, byte[] data) throws IOException {
         Path dir = path.getParent();
         if (dir != null && !Files.isDirectory(dir)) Files.createDirectories(dir);
         if (Env.browser()) {
-            text(path, data);
+            Files.write(path, data);
             return;
         }
         Path temp = path.resolveSibling(path.getFileName() + ".tmp");
-        text(temp, data);
+        Files.write(temp, data);
         try {
             Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException e) {
             Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    private static void text(Path path, JsonElement data) throws IOException {
-        try (Writer out = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-            out.write(data.toString());
         }
     }
 

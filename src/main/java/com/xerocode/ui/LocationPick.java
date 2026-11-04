@@ -65,6 +65,8 @@ public final class LocationPick {
             BODY = 0x9BB4CC, BAD = 0xFF7373;
 
     private static Script.Node node;
+    private static Value loose;
+    private static java.util.function.Consumer<Value> looseDone;
     private static int argIndex, index;
     private static boolean active, placed, snapCam, eye, hudWas;
     private static Grid grid = Grid.BLOCK;
@@ -99,7 +101,19 @@ public final class LocationPick {
         return InteractionResult.FAIL;
     }
 
+    public static void start(Value value, java.util.function.Consumer<Value> done) {
+        loose = value;
+        looseDone = done;
+        begin(null, 0, 0);
+    }
+
     public static void start(Script.Node target, int arg, int valueIndex) {
+        loose = null;
+        looseDone = null;
+        begin(target, arg, valueIndex);
+    }
+
+    private static void begin(Script.Node target, int arg, int valueIndex) {
         Minecraft client = Minecraft.getInstance();
         if (client.player == null || client.level == null) return;
         node = target;
@@ -142,6 +156,7 @@ public final class LocationPick {
     }
 
     private static Value slotValue() {
+        if (loose != null) return loose;
         if (node == null) return null;
         List<Value> slot = node.valuesOf(argIndex);
         return index >= 0 && index < slot.size() ? slot.get(index) : null;
@@ -739,6 +754,7 @@ public final class LocationPick {
         player.zo = player.zOld = frozen.z;
         player.fallDistance = 0;
         if (cam != null && client.getCameraEntity() != cam) client.setCameraEntity(cam);
+        if (cam != null && !client.gui.hud.isHidden()) client.gui.hud.toggle();
         if (client.gameMode != null) client.gameMode.stopDestroyBlock();
 
         if (client.gui.screen() instanceof LocationScreen screen && !screen.typing()) move(client);
@@ -813,15 +829,21 @@ public final class LocationPick {
     private static double r1(double d) { return Math.round(d * 10.0) / 10.0; }
 
     private static void write() {
-        if (node == null) return;
-        List<Value> slot = node.valuesOf(argIndex);
-        Value v = index >= 0 && index < slot.size() ? slot.get(index) : null;
-        if (v == null || !Value.LOCATION.equals(v.type)) {
-            v = Value.of(Value.LOCATION);
-            if (index >= 0 && index < slot.size()) slot.set(index, v);
-            else {
-                slot.add(v);
-                index = slot.size() - 1;
+        if (node == null && loose == null) return;
+        Value v;
+        if (loose != null) {
+            if (!Value.LOCATION.equals(loose.type)) loose = Value.of(Value.LOCATION);
+            v = loose;
+        } else {
+            List<Value> slot = node.valuesOf(argIndex);
+            v = index >= 0 && index < slot.size() ? slot.get(index) : null;
+            if (v == null || !Value.LOCATION.equals(v.type)) {
+                v = Value.of(Value.LOCATION);
+                if (index >= 0 && index < slot.size()) slot.set(index, v);
+                else {
+                    slot.add(v);
+                    index = slot.size() - 1;
+                }
             }
         }
         v.x = r3(px);
@@ -845,9 +867,14 @@ public final class LocationPick {
     private static void finish(Minecraft client, boolean applied) {
         Script.Node target = node;
         int arg = argIndex, i = index;
+        Value value = loose;
+        java.util.function.Consumer<Value> done = looseDone;
+        loose = null;
+        looseDone = null;
         abandon();
         if (client.gui.screen() instanceof LocationScreen) client.gui.setScreen(null);
         if (applied && target != null) EditorScreen.openPanelAfter(target, arg, i);
+        if (applied && done != null) done.accept(value);
         XeroCode.openCanvas(client);
     }
 

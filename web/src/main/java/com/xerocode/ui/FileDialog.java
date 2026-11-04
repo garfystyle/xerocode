@@ -12,4 +12,10 @@ final class FileDialog {
     static void open(String title, String start, String[] masks, String kind, Consumer<Path> done) {
         Files2.pick(masks, done);
     }
+
+    static void save(String title, Path suggested, String[] masks, String kind, byte[] bytes,
+                     Consumer<Path> done) {
+        Files2.save(suggested.getFileName().toString(), bytes, "application/json");
+        done.accept(suggested.getFileName());
+    }
 }

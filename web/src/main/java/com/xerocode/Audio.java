@@ -5,6 +5,8 @@ import com.xerocode.web.Sound;
 public final class Audio {
     public enum State { EMPTY, LOADING, READY, MISSING }
 
+    private static double sentVolume = -1, sentPitch = -1;
+
     private Audio() {}
 
     public static void want(String id) { Sound.want(id); }
@@ -36,6 +38,11 @@ public final class Audio {
 
     public static void rewind() { Sound.seek(0); }
 
+    public static void restart() {
+        Sound.seek(0);
+        Sound.play();
+    }
+
     public static boolean playing() { return Sound.playing(); }
 
     public static double position() { return Sound.position(); }
@@ -46,11 +53,21 @@ public final class Audio {
 
     public static void setLoop(boolean loop) { Sound.setLoop(loop); }
 
-    public static void mix(double volume, double pitch, String source) { Sound.mix(volume, pitch); }
+    public static void mix(double volume, double pitch, String source) {
+        double v = volume * Math.max(0, Math.min(1, Settings.previewGain()));
+        if (Math.abs(v - sentVolume) < 0.001 && Math.abs(pitch - sentPitch) < 0.001) return;
+        sentVolume = v;
+        sentPitch = pitch;
+        Sound.mix(v, pitch);
+    }
 
     public static boolean muted() { return false; }
 
     public static boolean broken() { return false; }
 
-    public static void release() { Sound.stop(); }
+    public static void release() {
+        Sound.stop();
+        sentVolume = -1;
+        sentPitch = -1;
+    }
 }

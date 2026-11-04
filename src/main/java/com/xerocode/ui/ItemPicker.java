@@ -58,7 +58,7 @@ public final class ItemPicker extends PickerPanel {
 
     @Override
     protected void layout() {
-        int panelW = Ui.fitW(screenW, 700);
+        int panelW = sizer().w(screenW, Ui.fitW(screenW, 700));
         int measured = tr.width("Мой инвентарь") + 46;
         for (Rail r : rails) measured = Math.max(measured, tr.width(r.name()) + 46);
         int rail = railW(panelW, measured);
@@ -66,8 +66,10 @@ public final class ItemPicker extends PickerPanel {
         det = det < 130 ? 0 : det;
         cols = Math.max(3, (panelW - rail - det - 10) / cell);
         rows = Math.max(3, Math.min(Env.touch() ? 60 : 20,
-                (Ui.fitH(screenH, 1000) - HEAD_H - FOOT_H - 8) / cell));
-        place(panelW, HEAD_H + 1 + 4 + rows * cell + 4 + FOOT_H, rail, det, "найти предмет…");
+                (Ui.fitH(screenH, 1000) - HEAD_H - footH() - 8) / cell));
+        if (sizer().sizedH())
+            rows = Math.max(3, (sizer().h(screenH, 0) - HEAD_H - footH() - 9) / cell);
+        place(panelW, HEAD_H + 1 + 4 + rows * cell + 4 + footH(), rail, det, "найти предмет…");
         scroll = Math.max(0, Math.min(maxScroll(), scroll));
     }
 
@@ -77,6 +79,9 @@ public final class ItemPicker extends PickerPanel {
 
     @Override
     protected int searchMaxW() { return 220; }
+
+    @Override
+    protected String sizeKey() { return "items"; }
 
     @Override
     protected int bodyH() { return rows * cell + 8; }

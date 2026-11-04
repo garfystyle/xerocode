@@ -14,13 +14,25 @@ import net.minecraft.network.protocol.common.ServerboundCustomClickActionPacket;
 
 public final class ServerAsk {
     private static final String ACCEPT = "принять";
+    private static final long CLOSE_WAIT = 3000;
 
     private static Screen before;
+    private static Screen back;
+    private static long backUntil;
 
     private ServerAsk() {}
 
     static void tick(Minecraft client) {
         Screen screen = client.gui.screen();
+        if (back != null) {
+            if (System.currentTimeMillis() > backUntil) {
+                back = null;
+            } else if (screen == null) {
+                client.gui.setScreen(back);
+                back = null;
+                return;
+            }
+        }
         if (!(screen instanceof BookViewScreen book)) {
             before = screen;
             return;
@@ -35,6 +47,8 @@ public final class ServerAsk {
         net.send(new ServerboundCustomClickActionPacket(yes.id(), yes.payload()));
         job.confirmed(question(page.getString(), job.url));
         client.gui.setScreen(before);
+        back = before;
+        backUntil = System.currentTimeMillis() + CLOSE_WAIT;
     }
 
     private static Component page(BookViewScreen book, String url) {

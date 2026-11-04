@@ -19,6 +19,10 @@ public final class Values {
 
     public static final class GameValue {
         public final String id, name, category, item, description, returns, returnsNote;
+        public String skin = "";
+
+        public net.minecraft.world.item.ItemStack icon() { return Catalog.stackOf(item, false, skin); }
+
         GameValue(String id, String name, String category, String item,
                   String description, String returns, String returnsNote) {
             this.id = id; this.name = name; this.category = category; this.item = item;
@@ -55,11 +59,11 @@ public final class Values {
             Map.entry(Value.POTION,     0xD45BD4),
             Map.entry(Value.GAME_VALUE, 0xEFA13C),
             Map.entry(Value.VARIABLE,   0x3FA13F),
-            Map.entry(Value.PARAMETER,  0x63C9E0),
+            Map.entry(Value.PARAMETER,  0x3A7CF2),
             Map.entry(Value.ARRAY,      0xE8D33A),
             Map.entry(Value.MAP,        0x8B5A2B),
             Map.entry(Value.ITEM,       0xE08A1E),
-            Map.entry(Value.BLOCK,      0xC97C1B));
+            Map.entry(Value.BLOCK,      0x6F7F96));
 
     public static int color(String kindId) { return KIND_COLORS.getOrDefault(kindId, 0xAAAAAA); }
 
@@ -111,6 +115,7 @@ public final class Values {
                 GameValue g = new GameValue(o.get("id").getAsString(), o.get("n").getAsString(),
                         o.get("c").getAsString(), o.get("i").getAsString(),
                         str(o, "d"), str(o, "r"), str(o, "rd"));
+                g.skin = str(o, "t");
                 GAME_VALUES.add(g);
                 GV_BY_ID.put(g.id, g);
                 GAME_VALUE_CATEGORIES.computeIfAbsent(g.category, k -> new ArrayList<>()).add(g);
@@ -134,6 +139,12 @@ public final class Values {
         Kind k = KIND_BY_ID.get(id);
         return k == null ? id : k.name();
     }
+
+    public static String shortType(String name) {
+        return LOCATION_FULL.equals(name) ? LOCATION_SHORT : name;
+    }
+
+    private static final String LOCATION_FULL = "Местоположение", LOCATION_SHORT = "Место";
 
     public static String kindItem(String id) {
         Kind k = KIND_BY_ID.get(id);

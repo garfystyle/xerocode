@@ -87,7 +87,7 @@ public final class LocationScreen extends Screen {
     }
 
     private EditBox numeric() {
-        EditBox f = new EditBox(font, 0, 0, 40, 12, Component.literal("0")) {
+        EditBox f = new Ui.Field(font, 0, 0, 40, 12, Component.literal("0")) {
             @Override
             public void insertText(String text) {
                 StringBuilder kept = new StringBuilder();
@@ -333,7 +333,7 @@ public final class LocationScreen extends Screen {
         if (Ui.iconButton(ctx, mx, my, undoX(), uy, 16, Draw.UNDO, Ui.GHOST, LocationPick.canUndo()))
             tip("Отменить", "Ctrl+Z", uy);
         if (Ui.iconButton(ctx, mx, my, undoX() + 19, uy, 16, Draw.REDO, Ui.GHOST, LocationPick.canRedo()))
-            tip("Вернуть", "Ctrl+Y", uy);
+            tip("Вернуть", "Ctrl+Y или Ctrl+Shift+Z", uy);
         Ui.hairline(ctx, x + 1, y + HEAD_H, w - 2);
 
         Ui.caption(ctx, font, "КООРДИНАТЫ", x + PAD, coordsY + (CAP_H - Ui.TEXT_H) / 2,

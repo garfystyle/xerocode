@@ -404,7 +404,7 @@ public final class Exporter {
         for (int i = node.action.settings.size(); i < settings.size(); i++) {
             String option = node.marker(i);
             if (option == null || option.isEmpty()) continue;
-            args.add(paramKey(settings.get(i).label), text(option, "plain"));
+            args.add(paramKey(settings.get(i).label), markerArg(option, node.markerVar(i)));
         }
         if (!args.isEmpty()) {
             JsonObject map = new JsonObject();
@@ -446,6 +446,15 @@ public final class Exporter {
             "Без цели", "NO_TARGET",
             "Каждая цель в выборке", "FOR_EACH_IN_SELECTION");
 
+    private static JsonObject markerArg(String option, Value bound) {
+        JsonObject chosen = text(option, "plain");
+        if (bound == null || bound.name.isBlank()) return chosen;
+        JsonArray pair = new JsonArray();
+        pair.add(value(bound));
+        pair.add(chosen);
+        return array(pair);
+    }
+
     private static String paramKey(String param) {
         return text(param, "plain").toString();
     }
@@ -456,6 +465,11 @@ public final class Exporter {
         o.addProperty("text", s);
         o.addProperty("parsing", parsing);
         return o;
+    }
+
+    public static String toServer(Value v) {
+        JsonObject o = v == null || v.isBlank() ? null : value(v);
+        return o == null ? "" : o.toString();
     }
 
     private static JsonObject value(Value v) {

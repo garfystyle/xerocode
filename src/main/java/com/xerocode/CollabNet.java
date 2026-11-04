@@ -13,10 +13,13 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
 
 public final class CollabNet {
     private static final Duration CONNECT = Duration.ofSeconds(15);
     private static final int MAX_MESSAGE = 4 << 20;
+    private static final int LIVE_QUEUE = 512;
+    private static final int MAX_QUEUE = 8192;
 
     private static final Net.Who WHO = new Net.Who("не найден адрес сервера", "сервер не отвечает",
             "сервер не ответил вовремя");
@@ -73,17 +76,40 @@ public final class CollabNet {
         }
     }
 
+    public void leave() {
+        WebSocket ws = socket;
+        if (ws == null || dead) {
+            close();
+            return;
+        }
+        open = false;
+        dead = true;
+        socket = null;
+        JsonObject bye = new JsonObject();
+        bye.addProperty("t", "bye");
+        String text = bye.toString();
+        synchronized (sending) {
+            tail = tail.thenCompose(ignored -> ws.sendText(text, true))
+                    .thenCompose(ignored -> ws.sendClose(WebSocket.NORMAL_CLOSURE, "пока"))
+                    .orTimeout(2, TimeUnit.SECONDS)
+                    .whenComplete((ignored, error) -> abort(ws));
+        }
+    }
+
+    public void close(String reason) {
+        if (!dead) why = reason;
+        close();
+    }
+
     public void close() {
         WebSocket ws = socket;
         open = false;
         dead = true;
         socket = null;
-        if (ws == null) return;
-        try {
-            ws.sendClose(WebSocket.NORMAL_CLOSURE, "пока").orTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
-                    .exceptionally(error -> null);
-        } catch (Throwable ignored) {
-        }
+        if (ws != null) abort(ws);
+    }
+
+    private static void abort(WebSocket ws) {
         try {
             ws.abort();
         } catch (Throwable ignored) {
@@ -119,13 +145,22 @@ public final class CollabNet {
                 String whole = pending.toString();
                 pending.setLength(0);
                 try {
-                    JsonObject json = JsonParser.parseString(whole).getAsJsonObject();
-                    if (inbox.size() < 4096) inbox.add(json);
+                    queue(JsonParser.parseString(whole).getAsJsonObject());
                 } catch (Throwable ignored) {
                 }
             }
             ws.request(1);
             return null;
+        }
+
+        private void queue(JsonObject json) {
+            int size = inbox.size();
+            if (size >= LIVE_QUEUE && "live".equals(Json.str(json, "t"))) return;
+            if (size >= MAX_QUEUE) {
+                fail("отстали от комнаты");
+                return;
+            }
+            inbox.add(json);
         }
 
         @Override

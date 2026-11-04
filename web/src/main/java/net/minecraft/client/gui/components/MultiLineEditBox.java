@@ -191,6 +191,10 @@ public class MultiLineEditBox extends AbstractWidget {
 
     private void setScroll(double v) { scroll = Mth.clamp(v, 0.0, maxScroll()); }
 
+    public double scrollAmount() { return scroll; }
+
+    public void setScrollAmount(double v) { setScroll(v); }
+
     private void scrollToCursor() {
         if (lines.isEmpty()) return;
         double amount = scroll;

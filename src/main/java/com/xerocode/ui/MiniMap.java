@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.xerocode.Settings;
 import java.util.List;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
@@ -29,7 +30,8 @@ public final class MiniMap {
     public int height() { return h; }
 
     public void frame(Layout layout, int layoutStamp, int left, int top, int right, int bottom) {
-        int key = ((left * 31 + top) * 31 + right) * 31 + bottom;
+        double size = Settings.mapScale();
+        int key = (((left * 31 + top) * 31 + right) * 31 + bottom) * 31 + (int) (size * 100);
         if (layoutStamp == stamp && key == place) return;
         stamp = layoutStamp;
         place = key;
@@ -44,8 +46,8 @@ public final class MiniMap {
             x1 = Math.max(x1, b.x + b.w);
             y1 = Math.max(y1, b.bottom());
         }
-        int maxW = Math.max(MIN_W, Math.min(MAX_W, (right - left) / 4));
-        int maxH = Math.max(MIN_H, Math.min(MAX_H, (bottom - top) / 3));
+        int maxW = Math.max(MIN_W, (int) (size * Math.min(MAX_W, (right - left) / 4)));
+        int maxH = Math.max(MIN_H, (int) (size * Math.min(MAX_H, (bottom - top) / 3)));
         double cw = Math.max(1, x1 - x0), ch = Math.max(1, y1 - y0);
         scale = Math.min((maxW - PAD * 2) / cw, (maxH - PAD * 2) / ch);
         minX = x0;

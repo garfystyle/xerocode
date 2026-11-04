@@ -5,11 +5,14 @@ import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.xerocode.Audio;
 import com.xerocode.Blocks;
 import com.xerocode.Catalog;
+import com.xerocode.Clip;
 import com.xerocode.Env;
+import com.xerocode.Functions;
 import com.xerocode.Localized;
 import com.xerocode.Pickers;
 import com.xerocode.Script;
 import com.xerocode.Stacks;
+import com.xerocode.Ticks;
 import com.xerocode.Value;
 import com.xerocode.Values;
 import org.lwjgl.glfw.GLFW;
@@ -42,6 +45,8 @@ public final class ValueEditor implements Overlay {
     private static final int LIST_MAX = 5, LIST_MAX_COMPACT = 3;
 
     private static final List<String> PARAM_TYPES = Values.PARAM_TYPES;
+    private static final String ANY_TYPE = PARAM_TYPES.get(0);
+    private static final int FLAG_GAP = 3;
 
     private static final List<String> PARAM_KINDS = List.of(Value.SINGULAR, Value.PLURAL, Value.ENUM);
     private static final List<String> PARAM_KIND_NAMES = List.of("одиночное", "множество", "маркер");
@@ -62,6 +67,9 @@ public final class ValueEditor implements Overlay {
     private static List<Values.Kind> kinds() { return Values.KINDS; }
 
     private String onlyKind;
+    private String note;
+
+    public void note(String text) { note = text; }
 
     private boolean usable(String id) {
         if (onlyKind != null) return onlyKind.equals(id);
@@ -99,12 +107,20 @@ public final class ValueEditor implements Overlay {
 
     private final List<EditBox> fields = new ArrayList<>();
     private Ui.Chips paramChips, targetChips, scopeChips, modeChips, sourceChips;
-    private Ui.Chips kindChips, elemChips;
+    private Ui.Chips kindChips;
+    private int newElemAt = -1;
     private final Ui.Bar bodyBar = new Ui.Bar(), listBar = new Ui.Bar(), cellBar = new Ui.Bar();
     private final Ui.Grab grab = new Ui.Grab();
     private int lastMx, lastMy;
     private int dragSlot = -1;
     private boolean slotMoved;
+    private static final int CELL_NONE = 0, CELL_VALUE = 1, CELL_KEY = 2;
+    private static final int CELL_MOVE_PX = 3;
+    private static final long EDGE_SCROLL_MS = 90;
+    private int cellDrag = -1, cellAction, cellGrabY;
+    private double cellX0, cellY0;
+    private boolean cellMoved;
+    private long cellEdgeAt;
     private final Langs langs;
     private SoundPlayer player;
     private ParticleStage stage;
@@ -118,6 +134,8 @@ public final class ValueEditor implements Overlay {
     private PickerPanel picker;
     private ItemPicker itemPicker;
     private ItemStudio itemStudio;
+    private NumberStudio numbers;
+    private final Sizer sizer = new Sizer("value", 220, 120, false, false);
     private ValueEditor nested;
     private int listScroll, cellScroll;
     private boolean rebuild;
@@ -126,9 +144,13 @@ public final class ValueEditor implements Overlay {
     private int x, y, w, h;
     private int focus;
     private boolean closed, committed, changed, compact, placed;
+    private String flash;
+    private boolean flashBad;
+    private long flashAt;
+    private static final long FLASH_MS = 1800;
     private final Ui.Pane pane = new Ui.Pane();
     private int naturalH;
-    private boolean pickInWorld;
+    private boolean pickInWorld, worldAllowed;
     private boolean cancelled;
     private boolean dragging;
     private int dragX, dragY;
@@ -197,6 +219,36 @@ public final class ValueEditor implements Overlay {
 
     private Catalog.Arg rightArg() { return node.args().get(right); }
 
+    private record PairNames(String left, String right, String tail) {}
+
+    private PairNames pairNames() {
+        String[] a = leftArg().purpose.trim().split(" "), b = rightArg().purpose.trim().split(" ");
+        int k = 0;
+        while (k < a.length - 1 && k < b.length - 1
+                && a[a.length - 1 - k].equalsIgnoreCase(b[b.length - 1 - k])) k++;
+        String l = String.join(" ", java.util.Arrays.copyOf(a, a.length - k));
+        String r = String.join(" ", java.util.Arrays.copyOf(b, b.length - k));
+        String tail = String.join(" ", java.util.Arrays.copyOfRange(a, a.length - k, a.length));
+        return new PairNames(beforeFor(l), beforeFor(r), tail);
+    }
+
+    private static String beforeFor(String s) {
+        int cut = s.indexOf(" для ");
+        return cut > 0 ? s.substring(0, cut) : s;
+    }
+
+    private static String lowerFirst(String s) {
+        if (s.length() < 2 || Character.isUpperCase(s.charAt(1))) return s;
+        return Character.toLowerCase(s.charAt(0)) + s.substring(1);
+    }
+
+    private String pairTitle(int room) {
+        PairNames n = pairNames();
+        String both = n.left() + " и " + lowerFirst(n.right());
+        String full = n.tail().isEmpty() ? both : both + " " + n.tail();
+        return tr.width(full) <= room ? full : both;
+    }
+
     private Value pairTable() {
         Value t = Value.of(Value.MAP);
         List<Value> a = node.values.get(left), b = node.values.get(right);
@@ -247,11 +299,10 @@ public final class ValueEditor implements Overlay {
         buildForm();
     }
 
-    private ValueEditor(Value value, String purpose, Font tr,
+    private ValueEditor(Value value, Catalog.Arg arg, Font tr,
                         int anchorX, int anchorY, int screenW, int screenH,
                         List<NamePick.Known> knownVars, List<String> knownParams, Cell done) {
-        this(null, -1, Catalog.Arg.cell(purpose), done, tr, anchorX, anchorY,
-                screenW, screenH, knownVars, knownParams);
+        this(null, -1, arg, done, tr, anchorX, anchorY, screenW, screenH, knownVars, knownParams);
         values.add(value.copy());
         this.before = json(values);
         buildForm();
@@ -261,7 +312,10 @@ public final class ValueEditor implements Overlay {
                                       Font tr, int anchorX, int anchorY,
                                       int screenW, int screenH, List<NamePick.Known> knownVars,
                                       List<String> knownParams, Cell done) {
-        ValueEditor editor = new ValueEditor(value, purpose, tr, anchorX, anchorY,
+        String type = onlyKind == null ? "" : Values.kindName(onlyKind);
+        Catalog.Arg arg = Catalog.TYPE_COLORS.containsKey(type)
+                ? Catalog.Arg.cell(purpose, type) : Catalog.Arg.cell(purpose);
+        ValueEditor editor = new ValueEditor(value, arg, tr, anchorX, anchorY,
                 screenW, screenH, knownVars, knownParams, done);
         editor.onlyKind = onlyKind;
         return editor;
@@ -281,6 +335,7 @@ public final class ValueEditor implements Overlay {
         if (itemStudio != null) itemStudio.resize(sw, sh);
         if (studio != null) studio.resize(sw, sh);
         if (lines != null) lines.resize(sw, sh);
+        if (numbers != null) numbers.resize(sw, sh);
         menu = null;
         colors = null;
         readForm();
@@ -327,6 +382,11 @@ public final class ValueEditor implements Overlay {
     public int argIndex() { return argIndex; }
     public int selected() { return sel; }
     public boolean pickInWorld() { return pickInWorld; }
+
+    public void allowWorld() { worldAllowed = true; }
+
+    public Value edited() { return current(); }
+
 
     private final Form form = new Form(CAP, GAP);
 
@@ -392,7 +452,7 @@ public final class ValueEditor implements Overlay {
         form.clear();
         paramChips = null;
         kindChips = null;
-        elemChips = null;
+        newElemAt = -1;
         targetChips = null;
         scopeChips = null;
         modeChips = null;
@@ -450,19 +510,21 @@ public final class ValueEditor implements Overlay {
                 if (Value.ENUM.equals(v.typeKey)) {
                     gap();
                     cap("ВАРИАНТЫ");
-                    if (!v.elements.isEmpty()) {
-                        elemChips = new Ui.Chips(tr, elementNames(v), inner(), ctrlH - 2, 3);
-                        part("elems", elemChips.height());
-                    }
-                    inputs("newelem", new String[]{"ДОБАВИТЬ ВАРИАНТ"}, "");
-                    part("addelem", ctrlH);
+                    part("elems", Math.max(1, v.elements.size()) * (rowH + 2) - 2);
+                    gap();
+                    newElemAt = fields.size();
+                    fields.add(field("", "новый вариант"));
+                    part("newelem", fieldH);
                 } else {
                     gap();
                     cap("ЧТО ПРИНИМАЕТ");
                     paramChips = new Ui.Chips(tr, Values.paramTypeNames(), inner(), ctrlH - 2, 3);
                     part("ptypes", paramChips.height());
                     gap();
-                    part("flags", ctrlH);
+                    part("flags", Value.PLURAL.equals(v.typeKey) ? ctrlH * 2 + FLAG_GAP : ctrlH);
+                    gap();
+                    cap("ПО УМОЛЧАНИЮ");
+                    part("pdefault", rowH);
                 }
             }
             case Value.LOCATION, Value.VECTOR -> {
@@ -472,7 +534,7 @@ public final class ValueEditor implements Overlay {
                         Value.num(v.z), Value.num(v.yaw), Value.num(v.pitch));
                 else inputs("coords", XYZ, Value.num(v.x), Value.num(v.y), Value.num(v.z));
                 part("coords+", stepH + 4);
-                if (loc && node != null) {
+                if (loc && (node != null || worldAllowed) && !Env.browser()) {
                     gap();
                     part("world", btnH);
                 }
@@ -504,7 +566,7 @@ public final class ValueEditor implements Overlay {
                 gap();
                 part("choose", btnH);
                 gap();
-                inputs("nums", new String[]{"СКОЛЬКО", "РАЗЛЁТ", "РАЗЛЁТ ПО Y"},
+                inputs("nums", new String[]{"СКОЛЬКО", "РАЗБРОС", "РАЗБРОС ПО Y"},
                         String.valueOf(v.count), Value.num(v.spread1), Value.num(v.spread2));
                 Pickers.Entry pe = Pickers.particle(v.particle);
                 if (pe != null && pe.has(Pickers.MOTION)) {
@@ -707,12 +769,13 @@ public final class ValueEditor implements Overlay {
         List<Value> where = key ? holder.keys : holder.items;
         while (where.size() <= index) where.add(Value.blank());
         Value now = where.get(index);
-        String purpose = paired() ? (key ? leftArg() : rightArg()).purpose + " · " + (index + 1)
+        String purpose = paired()
+                ? (key ? pairNames().left() : pairNames().right()) + ", строка " + (index + 1)
                 : Value.MAP.equals(holder.type)
                 ? (key ? "Ключ " + (index + 1) : "Значение " + (index + 1))
                 : "Значение " + (index + 1) + " в списке";
-        nested = new ValueEditor(now, purpose, tr, x + 12, y + 12, screenW, screenH,
-                knownVars, knownParams, edited -> where.set(index, edited));
+        nested = new ValueEditor(now, Catalog.Arg.cell(purpose), tr, x + 12, y + 12,
+                screenW, screenH, knownVars, knownParams, edited -> where.set(index, edited));
     }
 
     private void slotDropped() {
@@ -759,6 +822,7 @@ public final class ValueEditor implements Overlay {
         if (studio != null) return studio;
         if (lines != null) return lines;
         if (itemPicker != null) return itemPicker;
+        if (numbers != null) return numbers;
         return itemStudio;
     }
 
@@ -771,6 +835,7 @@ public final class ValueEditor implements Overlay {
         else if (top == lines) lines = null;
         else if (top == itemPicker) itemPicker = null;
         else if (top == itemStudio) itemStudio = null;
+        else if (top == numbers) numbers = null;
         rebuildIfNeeded();
     }
 
@@ -801,13 +866,57 @@ public final class ValueEditor implements Overlay {
     }
 
     private int frameW(int sw) {
-        return touch ? Math.max(60, sw - Ui.margin(sw) * 2) : Ui.fitW(sw, WIDTH);
+        return touch ? Math.max(60, sw - Ui.margin(sw) * 2) : sizer.w(sw, Ui.fitW(sw, WIDTH));
+    }
+
+    private void reflow() {
+        int was = focus;
+        int at = fields.isEmpty() ? 0 : fields.get(focus).getCursorPosition();
+        w = frameW(screenW);
+        compact = false;
+        readForm();
+        buildForm();
+        if (was <= 0 || was >= fields.size()) {
+            if (!fields.isEmpty()) {
+                EditBox f = fields.get(0);
+                int p = Math.min(at, f.getValue().length());
+                f.setCursorPosition(p);
+                f.setHighlightPos(p);
+            }
+            return;
+        }
+        focus(was, false);
+        EditBox f = fields.get(was);
+        int p = Math.min(at, f.getValue().length());
+        f.setCursorPosition(p);
+        f.setHighlightPos(p);
+    }
+
+    private boolean numberToggle() { return !paired() && Value.NUMBER.equals(current().type); }
+
+    private int toggleX() { return x + w - PAD - 14 - 6 - 14; }
+
+    private void openNumbers() {
+        readForm();
+        EditBox f = fields.get(0);
+        String title = arg.purpose.isEmpty() ? "Число" : arg.purpose;
+        numbers = new NumberStudio(tr, screenW, screenH, title, f.getValue(), f.getCursorPosition(),
+                Values.color(Value.NUMBER), timeUnit(), (text, at) -> {
+                    focus(0, false);
+                    EditBox g = fields.get(0);
+                    g.setValue(text);
+                    g.setCursorPosition(at);
+                    g.setHighlightPos(at);
+                    afterTyping();
+                });
     }
 
     private void layout() {
         int contentH = HEAD_H + 4 + listH() + CAP + railH() + GAP + 4 + form.height() + 7;
         naturalH = contentH + footH;
-        h = touch ? Math.max(60, screenH - Ui.margin(screenH) * 2) : Ui.fitH(screenH, naturalH);
+        int auto = Ui.fitH(screenH, naturalH);
+        h = touch ? Math.max(60, screenH - Ui.margin(screenH) * 2)
+                  : Math.min(auto, sizer.h(screenH, auto));
         if (!placed && touch) {
             placed = true;
             x = Ui.margin(screenW);
@@ -832,6 +941,7 @@ public final class ValueEditor implements Overlay {
 
     private void placeFields() {
         form.place(fields, x + PAD, inner(), formY(), fieldH, Value.NUMBER.equals(current().type));
+        placeNewElement();
     }
 
     private static final int[] AXIS_INK = {0xF0605E, 0x8FD94F, 0x5B8CF5, 0xFFD54A, 0xFFD54A};
@@ -962,9 +1072,29 @@ public final class ValueEditor implements Overlay {
         return true;
     }
 
+    private boolean timed(int field) {
+        String kind = current().type;
+        return field == 0 && (Value.NUMBER.equals(kind) || Value.POTION.equals(kind));
+    }
+
+    private Ticks.Unit timeUnit() {
+        if (Value.POTION.equals(current().type)) return Ticks.Unit.TICKS;
+        return Ticks.unitFor(arg == null ? "" : arg.purpose, node);
+    }
+
+    private Double timeIn(int field) {
+        if (!timed(field) || field >= fields.size()) return null;
+        return Ticks.convert(fields.get(field).getValue(), timeUnit());
+    }
+
+    private double numberIn(int field) {
+        Double time = timeIn(field);
+        return time != null ? time : parse(fields.get(field).getValue());
+    }
+
     private void nudge(int field, double delta) {
         if (focus != field) focus(field);
-        double now = parse(fields.get(field).getValue());
+        double now = numberIn(field);
         setNumber(field, Math.round((now + delta) * 1e6) / 1e6);
     }
 
@@ -980,7 +1110,7 @@ public final class ValueEditor implements Overlay {
         boolean hov = Ui.hit(mouseX, mouseY, ux - 2, uy - 2, uw + 2, CAP + 2);
         Draw.text(ctx, tr, UNIFORM, ux, uy, on || hov ? Theme.TEXT : Theme.TEXT_FAINT, false);
         int kw = 12, kh = 6, kx = ux + uw - kw, ky = uy + 1;
-        Draw.pill(ctx, kx, ky, kw, kh, Draw.opaque(on ? current().color() : 0x39414F));
+        Draw.pill(ctx, kx, ky, kw, kh, Draw.opaque(on ? current().color() : Theme.KNOB_OFF));
         Draw.round(ctx, on ? kx + kw - 5 : kx + 1, ky + 1, 4, kh - 2, 2,
                 Draw.opaque(on ? 0xFFFFFF : 0x8A93A6));
         if (hov) ctx.setComponentTooltipForNextFrame(tr, List.of(Component.literal(
@@ -1050,6 +1180,11 @@ public final class ValueEditor implements Overlay {
 
     private void settle(int field) {
         if (field < 0 || field >= fields.size()) return;
+        Double time = timeIn(field);
+        if (time != null) {
+            fields.get(field).setValue(Value.num(time));
+            return;
+        }
         Form.Row r = rowAt(field);
         if (r == null || !angle(r, field - r.from())) return;
         String typed = fields.get(field).getValue().trim();
@@ -1106,6 +1241,10 @@ public final class ValueEditor implements Overlay {
     }
 
     private void focus(int i) {
+        focus(i, true);
+    }
+
+    private void focus(int i, boolean toStart) {
         if (fields.isEmpty()) return;
         complete.reset();
         int was = focus;
@@ -1116,7 +1255,7 @@ public final class ValueEditor implements Overlay {
             f.setFocused(k == focus);
             if (k != focus) f.setHighlightPos(f.getCursorPosition());
         }
-        fields.get(focus).moveCursorToStart(false);
+        if (toStart) fields.get(focus).moveCursorToStart(false);
         Form.Row r = rowAt(focus);
         if (r != null) stepCols.put(r.id(), focus - r.from());
     }
@@ -1146,6 +1285,7 @@ public final class ValueEditor implements Overlay {
         pane.drawBar(ctx, bodyBar, x + w - 4, y, mouseX, mouseY);
         Ui.hairline(ctx, x + 1, footY() - 1, w - 2);
         drawFooter(ctx, mouseX, mouseY, accent);
+        if (!touch) sizer.draw(ctx, mouseX, mouseY, x, y, w, h);
 
         if (colors != null) {
             ctx.nextStratum();
@@ -1174,22 +1314,26 @@ public final class ValueEditor implements Overlay {
         int tc = Catalog.TYPE_COLORS.getOrDefault(arg.type, 0xAAAAAA);
         int closeX0 = x + w - PAD - 14;
         boolean grab = dragging || (Ui.hit(mouseX, mouseY, x, y, w, HEAD_H)
-                && !Ui.hit(mouseX, mouseY, closeX0, y + 6, 14, 14));
+                && !Ui.hit(mouseX, mouseY, closeX0, y + 6, 14, 14)
+                && !(numberToggle() && Ui.hit(mouseX, mouseY, toggleX(), y + 6, 14, 14)));
         Ui.headerStrip(ctx, x, y, w, HEAD_H, grab ? Draw.shade(tc, 0.22f) : tc);
         if (grab) ctx.requestCursor(CursorTypes.RESIZE_ALL);
         Draw.round(ctx, x + PAD, y + 8, 3, 10, 1, Draw.opaque(tc));
 
-        String type = paired() ? "пары ×" + cellMax(current())
-                : arg.type + (list() ? " ×" + arg.capacity : "");
-        int badgeW = Draw.badgeWidth(tr, type);
+        String type = paired() ? "" : Values.shortType(arg.type) + (list() ? " ×" + arg.capacity : "");
+        int badgeW = type.isEmpty() ? -4 : Draw.badgeWidth(tr, type);
         int closeX = closeX0;
-        String title = paired() ? leftArg().purpose + " = " + rightArg().purpose
+        int room = closeX - badgeW - 12 - (x + PAD + 9) - (numberToggle() ? 20 : 0);
+        String title = paired() ? pairTitle(room)
                 : arg.purpose.isEmpty() ? "Значение" : arg.purpose;
         if (!langs.current().isEmpty()) title += " · " + langs.current();
-        Draw.textFit(ctx, tr, title,
-                x + PAD + 9, y + 9, closeX - badgeW - 12 - (x + PAD + 9), Theme.TEXT, false);
-        Draw.badge(ctx, tr, type, closeX - badgeW - 8, y + 8,
-                Draw.opaque(Draw.shade(tc, -0.68f)), Draw.shade(tc, 0.2f));
+        Draw.textFit(ctx, tr, title, x + PAD + 9, y + 9, room, Theme.TEXT, false);
+        int badgeX = closeX - badgeW - 8 - (numberToggle() ? 20 : 0);
+        if (!type.isEmpty())
+            Draw.badge(ctx, tr, type, badgeX, y + 8,
+                    Draw.opaque(Draw.shade(tc, -0.68f)), Draw.shade(tc, 0.2f));
+        if (numberToggle())
+            Ui.iconButton(ctx, mouseX, mouseY, toggleX(), y + 6, 14, Draw.FIT, Ui.GHOST, true);
         Ui.closeButton(ctx, mouseX, mouseY, closeX, y + 6, 14);
         Ui.hairline(ctx, x + 1, y + HEAD_H, w - 2);
     }
@@ -1346,8 +1490,11 @@ public final class ValueEditor implements Overlay {
                 Ui.placeholder(ctx, tr, fields.get(0));
                 if (has("note")) {
                     String text = fields.get(0).getValue().trim();
-                    boolean bad = !text.isEmpty() && !formula(text) && !isNumber(text);
-                    if (bad) Draw.textFit(ctx, tr, "не число — сохранится 0",
+                    Double time = timeIn(0);
+                    boolean bad = time == null && !text.isEmpty() && !formula(text) && !isNumber(text);
+                    if (time != null) Draw.textFit(ctx, tr, "= " + Value.num(time),
+                            x + PAD + 2, py("note") + 2, full - 4, Theme.OK, false);
+                    else if (bad) Draw.textFit(ctx, tr, "не число — сохранится 0",
                             x + PAD + 2, py("note") + 2, full - 4, Theme.DANGER, false);
                 }
             }
@@ -1367,23 +1514,18 @@ public final class ValueEditor implements Overlay {
                     kindChips.render(ctx, tr, mouseX, mouseY, x + PAD, py("pkinds"),
                             Math.max(0, PARAM_KINDS.indexOf(v.typeKey)), accent);
                 if (Value.ENUM.equals(v.typeKey)) {
-                    if (elemChips != null)
-                        elemChips.render(ctx, tr, mouseX, mouseY, x + PAD, py("elems"),
-                                defaultElementIndex(v), accent);
-                    drawFieldRow(ctx, mouseX, mouseY, delta, rowOf("newelem"));
-                    Ui.button(ctx, tr, mouseX, mouseY, x + PAD, py("addelem"), full, ctrlH,
-                            "добавить вариант", Ui.GHOST, canAddElement(v));
+                    drawElements(ctx, v, mouseX, mouseY, accent);
+                    drawNewElement(ctx, v, mouseX, mouseY, delta);
                 } else {
                     if (paramChips != null)
                         paramChips.render(ctx, tr, mouseX, mouseY, x + PAD, py("ptypes"),
                                 Math.max(0, PARAM_TYPES.indexOf(v.valueType)), accent);
-                    boolean plural = Value.PLURAL.equals(v.typeKey);
-                    int half = (full - GAP) / 2;
-                    Ui.toggle(ctx, tr, mouseX, mouseY, x + PAD, py("flags"),
-                            plural ? half : full, ctrlH, "обязательный", v.required);
-                    if (plural)
-                        Ui.toggle(ctx, tr, mouseX, mouseY, x + PAD + half + GAP, py("flags"),
-                                full - half - GAP, ctrlH, "пропускать пустые", v.ignoreEmpty);
+                    Ui.toggle(ctx, tr, mouseX, mouseY, x + PAD, py("flags"), full, ctrlH,
+                            "обязательный", v.required);
+                    if (Value.PLURAL.equals(v.typeKey))
+                        Ui.toggle(ctx, tr, mouseX, mouseY, x + PAD, py("flags") + ctrlH + FLAG_GAP,
+                                full, ctrlH, "игнорировать пустые значения", v.ignoreEmpty);
+                    drawDefault(ctx, v, mouseX, mouseY);
                 }
             }
             case Value.LOCATION, Value.VECTOR -> {
@@ -1477,13 +1619,16 @@ public final class ValueEditor implements Overlay {
                         e == null ? "" : e.category, e == null ? "" : e.description, "");
                 drawChoose(ctx, mouseX, mouseY, e != null, "Выбрать эффект", "Другой эффект");
                 drawFieldRow(ctx, mouseX, mouseY, delta, rowOf("nums"));
-                if (has("note"))
-                    Draw.textFit(ctx, tr, "-1 — бесконечно",
-                            x + PAD + 2, py("note") + 2, full - 4, Theme.TEXT_FAINT, false);
+                if (has("note")) {
+                    Double time = timeIn(0);
+                    Draw.textFit(ctx, tr, time != null ? "= " + Value.num(time) : "-1 — бесконечно",
+                            x + PAD + 2, py("note") + 2, full - 4, time != null ? Theme.OK : Theme.TEXT_FAINT,
+                            false);
+                }
             }
             case Value.GAME_VALUE -> {
                 Values.GameValue g = Values.gameValue(v.gameValue);
-                drawEntryCard(ctx, g == null ? null : g.item,
+                drawEntryCard(ctx, g == null ? null : g.icon(),
                         g == null ? "значение не выбрано" : g.name,
                         g == null ? "" : g.category, g == null ? "" : g.description,
                         g == null ? "" : g.returns);
@@ -1514,53 +1659,45 @@ public final class ValueEditor implements Overlay {
         boolean map = Value.MAP.equals(v.type);
         int top = py("cells"), full = inner();
         int count = cellCount(v), rows = cellRows(v);
-        Draw.textRight(ctx, tr, count + "/" + cellMax(v), x + PAD + full, top - CAP,
-                Theme.TEXT_FAINT, false);
+        if (!paired())
+            Draw.textRight(ctx, tr, count + "/" + cellMax(v), x + PAD + full, top - CAP,
+                    Theme.TEXT_FAINT, false);
 
         int rw = cellRowW(v);
         if (paired()) {
             int halfW = keyW(rw);
-            Draw.textFit(ctx, tr, leftArg().purpose.toUpperCase(), x + PAD + 18, top - CAP, halfW,
+            PairNames n = pairNames();
+            Draw.textFit(ctx, tr, n.left().toUpperCase(), x + PAD + 18, top - CAP, halfW,
                     Theme.TEXT_FAINT, false);
-            Draw.textFit(ctx, tr, rightArg().purpose.toUpperCase(), x + PAD + 29 + halfW, top - CAP,
-                    rw - 31 - halfW - tr.width(count + "/" + cellMax(v)) - 6, Theme.TEXT_FAINT, false);
+            Draw.textFit(ctx, tr, n.right().toUpperCase(), x + PAD + 29 + halfW, top - CAP,
+                    full - 29 - halfW, Theme.TEXT_FAINT, false);
         }
         if (count == 0) {
             Draw.round(ctx, x + PAD, top, full, rowH, Ui.R_SM, Draw.opaque(Ui.WELL));
-            Draw.textFit(ctx, tr, map ? "пар пока нет" : "значений пока нет", x + PAD + 8,
-                    top + 5, full - 16, Theme.TEXT_FAINT, false);
+            Draw.textFit(ctx, tr, paired() ? "пока пусто" : map ? "пар пока нет" : "значений пока нет",
+                    x + PAD + 8, top + 5, full - 16, Theme.TEXT_FAINT, false);
         }
+        boolean carrying = carrying(v);
+        if (carrying) {
+            followEdge(v, top, rows);
+            mouseX = mouseY = Integer.MIN_VALUE;
+        }
+        int target = carrying ? cellTarget(v, top, rows) : -1;
         for (int r = 0; r < rows; r++) {
             int i = cellScroll + r;
             if (i >= count) break;
             int ry = top + r * (rowH + 2);
-            Draw.round(ctx, x + PAD, ry, rw, rowH, Ui.R_SM, Draw.opaque(Ui.WELL));
-            boolean half = map && paired() && v.keys.get(i).isBlank() != value(v, i).isBlank();
-            Draw.textRight(ctx, tr, String.valueOf(i + 1), x + PAD + 15, ry + 5,
-                    half ? Theme.DANGER : Theme.TEXT_FAINT, false);
-            if (map) {
-                int halfW = keyW(rw);
-                cellChip(ctx, v.keys.get(i), x + PAD + 18, ry, halfW, mouseX, mouseY);
-                String[] link = paired() ? Draw.EQUAL : Draw.ARROW_RIGHT;
-                Draw.glyph(ctx, link, x + PAD + 20 + halfW + (paired() ? 1 : 0),
-                        ry + (rowH - Draw.glyphH(link)) / 2, Theme.TEXT_FAINT);
-                cellChip(ctx, value(v, i), x + PAD + 29 + halfW, ry, rw - 31 - halfW,
-                        mouseX, mouseY);
-            } else {
-                Value it = v.items.get(i);
-                boolean hov = Ui.hit(mouseX, mouseY, x + PAD, ry, rw, rowH);
-                if (hov) Draw.round(ctx, x + PAD, ry, rw, rowH, Ui.R_SM, Draw.opaque(Ui.ROW_HOVER));
-                Draw.dot(ctx, x + PAD + 20, ry + 6, Draw.opaque(it.color()));
-                String note = it.note();
-                int noteW = note.isEmpty() ? 0 : tr.width(note) + 8;
-                Draw.textFit(ctx, tr, it.isBlank() ? "пусто" : Layout.display(it),
-                        x + PAD + 28, ry + 5, rw - 34 - noteW,
-                        it.isBlank() ? Theme.TEXT_FAINT : (hov ? Theme.TEXT : Theme.TEXT_DIM), false);
-                if (!note.isEmpty())
-                    Draw.textRight(ctx, tr, note, x + PAD + rw - 6, ry + 5, Theme.TEXT_FAINT, false);
+            if (i == target) {
+                Draw.round(ctx, x + PAD, ry, rw, rowH, Ui.R_SM, Draw.opaque(Draw.shade(Ui.WELL, -0.35f)));
+                Draw.roundOutline(ctx, x + PAD, ry, rw, rowH, Ui.R_SM,
+                        Draw.opaque(Draw.shade(Theme.ACCENT, -0.55f)));
+                continue;
             }
+            int src = carrying ? sourceAt(i, cellDrag, target) : i;
+            drawCellRow(ctx, v, src, i + 1, ry, rw, mouseX, mouseY, false);
             Ui.iconButton(ctx, mouseX, mouseY, x + PAD + full - rowH, ry, rowH,
                     Draw.CROSS, Ui.DANGER, true);
+            Ui.dragZone(x + PAD, ry, 16, rowH);
         }
         if (maxCellScroll(v) > 0)
             cellBar.draw(ctx, x + PAD + rw + 1, top, rows * (rowH + 2),
@@ -1568,7 +1705,237 @@ public final class ValueEditor implements Overlay {
                     mouseX, mouseY);
         if (canAddCell(v))
             Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, top + rows * (rowH + 2), full, addH,
-                    Draw.PLUS, map ? "добавить пару" : "добавить значение", Ui.GHOST, true);
+                    Draw.PLUS, paired() ? "добавить строку" : map ? "добавить пару" : "добавить значение",
+                    Ui.GHOST, true);
+        if (!carrying) return;
+        ctx.nextStratum();
+        int fy = carriedY(top, rows);
+        Draw.shadow(ctx, x + PAD, fy, rw, rowH, Ui.R_SM);
+        drawCellRow(ctx, v, cellDrag, target + 1, fy, rw, Integer.MIN_VALUE, Integer.MIN_VALUE, true);
+        Draw.roundOutline(ctx, x + PAD, fy, rw, rowH, Ui.R_SM, Draw.opaque(Theme.ACCENT));
+        ctx.requestCursor(CursorTypes.RESIZE_NS);
+    }
+
+    private void drawCellRow(GuiGraphicsExtractor ctx, Value v, int i, int shown, int ry, int rw,
+                             int mouseX, int mouseY, boolean lifted) {
+        boolean map = Value.MAP.equals(v.type);
+        Draw.round(ctx, x + PAD, ry, rw, rowH, Ui.R_SM, Draw.opaque(lifted ? Ui.ROW_HOVER : Ui.WELL));
+        boolean half = map && paired() && v.keys.get(i).isBlank() != value(v, i).isBlank();
+        Draw.textRight(ctx, tr, String.valueOf(shown), x + PAD + 15, ry + 5,
+                half ? Theme.DANGER : Theme.TEXT_FAINT, false);
+        if (map) {
+            int halfW = keyW(rw);
+            cellChip(ctx, v.keys.get(i), x + PAD + 18, ry, halfW, mouseX, mouseY);
+            String[] link = paired() ? Draw.EQUAL : Draw.ARROW_RIGHT;
+            Draw.glyph(ctx, link, x + PAD + 20 + halfW + (paired() ? 1 : 0),
+                    ry + (rowH - Draw.glyphH(link)) / 2, Theme.TEXT_FAINT);
+            cellChip(ctx, value(v, i), x + PAD + 29 + halfW, ry, rw - 31 - halfW,
+                    mouseX, mouseY);
+            return;
+        }
+        Value it = v.items.get(i);
+        boolean hov = lifted || Ui.hit(mouseX, mouseY, x + PAD, ry, rw, rowH);
+        if (hov && !lifted) Draw.round(ctx, x + PAD, ry, rw, rowH, Ui.R_SM, Draw.opaque(Ui.ROW_HOVER));
+        Draw.dot(ctx, x + PAD + 20, ry + 6, Draw.opaque(it.color()));
+        String note = it.note();
+        int noteW = note.isEmpty() ? 0 : tr.width(note) + 8;
+        Draw.textFit(ctx, tr, it.isBlank() ? "пусто" : Layout.display(it),
+                x + PAD + 28, ry + 5, rw - 34 - noteW,
+                it.isBlank() ? Theme.TEXT_FAINT : (hov ? Theme.TEXT : Theme.TEXT_DIM), false);
+        if (!note.isEmpty())
+            Draw.textRight(ctx, tr, note, x + PAD + rw - 6, ry + 5, Theme.TEXT_FAINT, false);
+    }
+
+    private boolean carrying(Value v) {
+        return cellDrag >= 0 && cellMoved && cellDrag < cellCount(v);
+    }
+
+    private int carriedY(int top, int rows) {
+        int fy = lastMy - cellGrabY;
+        return Math.max(top, Math.min(top + (rows - 1) * (rowH + 2), fy));
+    }
+
+    private int cellTarget(Value v, int top, int rows) {
+        int center = carriedY(top, rows) + rowH / 2;
+        int r = Math.floorDiv(center - top + 1, rowH + 2);
+        int visible = Math.min(rows, cellCount(v) - cellScroll);
+        return cellScroll + Math.max(0, Math.min(visible - 1, r));
+    }
+
+    private static int sourceAt(int at, int from, int to) {
+        int rest = at < to ? at : at - 1;
+        return rest < from ? rest : rest + 1;
+    }
+
+    private void followEdge(Value v, int top, int rows) {
+        long now = System.currentTimeMillis();
+        if (now - cellEdgeAt < EDGE_SCROLL_MS) return;
+        int step = lastMy < top + 4 ? -1 : lastMy > top + rows * (rowH + 2) - 6 ? 1 : 0;
+        int next = Math.max(0, Math.min(maxCellScroll(v), cellScroll + step));
+        if (next == cellScroll) return;
+        cellScroll = next;
+        cellEdgeAt = now;
+    }
+
+    private void cellDropped() {
+        if (cellDrag < 0) return;
+        int from = cellDrag, action = cellAction;
+        boolean moved = cellMoved;
+        cellDrag = -1;
+        cellMoved = false;
+        if (!has("cells")) return;
+        Value v = current();
+        if (from >= cellCount(v)) return;
+        if (!moved) {
+            if (action != CELL_NONE) openCell(v, action == CELL_KEY, from);
+            return;
+        }
+        int to = cellTarget(v, py("cells"), cellRows(v));
+        if (to == from) return;
+        readForm();
+        if (Value.MAP.equals(v.type)) {
+            while (v.items.size() < v.keys.size()) v.items.add(Value.blank());
+            v.keys.add(to, v.keys.remove(from));
+        }
+        v.items.add(to, v.items.remove(from));
+        cellScroll = Math.max(0, Math.min(maxCellScroll(v), cellScroll));
+        buildForm();
+    }
+
+    private void drawDefault(GuiGraphicsExtractor ctx, Value p, int mouseX, int mouseY) {
+        int ry = py("pdefault"), full = inner();
+        if (p.required) {
+            Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, ry, full, rowH, Draw.LOCK,
+                    "только у необязательного", Ui.GHOST, false);
+            return;
+        }
+        Value d = Functions.defaultOf(p);
+        if (d == null) {
+            Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, ry, full, rowH, Draw.PLUS,
+                    "задать значение", Ui.GHOST, true);
+            return;
+        }
+        int rw = full - rowH - 2;
+        boolean hov = Ui.hit(mouseX, mouseY, x + PAD, ry, rw, rowH);
+        Draw.round(ctx, x + PAD, ry, rw, rowH, Ui.R_SM, Draw.opaque(hov ? Ui.ROW_HOVER : Ui.WELL));
+        Draw.dot(ctx, x + PAD + 6, ry + 6, Draw.opaque(d.color()));
+        String note = d.note();
+        int noteW = note.isEmpty() ? 0 : tr.width(note) + 8;
+        Draw.textFit(ctx, tr, Layout.display(d), x + PAD + 14, ry + 5, rw - 20 - noteW,
+                hov ? Theme.TEXT : Theme.TEXT_DIM, false);
+        if (!note.isEmpty())
+            Draw.textRight(ctx, tr, note, x + PAD + rw - 6, ry + 5, Theme.TEXT_FAINT, false);
+        Ui.iconButton(ctx, mouseX, mouseY, x + PAD + full - rowH, ry, rowH, Draw.CROSS, Ui.DANGER, true);
+    }
+
+    private int elementRowY(int i) { return py("elems") + i * (rowH + 2); }
+
+    private int elementAt(Value p, int mx, int my) {
+        if (!has("elems")) return -1;
+        for (int i = 0; i < p.elements.size(); i++)
+            if (Ui.hit(mx, my, x + PAD, elementRowY(i), inner(), rowH)) return i;
+        return -1;
+    }
+
+    private void drawElements(GuiGraphicsExtractor ctx, Value p, int mouseX, int mouseY, int accent) {
+        int top = py("elems"), full = inner();
+        Draw.textRight(ctx, tr, String.valueOf(p.elements.size()), x + PAD + full, top - CAP,
+                Theme.TEXT_FAINT, false);
+        if (p.elements.isEmpty()) {
+            Draw.round(ctx, x + PAD, top, full, rowH, Ui.R_SM, Draw.opaque(Ui.WELL));
+            Draw.textFit(ctx, tr, "вариантов пока нет", x + PAD + 8, top + (rowH - Ui.TEXT_H) / 2,
+                    full - 16, Theme.TEXT_FAINT, false);
+            return;
+        }
+        int rw = full - rowH - 2;
+        for (int i = 0; i < p.elements.size(); i++) {
+            Value.Elem e = p.elements.get(i);
+            int ry = elementRowY(i);
+            boolean main = e.name.equals(p.defaultElement);
+            boolean hov = Ui.hit(mouseX, mouseY, x + PAD, ry, rw, rowH);
+            Draw.round(ctx, x + PAD, ry, rw, rowH, Ui.R_SM, Draw.opaque(hov ? Ui.ROW_HOVER : Ui.WELL));
+            int rx = x + PAD + 6, rcy = ry + (rowH - 8) / 2;
+            Draw.round(ctx, rx, rcy, 8, 8, 4, Draw.opaque(main ? accent : Theme.TEXT_FAINT));
+            Draw.round(ctx, rx + 1, rcy + 1, 6, 6, 3, Draw.opaque(hov ? Ui.ROW_HOVER : Ui.WELL));
+            if (main) Draw.round(ctx, rx + 2, rcy + 2, 4, 4, 2, Draw.opaque(accent));
+            String note = main ? "по умолчанию" : hov ? "сделать по умолчанию" : "";
+            int noteW = note.isEmpty() ? 0 : tr.width(note) + 8;
+            int ty = ry + (rowH - Ui.TEXT_H) / 2;
+            Draw.textFit(ctx, tr, e.name, rx + 13, ty, rw - 25 - noteW,
+                    main || hov ? Theme.TEXT : Theme.TEXT_DIM, false);
+            if (!note.isEmpty())
+                Draw.textRight(ctx, tr, note, x + PAD + rw - 6, ty, Theme.TEXT_FAINT, false);
+            Ui.iconButton(ctx, mouseX, mouseY, x + PAD + full - rowH, ry, rowH, Draw.CROSS,
+                    Ui.DANGER, true);
+        }
+    }
+
+    private void drawNewElement(GuiGraphicsExtractor ctx, Value p, int mouseX, int mouseY, float delta) {
+        if (newElemAt < 0 || newElemAt >= fields.size()) return;
+        int ny = py("newelem"), iw = inner() - fieldH - 4;
+        if (Ui.hit(mouseX, mouseY, x + PAD, ny, iw, fieldH)) ctx.requestCursor(CursorTypes.IBEAM);
+        Ui.input(ctx, x + PAD, ny, iw, fieldH, focus == newElemAt);
+        EditBox f = fields.get(newElemAt);
+        f.extractRenderState(ctx, mouseX, mouseY, delta);
+        Ui.placeholder(ctx, tr, f);
+        boolean ok = canAddElement(p);
+        Ui.iconButton(ctx, mouseX, mouseY, x + PAD + iw + 4, ny, fieldH, Draw.PLUS,
+                ok ? Ui.ACCENT : Ui.GHOST, ok);
+    }
+
+    private void placeNewElement() {
+        if (newElemAt < 0 || newElemAt >= fields.size() || !has("newelem")) return;
+        EditBox f = fields.get(newElemAt);
+        f.setX(x + PAD + 6);
+        f.setY(py("newelem") + (fieldH - 12) / 2 + 2);
+        Ui.width(f, inner() - fieldH - 4 - 12);
+    }
+
+    private boolean elementsClicked(MouseButtonEvent click, boolean doubled, Value p, int mx, int my) {
+        int ei = elementAt(p, mx, my);
+        if (ei >= 0) {
+            boolean remove = click.button() == GLFW.GLFW_MOUSE_BUTTON_RIGHT
+                    || mx >= x + PAD + inner() - rowH;
+            readForm();
+            if (remove) {
+                String gone = p.elements.remove(ei).name;
+                if (gone.equals(p.defaultElement))
+                    p.defaultElement = p.elements.isEmpty() ? "" : p.elements.get(0).name;
+                buildForm();
+            } else {
+                p.defaultElement = p.elements.get(ei).name;
+            }
+            return true;
+        }
+        if (newElemAt < 0 || !has("newelem")) return false;
+        int ny = py("newelem"), iw = inner() - fieldH - 4;
+        if (Ui.hit(mx, my, x + PAD + iw + 4, ny, fieldH, fieldH)) {
+            addElement(p);
+            return true;
+        }
+        if (Ui.hit(mx, my, x + PAD, ny, iw, fieldH)) return takeFocus(click, doubled, newElemAt);
+        return false;
+    }
+
+    private boolean defaultClicked(Value p, int mx, int my) {
+        if (!has("pdefault") || p.required || !rowHit("pdefault", mx, my)) return false;
+        if (Functions.defaultOf(p) != null && mx >= x + PAD + inner() - rowH) {
+            p.paramDefault = "";
+            Functions.zeroDefault(p);
+            return true;
+        }
+        readForm();
+        boolean plural = Value.PLURAL.equals(p.typeKey);
+        String only = plural ? Value.ARRAY : ANY_TYPE.equals(p.valueType) ? null : p.valueType;
+        Value start = Functions.defaultOf(p);
+        if (start == null) {
+            start = Value.of(only == null ? Value.TEXT : only);
+            chosen(start);
+        }
+        String who = p.name.isBlank() ? "параметра" : "«" + p.name + "»";
+        nested = forCell(start, "По умолчанию у " + who, only, tr, x + 12, y + 12,
+                screenW, screenH, knownVars, knownParams, edited -> Functions.setDefault(p, edited));
+        return true;
     }
 
     private int cellRowW(Value v) { return inner() - rowH - 2 - (maxCellScroll(v) > 0 ? 5 : 0); }
@@ -1655,18 +2022,21 @@ public final class ValueEditor implements Overlay {
             return true;
         }
         int rw = cellRowW(v);
-        if (!map) {
-            if (!Ui.hit(mx, my, x + PAD, ry, rw, rowH)) return false;
-            openCell(v, false, i);
-            return true;
+        if (!Ui.hit(mx, my, x + PAD, ry, rw, rowH)) return false;
+        int action = CELL_VALUE;
+        if (map) {
+            int halfW = keyW(rw);
+            action = onCellChip(mx, my, x + PAD + 18, ry, halfW) ? CELL_KEY
+                    : onCellChip(mx, my, x + PAD + 29 + halfW, ry, rw - 31 - halfW) ? CELL_VALUE
+                    : CELL_NONE;
         }
-        int halfW = keyW(rw);
-        if (onCellChip(mx, my, x + PAD + 18, ry, halfW)) { openCell(v, true, i); return true; }
-        if (onCellChip(mx, my, x + PAD + 29 + halfW, ry, rw - 31 - halfW)) {
-            openCell(v, false, i);
-            return true;
-        }
-        return false;
+        cellDrag = i;
+        cellAction = action;
+        cellMoved = false;
+        cellX0 = mx;
+        cellY0 = my;
+        cellGrabY = (int) my - ry;
+        return true;
     }
 
     private void drawEntryCard(GuiGraphicsExtractor ctx, String icon, String name, String category,
@@ -1775,9 +2145,19 @@ public final class ValueEditor implements Overlay {
 
     private void drawFooter(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int accent) {
         int fy = footBtnY();
-        ctx.item(Catalog.stackOf(Values.kindItem(current().type)), x + PAD - 2, fy);
-        Draw.textFit(ctx, tr, paired() ? "пары" : Values.kindName(current().type), x + PAD + 16, fy + 4,
-                inner() - 16 - (okW + Ui.FOOT_GAP + noW + 4), Draw.shade(accent, 0.25f), false);
+        int room = inner() - (okW + Ui.FOOT_GAP + noW + 4);
+        if (flash != null && System.currentTimeMillis() - flashAt < FLASH_MS) {
+            Draw.textFit(ctx, tr, flash, x + PAD, fy + 4, room, flashBad ? Theme.DANGER : Theme.OK, false);
+        } else if (note != null) {
+            Draw.textFit(ctx, tr, note, x + PAD, fy + 4, room, Theme.TEXT_DIM, false);
+        } else if (paired()) {
+            Draw.textFit(ctx, tr, "заполнено " + cellCount(current()) + " из " + cellMax(current()),
+                    x + PAD, fy + 4, room, Theme.TEXT_DIM, false);
+        } else {
+            ctx.item(Catalog.stackOf(Values.kindItem(current().type)), x + PAD - 2, fy);
+            Draw.textFit(ctx, tr, Values.kindName(current().type), x + PAD + 16, fy + 4,
+                    room - 16, Draw.shade(accent, 0.25f), false);
+        }
         Ui.okCancel(ctx, tr, mouseX, mouseY, x + w - PAD, fy, okW, noW, footBtnH);
     }
 
@@ -1827,7 +2207,25 @@ public final class ValueEditor implements Overlay {
     public boolean contains(double mx, double my) {
         if (child() != null) return true;
         if (menu != null && menu.contains(mx, my)) return true;
-        return mx >= x && mx < x + w && my >= y && my < y + h;
+        int out = touch ? 0 : 3;
+        return mx >= x && mx < x + w + out && my >= y && my < y + h + out;
+    }
+
+    private void addAfterCurrent() {
+        readForm();
+        Value now = current();
+        Value fresh = Value.of(now.type);
+        if (Value.VARIABLE.equals(now.type)) fresh.scope = now.scope;
+        if (Value.TEXT.equals(now.type)) fresh.parsing = now.parsing;
+        int at = sel + 1;
+        values.add(at, fresh);
+        Map<Integer, Map<String, Value>> moved = new HashMap<>();
+        for (Map.Entry<Integer, Map<String, Value>> e : remembered.entrySet())
+            moved.put(e.getKey() >= at ? e.getKey() + 1 : e.getKey(), e.getValue());
+        remembered.clear();
+        remembered.putAll(moved);
+        sel = at;
+        buildForm();
     }
 
     private void breakLine(EditBox f) {
@@ -1852,11 +2250,14 @@ public final class ValueEditor implements Overlay {
 
     private void openLines(Value v, String text, int cursor) {
         readForm();
-        lines = new TextLines(tr, screenW, screenH, text, cursor, Values.color(Value.TEXT), joined -> {
-            v.text = joined;
-            fields.get(0).setValue(joined);
-            fields.get(0).moveCursorToEnd(false);
-        });
+        lines = new TextLines(tr, screenW, screenH, text, cursor, v.parsing, Values.color(Value.TEXT),
+                (joined, at) -> {
+                    v.text = joined;
+                    EditBox f = fields.get(0);
+                    f.setValue(joined);
+                    f.setCursorPosition(at);
+                    f.setHighlightPos(at);
+                });
     }
 
     private void openStudio(Value v) {
@@ -1877,7 +2278,7 @@ public final class ValueEditor implements Overlay {
                 List<CatalogPicker.Item> items = new ArrayList<>();
                 for (Values.GameValue g : Values.GAME_VALUES)
                     items.add(new CatalogPicker.Item(g.id, g.name, g.category, g.item,
-                            g.description, g.returns, g.returnsNote));
+                            g.description, g.returns, g.returnsNote, g.icon()));
                 picker = new CatalogPicker(tr, screenW, screenH, "Игровое значение",
                         Values.color(Value.GAME_VALUE), items, null, v.gameValue, null,
                         id -> v.gameValue = id);
@@ -1969,7 +2370,10 @@ public final class ValueEditor implements Overlay {
         Overlay top = child();
         if (top != null) {
             top.mouseClicked(click, doubled);
+            TextLines.Click passed = top == lines ? lines.outside() : null;
             settle(top);
+            if (passed != null && child() == null && contains(mx, my))
+                return mouseClicked(passed.event(), passed.doubled());
             return true;
         }
         if (menu != null) {
@@ -1979,9 +2383,17 @@ public final class ValueEditor implements Overlay {
         }
         if (complete.mouseClicked(mx, my)) return true;
         if (!complete.active() && names.mouseClicked(mx, my, this::pickName)) return true;
+        if (sizer.press(click, doubled, x, y, w, h)) {
+            if (!sizer.active()) reflow();
+            return true;
+        }
         if (!contains(mx, my)) { commit(); closed = true; return true; }
 
         if (Ui.hit(mx, my, x + w - PAD - 14, y + 6, 14, 14)) { commit(); closed = true; return true; }
+        if (numberToggle() && Ui.hit(mx, my, toggleX(), y + 6, 14, 14)) {
+            openNumbers();
+            return true;
+        }
 
         if (Ui.hit(mx, my, x, y, w, HEAD_H)) {
             dragging = true;
@@ -2000,7 +2412,7 @@ public final class ValueEditor implements Overlay {
         if (cellBar.grabbed(mx, my, rowH + 2, maxCellScroll(current()), v -> cellScroll = v))
             return true;
 
-        if (list() && listClicked(mx, my)) return true;
+        if (list() && listClicked(mx, my, click.button())) return true;
 
         if (localizedField() != null) {
             for (int i = 0; i < Localized.LANGS.size(); i++)
@@ -2027,18 +2439,18 @@ public final class ValueEditor implements Overlay {
             return true;
         }
 
-        if (click.button() == 1 && clearSlot(mx, my)) return true;
         if (formClicked(click, doubled, mx, my)) return true;
 
         footClicked(mx, my);
         return true;
     }
 
-    private boolean listClicked(int mx, int my) {
+    private boolean listClicked(int mx, int my, int button) {
         Catalog.Slots grid = slots();
         if (grid != null) {
             int slot = slotAt(grid, mx, my);
             if (slot < 0) return false;
+            if (button != 0) return clearSlot(mx, my);
             readForm();
             sel = slot;
             dragSlot = values.get(slot).isBlank() ? -1 : slot;
@@ -2078,21 +2490,8 @@ public final class ValueEditor implements Overlay {
         return false;
     }
 
-    private static List<String> elementNames(Value v) {
-        List<String> out = new ArrayList<>(v.elements.size());
-        for (Value.Elem e : v.elements) out.add(e.name);
-        return out;
-    }
-
-    private static int defaultElementIndex(Value v) {
-        for (int i = 0; i < v.elements.size(); i++)
-            if (v.elements.get(i).name.equals(v.defaultElement)) return i;
-        return 0;
-    }
-
     private String newElementText() {
-        Form.Row r = rowOf("newelem");
-        return r == null ? "" : fields.get(r.from()).getValue().trim();
+        return newElemAt < 0 || newElemAt >= fields.size() ? "" : fields.get(newElemAt).getValue().trim();
     }
 
     private boolean canAddElement(Value v) {
@@ -2109,6 +2508,7 @@ public final class ValueEditor implements Overlay {
         v.elements.add(new Value.Elem(name));
         if (v.defaultElement.isEmpty()) v.defaultElement = name;
         buildForm();
+        if (newElemAt >= 0) focus(newElemAt);
     }
 
     private int chip(Ui.Chips chips, int mx, int my, String row) {
@@ -2138,7 +2538,10 @@ public final class ValueEditor implements Overlay {
                 }
                 if (rowHit("studio", mx, my)) {
                     if (mx < x + PAD + (full - GAP) / 2 + GAP / 2) openStudio(v);
-                    else openLines(v, v.text, v.text.length());
+                    else {
+                        readForm();
+                        openLines(v, v.text, fields.get(0).getCursorPosition());
+                    }
                     return true;
                 }
             }
@@ -2146,7 +2549,7 @@ public final class ValueEditor implements Overlay {
                 if (Ui.hit(mx, my, x + PAD, numberCapY(), full, CAP)
                         && !formula(fields.get(0).getValue())) {
                     scrubField = 0;
-                    scrubFrom = parse(fields.get(0).getValue());
+                    scrubFrom = numberIn(0);
                     scrubX0 = click.x();
                     scrubbing = false;
                     focus(0);
@@ -2181,43 +2584,30 @@ public final class ValueEditor implements Overlay {
                     if (!picked.equals(v.typeKey)) {
                         readForm();
                         v.typeKey = picked;
+                        v.paramDefault = "";
+                        Functions.zeroDefault(v);
                         buildForm();
                     }
                     return true;
                 }
-                if (Value.ENUM.equals(v.typeKey)) {
-                    int ei = chip(elemChips, mx, my, "elems");
-                    if (ei >= 0 && ei < v.elements.size()) {
-                        if (click.button() == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-                            String gone = v.elements.remove(ei).name;
-                            if (gone.equals(v.defaultElement)) v.defaultElement = "";
-                            readForm();
-                            buildForm();
-                        } else {
-                            v.defaultElement = v.elements.get(ei).name;
-                        }
-                        return true;
-                    }
-                    if (rowFieldClicked(click, doubled, mx, my)) return true;
-                    if (Ui.hit(mx, my, x + PAD, py("addelem"), full, ctrlH)) {
-                        addElement(v);
-                        return true;
-                    }
-                    return false;
-                }
+                if (Value.ENUM.equals(v.typeKey)) return elementsClicked(click, doubled, v, mx, my);
                 int pi = chip(paramChips, mx, my, "ptypes");
-                if (pi >= 0) { v.valueType = PARAM_TYPES.get(pi); return true; }
-                boolean plural = Value.PLURAL.equals(v.typeKey);
-                int half = (full - GAP) / 2;
-                if (Ui.hit(mx, my, x + PAD, py("flags"), plural ? half : full, ctrlH)) {
-                    v.required = !v.required;
+                if (pi >= 0) {
+                    v.valueType = PARAM_TYPES.get(pi);
+                    Functions.zeroDefault(v);
                     return true;
                 }
-                if (plural && Ui.hit(mx, my, x + PAD + half + GAP, py("flags"),
-                        full - half - GAP, ctrlH)) {
+                if (Ui.hit(mx, my, x + PAD, py("flags"), full, ctrlH)) {
+                    v.required = !v.required;
+                    Functions.zeroDefault(v);
+                    return true;
+                }
+                if (Value.PLURAL.equals(v.typeKey)
+                        && Ui.hit(mx, my, x + PAD, py("flags") + ctrlH + FLAG_GAP, full, ctrlH)) {
                     v.ignoreEmpty = !v.ignoreEmpty;
                     return true;
                 }
+                if (defaultClicked(v, mx, my)) return true;
             }
             case Value.LOCATION, Value.VECTOR -> {
                 if (rowFieldClicked(click, doubled, mx, my)) return true;
@@ -2324,7 +2714,7 @@ public final class ValueEditor implements Overlay {
             for (int i = 0; i < r.count(); i++) {
                 if (scrubbable(r) && Ui.hit(mx, my, colX(r, i), ry, cw, 9)) {
                     scrubField = r.from() + i;
-                    scrubFrom = parse(fields.get(scrubField).getValue());
+                    scrubFrom = numberIn(scrubField);
                     scrubX0 = click.x();
                     scrubbing = false;
                     focus(r.from() + i);
@@ -2339,7 +2729,7 @@ public final class ValueEditor implements Overlay {
 
     private boolean takeFocus(MouseButtonEvent click, boolean doubled, int i) {
         if (i >= fields.size()) return false;
-        focus(i);
+        focus(i, false);
         EditBox f = fields.get(i);
         if (!f.mouseClicked(click, doubled)) f.onClick(click, doubled);
         return true;
@@ -2361,11 +2751,7 @@ public final class ValueEditor implements Overlay {
     private void bump(double delta) {
         EditBox f = fields.get(0);
         if (formula(f.getValue())) return;
-        double now = 0;
-        try {
-            String s = f.getValue().trim().replace(',', '.');
-            if (!s.isEmpty()) now = Double.parseDouble(s);
-        } catch (NumberFormatException ignored) { }
+        double now = numberIn(0);
         f.setValue(Value.num(now + delta));
         f.moveCursorToEnd(false);
         focus(0);
@@ -2374,8 +2760,21 @@ public final class ValueEditor implements Overlay {
     public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         Overlay top = child();
         if (top != null) return top.mouseDragged(click, dx, dy);
+        if (sizer.drag(click.x(), click.y())) {
+            reflow();
+            return true;
+        }
         if (menu != null && menu.mouseDragged(click.y())) return true;
         if (dragSlot >= 0) { slotMoved = true; return true; }
+        if (cellDrag >= 0) {
+            if (!cellMoved && Math.abs(click.x() - cellX0) + Math.abs(click.y() - cellY0) >= CELL_MOVE_PX)
+                cellMoved = true;
+            if (cellMoved) {
+                lastMx = (int) click.x();
+                lastMy = (int) click.y();
+            }
+            return true;
+        }
         if (bodyBar.dragged(click.y(), 1, pane.max(), v -> pane.scroll = v)) return true;
         if (listBar.dragged(click.y(), rowH + 2, maxListScroll(), v -> listScroll = v)) return true;
         if (cellBar.dragged(click.y(), rowH + 2, maxCellScroll(current()), v -> cellScroll = v))
@@ -2408,7 +2807,9 @@ public final class ValueEditor implements Overlay {
     }
 
     public void mouseReleased() {
+        sizer.release();
         slotDropped();
+        cellDropped();
         dragging = false;
         bodyBar.release();
         listBar.release();
@@ -2435,6 +2836,8 @@ public final class ValueEditor implements Overlay {
         if (menu != null) return menu.mouseScrolled(mx, my, amount);
         if (complete.mouseScrolled(mx, my, amount)) return true;
         if (!complete.active() && names.mouseScrolled(mx, my, amount)) return true;
+        if (has("player") && player != null && player.mouseScrolled(mx, my, amount, x + PAD,
+                py("player"), inner(), SoundPlayer.H)) return true;
         if (has("cells")) {
             Value v = current();
             if (maxCellScroll(v) > 0 && Ui.hit(mx, my, x + PAD, py("cells"), inner(),
@@ -2453,7 +2856,7 @@ public final class ValueEditor implements Overlay {
         int wheel = Env.touch() || amount == 0 ? -1 : wheelField(mx, my);
         if (wheel >= 0) {
             if (!formula(fields.get(wheel).getValue()))
-                setNumber(wheel, snap(parse(fields.get(wheel).getValue()), amount > 0 ? 1 : -1,
+                setNumber(wheel, snap(numberIn(wheel), amount > 0 ? 1 : -1,
                         step(wheel)));
             return true;
         }
@@ -2485,25 +2888,24 @@ public final class ValueEditor implements Overlay {
             return true;
         }
         if (key == GLFW.GLFW_KEY_ESCAPE) { cancelled = true; closed = true; return true; }
+        if (input.isCopy() && copyValue()) return true;
+        if (input.isCut() && cutSlot()) return true;
+        if (input.isPaste() && pasteValue()) return true;
         boolean enter = key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER;
-        if (enter && (input.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0
-                && Value.TEXT.equals(current().type) && focus == 0 && !fields.isEmpty()) {
+        boolean shift = (input.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
+        if (enter && shift && list()) {
+            if (canAdd()) addAfterCurrent();
+            return true;
+        }
+        if (enter && shift && Value.TEXT.equals(current().type) && focus == 0 && !fields.isEmpty()) {
             breakLine(fields.get(0));
             return true;
         }
+        if (enter && newElemAt >= 0 && focus == newElemAt && !newElementText().isEmpty()) {
+            addElement(current());
+            return true;
+        }
         if (enter) {
-            if (fields.size() > 1 && focus < fields.size() - 1) {
-                focus(focus + 1);
-                selectAll(fields.get(focus));
-                return true;
-            }
-            if (canAdd() && sel == values.size() - 1 && !current().isBlank()) {
-                readForm();
-                values.add(Value.of(Values.defaultKind(arg.type)));
-                sel = values.size() - 1;
-                buildForm();
-                return true;
-            }
             commit();
             closed = true;
             return true;
@@ -2528,6 +2930,138 @@ public final class ValueEditor implements Overlay {
         boolean used = fields.get(focus).charTyped(input);
         afterTyping();
         return used;
+    }
+
+    private int hoveredSlot() {
+        Catalog.Slots grid = slots();
+        return grid == null || !contains(lastMx, lastMy) ? -1 : slotAt(grid, lastMx, lastMy);
+    }
+
+    private boolean copyValue() {
+        if (paired()) return false;
+        int slot = hoveredSlot();
+        if (slot < 0 && !fields.isEmpty()) {
+            EditBox f = fields.get(focus);
+            String picked = f.getHighlighted();
+            if (!picked.isEmpty() && !picked.equals(f.getValue())) return false;
+        }
+        readForm();
+        Value v = slot >= 0 ? values.get(slot) : current();
+        if (v.isBlank()) {
+            flash("копировать нечего", true);
+            return true;
+        }
+        Clip.copyValues(List.of(v));
+        flash("скопировано «" + v.label() + "»", false);
+        return true;
+    }
+
+    private boolean cutSlot() {
+        int slot = hoveredSlot();
+        if (slot < 0) return false;
+        readForm();
+        Value v = values.get(slot);
+        if (v.isBlank()) {
+            flash("вырезать нечего", true);
+            return true;
+        }
+        Clip.copyValues(List.of(v));
+        values.set(slot, Value.of(Value.ITEM));
+        buildForm();
+        flash("вырезано «" + v.label() + "»", false);
+        return true;
+    }
+
+    private static boolean pristine(Value v) {
+        return v.isBlank() || v.toJson().toString().equals(Value.of(v.type).toJson().toString());
+    }
+
+    private boolean pasteValue() {
+        if (paired()) return false;
+        if (slots() != null) return pasteSlots();
+        List<Value> got = Clip.boardValues();
+        if (got.isEmpty()) return false;
+        List<Value> ok = new ArrayList<>(got.size());
+        for (Value v : got) if (usable(v.type)) ok.add(v);
+        if (ok.isEmpty()) {
+            flash("такое значение сюда не кладётся", true);
+            return true;
+        }
+        readForm();
+        remembered.clear();
+        int put = 0;
+        if (!list()) {
+            values.set(sel, ok.get(0).copy());
+            put = 1;
+        } else {
+            int at = sel;
+            boolean reuse = pristine(current());
+            for (Value v : ok) {
+                if (reuse) {
+                    values.set(at, v.copy());
+                    reuse = false;
+                } else {
+                    if (values.size() >= arg.capacity) break;
+                    values.add(++at, v.copy());
+                }
+                put++;
+            }
+            sel = at;
+        }
+        chosen(current());
+        clampListScroll();
+        buildForm();
+        int left = ok.size() - put;
+        flash(left > 0 ? "вставлено " + put + ", не влезло " + left
+                : put == 1 ? "вставлено «" + ok.get(0).label() + "»" : "вставлено " + put, left > 0);
+        return true;
+    }
+
+    private boolean pasteSlots() {
+        List<Clip.Placed> layout = Clip.boardSlots();
+        List<Value> got = layout.isEmpty() ? Clip.boardValues() : List.of();
+        if (layout.isEmpty() && got.isEmpty()) return false;
+        List<Clip.Placed> placed = new ArrayList<>();
+        int target = hoveredSlot();
+        if (target < 0) target = sel;
+        if (!layout.isEmpty()) {
+            for (Clip.Placed p : layout) if (usable(p.value().type)) placed.add(p);
+        } else {
+            int at = target;
+            for (Value v : got) {
+                if (!usable(v.type)) continue;
+                while (at < values.size() && at != target && !values.get(at).isBlank()) at++;
+                placed.add(new Clip.Placed(at++, v));
+            }
+        }
+        if (placed.isEmpty()) {
+            flash("такое значение сюда не кладётся", true);
+            return true;
+        }
+        readForm();
+        remembered.clear();
+        int put = 0, first = -1;
+        for (Clip.Placed p : placed) {
+            if (p.slot() >= values.size()) continue;
+            values.set(p.slot(), p.value().copy());
+            if (first < 0) first = p.slot();
+            put++;
+        }
+        if (first >= 0) sel = layout.isEmpty() ? target : first;
+        chosen(current());
+        buildForm();
+        int left = (layout.isEmpty() ? got.size() : layout.size()) - put;
+        String said = put == 1 && left == 0 ? "вставлено «" + placed.get(0).value().label() + "»"
+                : "вставлено " + put;
+        if (!layout.isEmpty()) said += " · слоты те же";
+        flash(left > 0 ? said + " · не влезло " + left : said, left > 0);
+        return true;
+    }
+
+    private void flash(String text, boolean bad) {
+        flash = text;
+        flashBad = bad;
+        flashAt = System.currentTimeMillis();
     }
 
     private void afterTyping() {
@@ -2561,9 +3095,9 @@ public final class ValueEditor implements Overlay {
     }
 
     private void syncComplete() {
-        complete.update(completable() ? fields.get(focus) : null, tr, screenW, screenH,
-                Value.NUMBER.equals(current().type));
         Value v = current();
+        complete.update(completable() ? fields.get(focus) : null, tr, screenW, screenH,
+                Value.NUMBER.equals(v.type), Value.TEXT.equals(v.type) && McText.MINI.equals(v.parsing));
         boolean named = Value.VARIABLE.equals(v.type) || Value.PARAMETER.equals(v.type);
         names.update(named && !fields.isEmpty() && focus == 0 ? fields.get(0) : null, namePool(), v.scope,
                 Value.VARIABLE.equals(v.type), tr, screenW, screenH, x, w);
@@ -2587,7 +3121,7 @@ public final class ValueEditor implements Overlay {
             case Value.NUMBER -> {
                 String typed = fields.get(0).getValue();
                 if (formula(typed)) v.numberText = typed.trim();
-                else { v.number = parse(typed); v.numberText = ""; }
+                else { v.number = numberIn(0); v.numberText = ""; }
             }
             case Value.VARIABLE -> v.name = fields.get(0).getValue().trim();
             case Value.PARAMETER -> {
@@ -2624,7 +3158,7 @@ public final class ValueEditor implements Overlay {
                 if (has("material")) v.material = Value.materialId(fields.get(fields.size() - 1).getValue());
             }
             case Value.POTION -> {
-                v.duration = (int) parse(fields.get(0).getValue());
+                v.duration = (int) numberIn(0);
                 v.amplifier = Math.max(0, (int) parse(fields.get(1).getValue()) - 1);
             }
             case Value.ITEM -> v.itemCount = Math.max(1, Math.min(99,

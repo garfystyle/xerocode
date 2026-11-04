@@ -2,7 +2,9 @@ package net.minecraft.client.gui;
 
 import com.xerocode.ui.SpriteText;
 import com.xerocode.web.Glyphs;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import net.minecraft.client.StringSplitter;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.locale.Language;
@@ -12,15 +14,26 @@ import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.StringDecomposer;
 
 public class Font {
+    private static final int WIDTHS_MAX = 20000;
+
     public final int lineHeight = 9;
     private final StringSplitter splitter;
+    private final Map<String, Integer> widths = new HashMap<>();
 
     public Font() {
         splitter = new StringSplitter((cp, style) -> SpriteText.index(cp) >= 0
                 ? SpriteText.advance() : Glyphs.advance(cp, style.isBold()));
     }
 
-    public int width(String str) { return (int) Math.ceil(splitter.stringWidth(str)); }
+    public int width(String str) {
+        if (str == null) return 0;
+        Integer known = widths.get(str);
+        if (known != null) return known;
+        int width = (int) Math.ceil(splitter.stringWidth(str));
+        if (widths.size() >= WIDTHS_MAX) widths.clear();
+        widths.put(str, width);
+        return width;
+    }
     public int width(FormattedText text) { return (int) Math.ceil(splitter.stringWidth(text)); }
     public int width(FormattedCharSequence text) { return (int) Math.ceil(splitter.stringWidth(text)); }
 

@@ -42,7 +42,7 @@ public final class BlockMenu {
     private static final int MIN_W = 176, MAX_W = 340;
 
     private final Font tr;
-    private final int rowH = Env.touch() ? 20 : 15;
+    private final int rowH = Env.touch() ? 28 : 15;
     private final int screenW, screenH, wantX, wantY;
     private final ItemStack stack;
     private final String title, subtitle;
@@ -203,7 +203,9 @@ public final class BlockMenu {
             }
             String note = r.right();
             if (!note.isEmpty()) {
-                String cut = Draw.fit(tr, note, Math.max(0, (right - x - INK_X) / 2));
+                int span = right - x - INK_X;
+                String cut = Draw.fit(tr, note,
+                        Math.max(0, Math.max(span / 2, span - tr.width(r.label) - 10)));
                 Draw.textRight(ctx, tr, cut, right, ry + (rowH - 7) / 2, side, false);
                 right -= tr.width(cut) + 10;
             }

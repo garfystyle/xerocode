@@ -35,7 +35,7 @@ public final class Audio {
     private static double head;
     private static boolean running;
     private static boolean loop;
-    private static float gain = 1, pitch = 1;
+    private static float gain = 1, pitch = 1, preview = 1;
     private static boolean broken;
 
     private record Pcm(ByteBuffer data, int format, int rate, double seconds) {}
@@ -97,6 +97,14 @@ public final class Audio {
         if (playing()) pause(); else play();
     }
 
+    public static void restart() {
+        if (!ready()) return;
+        AL10.alSourceStop(source);
+        head = 0;
+        running = false;
+        play();
+    }
+
     public static void rewind() {
         if (!ready()) return;
         boolean was = playing();
@@ -146,9 +154,11 @@ public final class Audio {
         }
         float g = (float) Math.max(0, Math.min(2, volume)) * slider;
         float p = (float) Math.max(0.5, Math.min(2, pitchValue));
-        if (Math.abs(g - gain) > 0.001f) {
+        float v = (float) Math.max(0, Math.min(1, Settings.previewGain()));
+        if (Math.abs(g - gain) > 0.001f || Math.abs(v - preview) > 0.001f) {
             gain = g;
-            if (ready()) AL10.alSourcef(source, AL10.AL_GAIN, gain);
+            preview = v;
+            if (ready()) AL10.alSourcef(source, AL10.AL_GAIN, gain * preview);
         }
         if (Math.abs(p - pitch) > 0.001f) {
             pitch = p;
@@ -213,7 +223,7 @@ public final class Audio {
             AL10.alSourcei(source, AL10.AL_SOURCE_RELATIVE, AL10.AL_TRUE);
             AL10.alSource3f(source, AL10.AL_POSITION, 0, 0, 0);
             AL10.alSourcei(source, AL10.AL_LOOPING, loop ? AL10.AL_TRUE : AL10.AL_FALSE);
-            AL10.alSourcef(source, AL10.AL_GAIN, gain);
+            AL10.alSourcef(source, AL10.AL_GAIN, gain * preview);
             AL10.alSourcef(source, AL10.AL_PITCH, pitch);
             duration = pcm.seconds();
             head = 0;

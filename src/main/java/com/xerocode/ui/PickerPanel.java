@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.xerocode.Env;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
@@ -15,7 +16,11 @@ abstract class PickerPanel implements Overlay {
     private final Ui.Grab grab = new Ui.Grab();
     protected static final int PAD = 10;
     protected static final int HEAD_H = 28;
-    protected static final int FOOT_H = 28;
+    protected static int footH() { return Env.touch() ? 36 : 28; }
+
+    protected static int footBtnH() { return Env.touch() ? 24 : 16; }
+
+    private static int cancelW() { return Env.touch() ? 70 : 56; }
     protected static final int DET_W = 176;
 
     protected final Font tr;
@@ -60,6 +65,15 @@ abstract class PickerPanel implements Overlay {
 
     protected abstract void layout();
 
+    protected abstract String sizeKey();
+
+    private Sizer sizer;
+
+    protected Sizer sizer() {
+        if (sizer == null) sizer = new Sizer(sizeKey(), 320, 180, true);
+        return sizer;
+    }
+
     public boolean isClosed() { return closed; }
 
     protected int searchMaxW() { return 210; }
@@ -74,7 +88,7 @@ abstract class PickerPanel implements Overlay {
     protected int bodyY()   { return y + HEAD_H + 1; }
     protected int railX()   { return x + 1; }
     protected int detX()    { return x + w - 1 - detW; }
-    protected int footY()   { return y + h - FOOT_H; }
+    protected int footY()   { return y + h - footH(); }
 
     protected abstract int bodyH();
 
@@ -105,6 +119,7 @@ abstract class PickerPanel implements Overlay {
 
         Ui.hairline(ctx, x + 1, footY() - 1, w - 2);
         drawFooter(ctx, mouseX, mouseY);
+        sizer().draw(ctx, mouseX, mouseY, x, y, w, h);
     }
 
     protected abstract String title();
@@ -144,9 +159,10 @@ abstract class PickerPanel implements Overlay {
                 Draw.round(ctx, railX() + 3, ry, railW - 6, rowH - 1, 3, Draw.opaque(Ui.BTN_HOVER));
             }
             boolean icon = row.icon() != null;
-            if (icon) ctx.item(row.icon(), railX() + 7, ry + 1);
+            int lift = Math.max(0, (rowH - 18) / 2);
+            if (icon) ctx.item(row.icon(), railX() + 7, ry + 1 + lift);
             String n = String.valueOf(row.count());
-            int ty = ry + (icon ? 5 : 4);
+            int ty = ry + (icon ? 5 : 4) + lift;
             Draw.textFit(ctx, tr, row.label(), railX() + (icon ? 26 : 9), ty,
                     railW - (icon ? 38 : 22) - tr.width(n),
                     on || hov ? Theme.TEXT : Theme.TEXT_DIM, false);
@@ -204,18 +220,19 @@ abstract class PickerPanel implements Overlay {
 
     protected int finishW() { return Math.max(72, Ui.buttonW(tr, finishLabel())); }
 
-    protected int footY2() { return footY() + (FOOT_H - 16) / 2; }
+    protected int footY2() { return footY() + (footH() - footBtnH()) / 2; }
 
     protected void drawFooterLeft(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int room) {
-        Draw.textFit(ctx, tr, footerHint(), x + PAD, footY2() + 4, room, Theme.TEXT_FAINT, false);
+        Draw.textFit(ctx, tr, footerHint(), x + PAD, footY2() + (footBtnH() - 8) / 2, room, Theme.TEXT_FAINT, false);
     }
 
     private void drawFooter(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int fy = footY2(), fw = finishW();
-        drawFooterLeft(ctx, mouseX, mouseY, w - 2 * PAD - fw - 74);
-        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - fw, fy, fw, 16, finishLabel(), Ui.ACCENT,
+        drawFooterLeft(ctx, mouseX, mouseY, w - 2 * PAD - fw - cancelW() - 18);
+        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - fw, fy, fw, footBtnH(), finishLabel(), Ui.ACCENT,
                 canFinish());
-        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - fw - 62, fy, 56, 16, "Отмена", Ui.GHOST);
+        Ui.button(ctx, tr, mouseX, mouseY, x + w - PAD - fw - cancelW() - 6, fy, cancelW(), footBtnH(),
+                "Отмена", Ui.GHOST);
     }
 
     protected abstract String footerHint();
@@ -228,6 +245,10 @@ abstract class PickerPanel implements Overlay {
 
     public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
+        if (sizer().press(click, doubled, x, y, w, h)) {
+            if (!sizer().active()) layout();
+            return true;
+        }
         if (Ui.hit(mx, my, x + w - PAD - 16, y + 6, 16, 16)) { closed = true; return true; }
         if (searchShown() && Ui.hit(mx, my, searchX(), y + 6, searchW(), 16)) {
             search.setFocused(true);
@@ -240,18 +261,28 @@ abstract class PickerPanel implements Overlay {
         if (bodyClicked(click, doubled, mx, my)) return true;
 
         int fy = footY2(), fw = finishW();
-        if (Ui.hit(mx, my, x + w - PAD - fw, fy, fw, 16)) { finish(); return true; }
-        if (Ui.hit(mx, my, x + w - PAD - fw - 62, fy, 56, 16)) { closed = true; return true; }
+        if (Ui.hit(mx, my, x + w - PAD - fw, fy, fw, footBtnH())) { finish(); return true; }
+        if (Ui.hit(mx, my, x + w - PAD - fw - cancelW() - 6, fy, cancelW(), footBtnH())) {
+            closed = true;
+            return true;
+        }
         return true;
     }
 
     protected abstract boolean bodyClicked(MouseButtonEvent click, boolean doubled, int mx, int my);
 
     public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
+        if (sizer().drag(click.x(), click.y())) {
+            layout();
+            return true;
+        }
         return grab.drag(click, dx, dy);
     }
 
-    public void mouseReleased() { grab.release(); }
+    public void mouseReleased() {
+        sizer().release();
+        grab.release();
+    }
 
     public boolean mouseScrolled(double mx, double my, double amount) { return false; }
 

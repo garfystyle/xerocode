@@ -68,7 +68,7 @@ public interface TWebSocket {
                         }
 
                         @Override public void request(long n) {}
-                        @Override public void abort() { socket.close(1000, ""); }
+                        @Override public void abort() { socket.close(4000, ""); }
                     };
                     listener.onOpen(self);
                     f.complete(self);

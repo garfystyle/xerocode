@@ -101,11 +101,17 @@ public final class Value {
     }
 
     public static final int ARRAY_MAX = 45, MAP_MAX = 20;
+    private static final int ONE_HASH = Double.hashCode(1.0);
 
     public final List<Value> items = new ArrayList<>();
     public final List<Value> keys = new ArrayList<>();
 
+    private boolean hashed;
+    private int hashedPrint, hashedValue;
+
     public Value(String type) { this.type = type; }
+
+    public static final String ZERO_TYPE = "number", ZERO_DEFAULT = "{\"type\":\"number\",\"number\":0.0}";
 
     public static Value blank() { return new Value(TEXT); }
 
@@ -151,18 +157,27 @@ public final class Value {
     }
 
     public int hash() {
+        int print = print();
+        if (hashed && print == hashedPrint) return hashedValue;
+        hashedValue = fullHash();
+        hashedPrint = print;
+        hashed = true;
+        return hashedValue;
+    }
+
+    private int fullHash() {
         int h = type.hashCode();
         if (unknownRaw != null) h = h * 31 + unknownRaw.hashCode();
         h = h * 31 + text.hashCode();
         h = h * 31 + parsing.hashCode();
         if (emptyKept()) h = h * 31 + 1;
-        h = h * 31 + Double.hashCode(number);
+        h = h * 31 + dh(number);
         h = h * 31 + numberText.hashCode();
-        h = h * 31 + Double.hashCode(x);
-        h = h * 31 + Double.hashCode(y);
-        h = h * 31 + Double.hashCode(z);
-        h = h * 31 + Double.hashCode(yaw);
-        h = h * 31 + Double.hashCode(pitch);
+        h = h * 31 + dh(x);
+        h = h * 31 + dh(y);
+        h = h * 31 + dh(z);
+        h = h * 31 + dh(yaw);
+        h = h * 31 + dh(pitch);
         h = h * 31 + name.hashCode();
         h = h * 31 + scope.hashCode();
         h = h * 31 + valueType.hashCode();
@@ -177,17 +192,17 @@ public final class Value {
         h = h * 31 + selectionRaw.hashCode();
         h = h * 31 + sound.hashCode();
         h = h * 31 + source.hashCode();
-        h = h * 31 + Double.hashCode(volume);
-        h = h * 31 + Double.hashCode(pitch2);
+        h = h * 31 + dh(volume);
+        h = h * 31 + dh(pitch2);
         h = h * 31 + particle.hashCode();
         h = h * 31 + count;
-        h = h * 31 + Double.hashCode(spread1);
-        h = h * 31 + Double.hashCode(spread2);
-        h = h * 31 + Double.hashCode(mx);
-        h = h * 31 + Double.hashCode(my);
-        h = h * 31 + Double.hashCode(mz);
+        h = h * 31 + dh(spread1);
+        h = h * 31 + dh(spread2);
+        h = h * 31 + dh(mx);
+        h = h * 31 + dh(my);
+        h = h * 31 + dh(mz);
         h = h * 31 + color;
-        h = h * 31 + Double.hashCode(size);
+        h = h * 31 + dh(size);
         h = h * 31 + material.hashCode();
         h = h * 31 + potion.hashCode();
         h = h * 31 + duration;
@@ -206,6 +221,58 @@ public final class Value {
         h = h * 31 + block.hashCode();
         for (Value it : items) h = h * 31 + it.hash();
         for (Value k : keys) h = h * 31 + k.hash();
+        return h;
+    }
+
+    private static int dh(double d) {
+        return d == 0 && 1 / d > 0 ? 0 : d == 1 ? ONE_HASH : Double.hashCode(d);
+    }
+
+    public int print() {
+        if (unknownRaw != null) return unknownRaw.hashCode();
+        int h = type.hashCode();
+        switch (type) {
+            case TEXT -> h = ((h * 31 + text.hashCode()) * 31 + parsing.hashCode()) * 31 + (present ? 1 : 0);
+            case NUMBER -> h = (h * 31 + dh(number)) * 31 + numberText.hashCode();
+            case LOCATION -> h = ((((h * 31 + dh(x)) * 31 + dh(y)) * 31 + dh(z)) * 31 + dh(yaw)) * 31 + dh(pitch);
+            case VECTOR -> h = ((h * 31 + dh(x)) * 31 + dh(y)) * 31 + dh(z);
+            case VARIABLE -> h = (h * 31 + name.hashCode()) * 31 + scope.hashCode();
+            case GAME_VALUE -> h = ((h * 31 + gameValue.hashCode()) * 31 + selection.hashCode()) * 31
+                    + selectionRaw.hashCode();
+            case PARAMETER -> {
+                h = ((h * 31 + name.hashCode()) * 31 + typeKey.hashCode()) * 31 + valueType.hashCode();
+                h = h * 31 + (required ? 1 : 0) + (ignoreEmpty ? 2 : 0);
+                h = (h * 31 + defaultElement.hashCode()) * 31 + paramDesc.hashCode();
+                h = (h * 31 + paramDefault.hashCode()) * 31 + slotsRaw.hashCode();
+                h = h * 31 + descriptionSlotsRaw.hashCode();
+                for (Elem e : elements)
+                    h = (h * 31 + e.name.hashCode() * 31 + e.display.hashCode()) * 31 + e.icon.hashCode();
+            }
+            case SOUND -> h = ((((h * 31 + sound.hashCode()) * 31 + source.hashCode()) * 31 + dh(volume)) * 31
+                    + dh(pitch2)) * 31 + variation.hashCode();
+            case PARTICLE -> {
+                h = ((h * 31 + particle.hashCode()) * 31 + count) * 31 + dh(spread1);
+                h = ((h * 31 + dh(spread2)) * 31 + dh(mx)) * 31 + dh(my);
+                h = (((h * 31 + dh(mz)) * 31 + color) * 31 + toColor) * 31 + dh(size);
+                h = h * 31 + material.hashCode();
+            }
+            case POTION -> h = ((h * 31 + potion.hashCode()) * 31 + duration) * 31 + amplifier;
+            case ITEM -> {
+                h = ((h * 31 + itemId.hashCode()) * 31 + itemCount) * 31 + itemName.hashCode();
+                h = (h * 31 + itemParsing.hashCode()) * 31 + lore.hashCode();
+                for (Ench e : enchants) h = h * 31 + e.id.hashCode() * 31 + e.level;
+                h = h * 31 + (unbreakable ? 1 : 0) + (hideTooltip ? 2 : 0) + glint * 4;
+                h = ((h * 31 + itemDamage) * 31 + modelData) * 31 + hidden.hashCode();
+                h = ((h * 31 + components.hashCode()) * 31 + itemRaw.hashCode()) * 31 + itemRawHash;
+            }
+            case BLOCK -> h = h * 31 + block.hashCode();
+            case ARRAY, MAP -> {
+                h = h * 31 + (present ? 1 : 0);
+                for (int i = 0, n = items.size(); i < n; i++) h = h * 31 + items.get(i).print();
+                for (int i = 0, n = keys.size(); i < n; i++) h = h * 31 + keys.get(i).print();
+            }
+            default -> { }
+        }
         return h;
     }
 
@@ -288,6 +355,8 @@ public final class Value {
         };
     }
 
+    private static final String BLOCK_NOTE = "Блок";
+
     public String note() {
         return switch (type) {
             case VARIABLE -> Values.scope(scope).name();
@@ -299,6 +368,7 @@ public final class Value {
             case POTION -> (amplifier > 0 ? "ур. " + (amplifier + 1) : "")
                     + (duration >= 0 ? (amplifier > 0 ? " · " : "") + duration + "т" : "");
             case ITEM -> itemCount > 1 ? "×" + itemCount : "";
+            case BLOCK -> block.isEmpty() ? "" : BLOCK_NOTE;
             case ARRAY -> items.isEmpty() ? "" : "×" + filled();
             case MAP -> keys.isEmpty() ? "" : "×" + keys.size();
             default -> "";
@@ -412,8 +482,8 @@ public final class Value {
                     default -> {
                         o.addProperty("value_type", valueType);
                         o.addProperty("is_required", String.valueOf(required));
-                        o.addProperty("default_value",
-                                paramDefault.isBlank() ? "{}" : paramDefault);
+                        o.addProperty("default_value", !paramDefault.isBlank() ? paramDefault
+                                : !required && ZERO_TYPE.equals(valueType) ? ZERO_DEFAULT : "{}");
                         o.addProperty("slot", one(slotsRaw, 0));
                         o.addProperty("description_slot", one(descriptionSlotsRaw, -1));
                     }

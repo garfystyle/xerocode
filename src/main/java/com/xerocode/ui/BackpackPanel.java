@@ -24,7 +24,7 @@ public final class BackpackPanel extends PickerPanel {
     private static final int ROW_H = 24;
     private static final int LIST_MIN = 190;
     private static final int DET_WANT = 232;
-    private static final int BTN_H = 16, ICON = 16;
+    private static final int ICON = 16;
 
     private final Taken done;
     private final String takeLabel;
@@ -67,7 +67,7 @@ public final class BackpackPanel extends PickerPanel {
 
     @Override
     protected void layout() {
-        int panelW = Ui.fitW(screenW, 660);
+        int panelW = sizer().w(screenW, Ui.fitW(screenW, 660));
         int measured = tr.width("Всё") + 46;
         for (String c : Backpack.categories().keySet())
             measured = Math.max(measured, tr.width(c) + 46);
@@ -75,15 +75,19 @@ public final class BackpackPanel extends PickerPanel {
         int det = Math.min(DET_WANT, panelW - rail - Math.min(LIST_MIN, panelW * 45 / 100));
         det = det < 150 ? 0 : det;
 
-        int wanted = Ui.fitH(screenH, Ui.tall(screenH, HEAD_H + 2 + 11 * ROW_H + FOOT_H));
-        this.rows = Math.max(3, (wanted - HEAD_H - FOOT_H - 2) / ROW_H);
-        place(panelW, HEAD_H + 2 + rows * ROW_H + FOOT_H, rail, det, "найти в рюкзаке…");
+        int wanted = sizer().h(screenH,
+                Ui.fitH(screenH, Ui.tall(screenH, HEAD_H + 2 + 11 * ROW_H + footH())));
+        this.rows = Math.max(3, (wanted - HEAD_H - footH() - 2) / ROW_H);
+        place(panelW, HEAD_H + 2 + rows * ROW_H + footH(), rail, det, "найти в рюкзаке…");
         scroll = Math.max(0, Math.min(maxScroll(), scroll));
         preview = null;
         previewId = "";
         thumbW = 0;
         if (viewing) fitViewer();
     }
+
+    @Override
+    protected String sizeKey() { return "backpack"; }
 
     @Override
     protected int bodyH() { return rows * ROW_H; }
@@ -490,7 +494,7 @@ public final class BackpackPanel extends PickerPanel {
     private String renameLabel(int room) {
         if (renaming()) return "Готово";
         String full = "Переименовать";
-        return ICON + 6 + Ui.buttonW(tr, full) + 6 + deleteW() <= room ? full : "Имя";
+        return footBtnH() + 6 + Ui.buttonW(tr, full) + 6 + deleteW() <= room ? full : "Имя";
     }
 
     private int renameW(int room) { return Ui.buttonW(tr, renameLabel(room)); }
@@ -499,25 +503,25 @@ public final class BackpackPanel extends PickerPanel {
 
     private boolean inspectButton() { return !viewing && chosen() != null; }
 
-    private int renameX() { return x + PAD + ICON + 6; }
+    private int renameX() { return x + PAD + footBtnH() + 6; }
 
     private boolean itemButtons(int room) {
-        return inspectButton() && ICON + 6 + renameW(room) + 6 + deleteW() <= room;
+        return inspectButton() && footBtnH() + 6 + renameW(room) + 6 + deleteW() <= room;
     }
 
     @Override
     protected void drawFooterLeft(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int room) {
         int fy = footY2();
         if (!inspectButton()) { super.drawFooterLeft(ctx, mouseX, mouseY, room); return; }
-        Ui.iconButton(ctx, mouseX, mouseY, x + PAD, fy, ICON, Draw.SEARCH, Ui.GHOST, true);
+        Ui.iconButton(ctx, mouseX, mouseY, x + PAD, fy, footBtnH(), Draw.SEARCH, Ui.GHOST, true);
         if (!itemButtons(room)) {
-            Draw.textFit(ctx, tr, footerHint(), renameX(), fy + 4, room - ICON - 6,
+            Draw.textFit(ctx, tr, footerHint(), renameX(), fy + (footBtnH() - 8) / 2, room - footBtnH() - 6,
                     Theme.TEXT_FAINT, false);
             return;
         }
         int rw = renameW(room);
-        Ui.button(ctx, tr, mouseX, mouseY, renameX(), fy, rw, BTN_H, renameLabel(room), Ui.GHOST);
-        Ui.button(ctx, tr, mouseX, mouseY, renameX() + rw + 6, fy, deleteW(), BTN_H,
+        Ui.button(ctx, tr, mouseX, mouseY, renameX(), fy, rw, footBtnH(), renameLabel(room), Ui.GHOST);
+        Ui.button(ctx, tr, mouseX, mouseY, renameX() + rw + 6, fy, deleteW(), footBtnH(),
                 deleteLabel(), Ui.DANGER);
     }
 
@@ -553,17 +557,17 @@ public final class BackpackPanel extends PickerPanel {
     @Override
     protected boolean bodyClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
         int fy = footY2(), room = footerRoom();
-        if (inspectButton() && Ui.hit(mx, my, x + PAD, fy, ICON, BTN_H)) {
+        if (inspectButton() && Ui.hit(mx, my, x + PAD, fy, footBtnH(), footBtnH())) {
             openViewer();
             return true;
         }
         if (itemButtons(room)) {
             int rw = renameW(room);
-            if (Ui.hit(mx, my, renameX(), fy, rw, BTN_H)) {
+            if (Ui.hit(mx, my, renameX(), fy, rw, footBtnH())) {
                 if (renaming()) commitRename(); else startRename(chosen());
                 return true;
             }
-            if (Ui.hit(mx, my, renameX() + rw + 6, fy, deleteW(), BTN_H)) {
+            if (Ui.hit(mx, my, renameX() + rw + 6, fy, deleteW(), footBtnH())) {
                 deleteChosen();
                 return true;
             }

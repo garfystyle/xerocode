@@ -1,5 +1,6 @@
 package com.xerocode;
 
+import com.xerocode.ui.CodeScreen;
 import com.xerocode.ui.EditorScreen;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.xerocode.ui.Backstage;
@@ -56,6 +57,7 @@ public final class XeroCode implements ClientModInitializer {
     private boolean playWasDown, buildWasDown;
     private Boolean narratorWas;
     private boolean wasInDev;
+    private boolean stayShut;
     private int pending;
     private int waited;
     private int settling;
@@ -128,13 +130,20 @@ public final class XeroCode implements ClientModInitializer {
         String plot = plotId(world);
         if (script == null) { scriptPlot = plot; return; }
         if (plot.equals(scriptPlot)) return;
-        if (client.gui.screen() instanceof EditorScreen editor) editor.finishEditing();
+        if (client.gui.screen() instanceof EditorScreen editor) {
+            editor.finishEditing();
+            editor.rememberView();
+        }
+        if (client.gui.screen() instanceof CodeScreen code) code.saveNow();
         script.save();
+        Tabs.saveAll(script);
         scriptPlot = plot;
         script = Script.load(plot);
         Sync.forget();
         History.clear();
-        if (client.gui.screen() instanceof EditorScreen) client.gui.setScreen(new EditorScreen(script));
+        if (client.gui.screen() instanceof EditorScreen)
+            client.gui.setScreen(new EditorScreen(Tabs.activeScript()));
+        if (client.gui.screen() instanceof CodeScreen) client.gui.setScreen(new CodeScreen());
         holding = null;
     }
 
@@ -188,8 +197,13 @@ public final class XeroCode implements ClientModInitializer {
         Menus.load();
         Symbols.load();
         Components.load();
+        Env.later(() -> {
+            xero.dialect.Dialects.all();
+            com.xerocode.code.CodeFonts.preload();
+        });
 
         Tape.register();
+        Link.start();
         LevelRenderEvents.START_MAIN.register(ctx -> {
             if (retired) return;
             Minecraft mc = Minecraft.getInstance();
@@ -202,6 +216,7 @@ public final class XeroCode implements ClientModInitializer {
             if (retired) return;
             switchWorld(client, world);
             dropCover(client, "измерение сменилось");
+            if (!Codespace.inDev(world)) stayShut = false;
             if (waitingDev > 0 && Codespace.inDev(world) && holding == null) allowed(client);
             if (holdScreen > 0 && holding != null && !picking()) client.gui.setScreen(holding);
         });
@@ -255,12 +270,15 @@ public final class XeroCode implements ClientModInitializer {
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
             if (retired) return;
             Collab.stop();
+            Link.stop();
+            if (client.gui.screen() instanceof CodeScreen code) code.saveNow();
             if (script == null) return;
             if (client.gui.screen() instanceof EditorScreen editor) {
                 editor.finishEditing();
                 editor.rememberView();
             }
             script.save();
+            Tabs.saveAll(script);
         });
 
         LevelRenderEvents.COLLECT_SUBMITS.register(ctx -> {
@@ -283,6 +301,7 @@ public final class XeroCode implements ClientModInitializer {
 
         ClientTickEvents.START_CLIENT_TICK.register(client -> {
             if (retired) return;
+            KeyGate.install(client);
             LocationPick.startTick(client);
             stealHotkeys(client);
         });
@@ -295,6 +314,7 @@ public final class XeroCode implements ClientModInitializer {
             Codespace.watch();
             Collab.tick();
             Publish.tick();
+            Link.tick();
             ServerAsk.tick(client);
             ModuleActions.tick(client);
             ModulePublish.tick(client);
@@ -355,6 +375,7 @@ public final class XeroCode implements ClientModInitializer {
         try {
             if (script != null) script.save();
             Collab.stop();
+            Link.stop();
             Audio.release();
             Backstage.restore(mc);
             if (LocationPick.active()) LocationPick.cancel();
@@ -373,6 +394,8 @@ public final class XeroCode implements ClientModInitializer {
     }
 
     public static void revive() { retired = false; }
+
+    static boolean isRetired() { return retired; }
 
     public static boolean retired() { return retired; }
 
@@ -465,6 +488,7 @@ public final class XeroCode implements ClientModInitializer {
     private boolean againWasDown, lineWasDown;
 
     public static final String RESTART = "restart";
+    public static final String CLOSE = "close";
 
     public static void restart() {
         if (INSTANCE != null) INSTANCE.restartWorld(Minecraft.getInstance());
@@ -649,6 +673,14 @@ public final class XeroCode implements ClientModInitializer {
         holdScreen = DEV_WAIT;
     }
 
+    public static void canvasShut() {
+        if (INSTANCE == null) return;
+        INSTANCE.stayShut = (INSTANCE.waitingDev > 0 || INSTANCE.holdScreen > 0)
+                && !inDev(Minecraft.getInstance());
+        INSTANCE.waitingDev = 0;
+        canvasClosed();
+    }
+
     public static void canvasClosed() {
         if (INSTANCE == null) return;
         INSTANCE.holdScreen = 0;
@@ -692,12 +724,21 @@ public final class XeroCode implements ClientModInitializer {
     private void entered(Minecraft client) {
         waited = 0;
         rememberOwn(plotId(client.level));
+        if (stayShut) {
+            stayShut = false;
+            return;
+        }
+        if (Settings.codeMode()) {
+            if (client.gui.screen() == null && holding == null) open(client);
+            return;
+        }
         if (!Settings.canvasMode()) {
             client.gui.hud.setOverlayMessage(Component.literal("2D-редактор — "
                     + Settings.get().label(Settings.Hot.OPEN)).withStyle(ChatFormatting.GRAY), false);
             return;
         }
-        if (!script().roots.isEmpty() && client.gui.screen() == null && holding == null)
+        if (Settings.get().autoOpen && !script().roots.isEmpty()
+                && client.gui.screen() == null && holding == null)
             open(client);
         pending = SCAN_DELAY;
     }
@@ -711,13 +752,15 @@ public final class XeroCode implements ClientModInitializer {
             return;
         }
         List<BlockPos> lines = Codespace.lines(client.level);
+        Settings look = Settings.get();
         if (script().roots.isEmpty()) {
+            if (!look.autoOpen) return;
             if (lines.isEmpty()) { open(client); return; }
             ready();
             client.gui.setScreen(new ImportScreen(script(), lines));
             return;
         }
-        if (lines.isEmpty() || Sync.hushed(script())) return;
+        if (lines.isEmpty() || !look.worldCheck || Sync.hushed(script())) return;
         if (!Sync.state(script(), client.level).risky()) return;
         ready();
         client.gui.setScreen(new ImportScreen(script(), lines, ImportScreen.Mode.DIVERGED));
@@ -750,7 +793,7 @@ public final class XeroCode implements ClientModInitializer {
         String rel = root.relativize(path).toString().replace('\\', '/');
         if (!rel.endsWith(".class")) return null;
         String name = rel.substring(0, rel.length() - 6).replace('/', '.');
-        return name.startsWith("com.xerocode") ? name : null;
+        return name.startsWith("com.xerocode") || name.startsWith("xero.") ? name : null;
     }
 
     private static boolean inDev(Minecraft client) {
@@ -769,10 +812,14 @@ public final class XeroCode implements ClientModInitializer {
     private static void open(Minecraft client) {
         ready();
         Settings settings = Settings.get();
+        if (settings.mode == Settings.Mode.CODE) {
+            client.gui.setScreen(new CodeScreen());
+            return;
+        }
         if (settings.mode != Settings.Mode.CANVAS) {
             settings.mode = Settings.Mode.CANVAS;
             settings.save();
         }
-        client.gui.setScreen(new EditorScreen(script()));
+        client.gui.setScreen(new EditorScreen(Tabs.activeScript()));
     }
 }

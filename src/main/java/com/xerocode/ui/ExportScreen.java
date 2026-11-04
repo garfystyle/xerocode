@@ -1,5 +1,6 @@
 package com.xerocode.ui;
 
+import com.google.gson.JsonObject;
 import com.xerocode.Codespace;
 import com.xerocode.Env;
 import com.xerocode.Exporter;
@@ -17,13 +18,15 @@ import net.minecraft.core.BlockPos;
 public final class ExportScreen extends DialogScreen {
     private enum Phase { CONFIRM, RUNNING, DONE }
 
-    private static final int ANSWER_TICKS = 60;
+    private static final int ANSWER_TICKS = 1200;
     private static final String CANCEL = "Отмена";
     private static final String SEND = "Отправить", RELOAD = "Перечитать мир";
 
     private final Script script;
     private final Screen parent;
     private final String exitTo;
+    private final Exporter.Result ready;
+    private final boolean replacing;
 
     private Phase phase = Phase.RUNNING;
     private Sync.State sync = Sync.State.UNKNOWN;
@@ -33,6 +36,7 @@ public final class ExportScreen extends DialogScreen {
     private String failure;
     private int spin;
     private int listening;
+    private long heardFrom;
     private List<String> answers = List.of();
     private boolean copied;
 
@@ -42,28 +46,41 @@ public final class ExportScreen extends DialogScreen {
         return Env.browser() && phase == Phase.DONE && !failed() && job != null && !job.url.isEmpty();
     }
 
-    private String command() { return "/module loadUrl force " + job.url; }
+    private String command() { return (replacing ? "/module loadUrl force " : "/module loadUrl ") + job.url; }
 
     public ExportScreen(Script script, Screen parent, String exitTo) {
         super(344);
         this.script = script;
         this.parent = parent;
         this.exitTo = exitTo;
+        this.ready = null;
+        this.replacing = true;
+    }
+
+    public ExportScreen(JsonObject json, int lines, boolean replace, Screen parent) {
+        super(344);
+        this.script = null;
+        this.parent = parent;
+        this.exitTo = null;
+        Exporter.Report report = new Exporter.Report();
+        report.lines = lines;
+        this.ready = new Exporter.Result(json, report);
+        this.replacing = replace;
     }
 
     @Override
     protected void init() {
         if (code != null || failure != null) return;
         try {
-            code = Exporter.export(script);
+            code = ready != null ? ready : Exporter.export(script);
         } catch (Throwable e) {
             failure = e.getClass().getSimpleName();
             XeroCode.LOG.error("[xerocode] сборка кода не удалась", e);
         }
         Minecraft mc = mc();
-        sync = Sync.state(script, mc.level);
+        if (script != null) sync = Sync.state(script, mc.level);
         worldLines = Sync.worldLines(mc.level);
-        if (risky()) { phase = Phase.CONFIRM; return; }
+        if (replacing && risky()) { phase = Phase.CONFIRM; return; }
         begin();
     }
 
@@ -78,16 +95,16 @@ public final class ExportScreen extends DialogScreen {
     private int canvasLines() { return code == null ? 0 : code.report().lines; }
 
     private String confirmWhat() {
-        if (canvasLines() == 0) return "Полотно пусто — код мира будет стёрт.";
+        if (canvasLines() == 0) return ready != null ? "Код пуст — код мира будет стёрт." : "Полотно пусто — код мира будет стёрт.";
         if (sync == Sync.State.DIVERGED) return "Мир и полотно разошлись.";
         if (sync == Sync.State.WORLD_AHEAD) return "Код в мире менялся мимо редактора.";
-        return "В мире строк больше, чем на полотне.";
+        return ready != null ? "В мире строк больше, чем в коде." : "В мире строк больше, чем на полотне.";
     }
 
     private String confirmCounts() {
         int canvas = canvasLines();
         String counts = "в мире " + (worldLines < 0 ? "?" : String.valueOf(worldLines))
-                + "   ·   на полотне " + canvas;
+                + (ready != null ? "   ·   в коде " : "   ·   на полотне ") + canvas;
         return worldLines > canvas ? counts + "   ·   исчезнет " + (worldLines - canvas) : counts;
     }
 
@@ -107,7 +124,7 @@ public final class ExportScreen extends DialogScreen {
 
     private void reread() {
         Minecraft mc = mc();
-        if (mc.level == null) { onClose(); return; }
+        if (script == null || mc.level == null) { onClose(); return; }
         List<BlockPos> lines = Codespace.lines(mc.level);
         if (lines.isEmpty()) { onClose(); return; }
         mc.gui.setScreen(new ImportScreen(script, lines, ImportScreen.Mode.RELOAD));
@@ -141,7 +158,7 @@ public final class ExportScreen extends DialogScreen {
 
     private String button() {
         if (chatStep()) return copied ? COPIED : COPY;
-        return phase == Phase.RUNNING ? CANCEL : exitTo == null ? "Готово" : "Выйти";
+        return phase == Phase.RUNNING ? CANCEL : exitTo == null ? "Готово" : XeroCode.CLOSE.equals(exitTo) ? "Закрыть" : "Выйти";
     }
 
     @Override
@@ -183,17 +200,16 @@ public final class ExportScreen extends DialogScreen {
             return lines;
         }
         if (failed()) {
-            lines.add("Сервер кода не получил.");
+            lines.add(job != null && !job.note.isEmpty() ? job.note : "Сервер кода не получил.");
             lines.add(job == null ? String.valueOf(failure) : job.error);
         } else {
             lines.add(code != null && code.report().lines == 0
                     ? "Отправлено пустое — сервер чистит код мира."
                     : "Код отправлен — сервер раскладывает его блоками.");
+            if (job != null && !job.note.isEmpty()) lines.add(job.note);
             if (job != null && !job.asked.isEmpty()) lines.add("Сервер переспросил, подтверждено: " + job.asked);
-            for (String answer : answers) {
-                if (lines.size() >= 4) break;
-                lines.add(answer);
-            }
+            int room = Math.max(0, 4 - lines.size());
+            for (int i = Math.max(0, answers.size() - room); i < answers.size(); i++) lines.add(answers.get(i));
             if (answers.isEmpty())
                 lines.add(listening > 0 ? "Ждём ответа сервера…" : "Сервер ничего не ответил.");
         }
@@ -265,7 +281,7 @@ public final class ExportScreen extends DialogScreen {
         if (code == null) { phase = Phase.DONE; return; }
         Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         String world = mc.level == null ? "canvas" : Codespace.worldId(mc.level);
-        job = Publish.start(code.json(), world, true);
+        job = Publish.start(code.json(), world, replacing);
     }
 
     private void stop() {
@@ -282,21 +298,32 @@ public final class ExportScreen extends DialogScreen {
             if (job.state == Publish.State.UPLOADING) return;
             phase = Phase.DONE;
             listening = job.state == Publish.State.SENT ? ANSWER_TICKS : 0;
+            heardFrom = job.sentAt;
             if (job.state == Publish.State.SENT) {
-                Sync.published(script);
+                if (script != null) Sync.published(script);
                 if (parent instanceof EditorScreen editor) editor.markPublished();
             }
             return;
         }
-        if (listening <= 0 || job == null) return;
+        if (job == null) return;
+        if (job.sentAt != heardFrom) {
+            heardFrom = job.sentAt;
+            listening = ANSWER_TICKS;
+        }
+        if (listening <= 0) return;
         listening--;
-        List<String> said = Publish.answersSince(job.sentAt);
+        List<String> said = Publish.answersSince(job.firstSentAt);
         if (said.size() != answers.size()) answers = said;
     }
 
     private void finish() {
         Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         if (exitTo == null) { mc.gui.setScreen(parent); return; }
+        if (XeroCode.CLOSE.equals(exitTo)) {
+            XeroCode.canvasShut();
+            mc.gui.setScreen(null);
+            return;
+        }
         XeroCode.canvasClosed();
         if (XeroCode.RESTART.equals(exitTo)) {
             XeroCode.restart();

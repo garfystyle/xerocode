@@ -30,6 +30,7 @@ public final class Layout {
     public static final int ARM_H = 14;
     public static final int EMPTY_BODY_H = 24;
     public static final int FOLD_H = 14;
+    public static final int FOLD_BTN = 11, FOLD_EDGE = 5, FOLD_SPACE = FOLD_BTN + FOLD_EDGE - PAD + 4;
     public static final int TAIL_H = 15;
     public static final int MARKER_FIXED_MAX = 150;
     public static final int MIN_W = 118;
@@ -57,6 +58,7 @@ public final class Layout {
         public FormattedCharSequence note;
         public int countW, noteW;
         public FormattedCharSequence fitted;
+        public boolean cut;
         public ItemStack icon = ItemStack.EMPTY;
 
         public boolean filled;
@@ -148,6 +150,8 @@ public final class Layout {
         public int mouthFrom, mouthTo;
         public boolean folded;
         public int foldCount;
+        public int foldX = -1, foldY;
+        public boolean foldStack;
         public int tail, tailH;
         public final List<Chip> chips = new ArrayList<>();
 
@@ -171,6 +175,19 @@ public final class Layout {
             if (my >= arm && my < arm + ARM_H) return true;
             return (folded || mx < x + INDENT) && my >= y + headerH && my < arm;
         }
+
+        public boolean inBody(double mx, double my) {
+            return node.wraps() && !folded && mx >= x + INDENT && mx < x + w
+                    && my >= y + headerH && my < armY();
+        }
+
+        public boolean hitFoldButton(double mx, double my) {
+            return foldX >= 0 && mx >= foldX && mx < foldX + FOLD_BTN && my >= foldY && my < foldY + FOLD_BTN;
+        }
+
+        public boolean shut() { return foldStack ? root != null && root.hides() : folded; }
+
+        public int titleRight() { return foldX >= 0 ? foldX - 4 : x + w - PAD; }
 
         public boolean hitFold(double mx, double my) {
             return folded && mx >= x + INDENT && mx < x + w
@@ -319,7 +336,7 @@ public final class Layout {
     }
 
     private static int keyOf(Script.Root r, int style, int calls, Ghost ghost) {
-        int key = Script.viewHash(r) * 31 + style;
+        int key = r.view * 31 + style;
         if (invokes(r.chain)) key = key * 31 + calls;
         if (ghost != null && holds(r.chain, ghost.target))
             key = key * 31 + System.identityHashCode(ghost.target) * 7 + ghost.index * 131
@@ -361,6 +378,14 @@ public final class Layout {
         Layout l = new Layout();
         l.chain(chain, null, false, x, y, tr, Integer.MAX_VALUE);
         return l;
+    }
+
+    public static int[] size(List<Script.Node> chain, Font tr) {
+        Layout l = new Layout();
+        int h = l.chain(chain, null, false, 0, 0, tr, Integer.MAX_VALUE);
+        int w = 0;
+        for (Box box : l.boxes) w = Math.max(w, box.x + box.w);
+        return new int[]{w, h};
     }
 
     public static int chainHeight(List<Script.Node> chain, Font tr) {
@@ -446,17 +471,21 @@ public final class Layout {
         Catalog.Action a = outer.action;
 
         String name = null, target = null;
+        boolean bodyFold = outer.wraps() && !outer.body.isEmpty();
+        box.foldStack = !bodyFold && !box.nested && box.index == 0 && box.root != null
+                && box.owner == box.root.chain && box.root.foldable();
+        int fold = bodyFold || box.foldStack ? FOLD_SPACE : 0;
         int titleW;
         if (outer.declares() || outer.invokes()) {
             box.card = new Card();
-            titleW = measureCard(box, tr);
+            titleW = measureCard(box, tr) + fold;
         } else {
             name = blockTitle(outer);
             box.targetSetting = outer.settingIndex(Catalog.TARGET);
             target = box.targetSetting < 0 ? null : outer.marker(box.targetSetting);
             if (target != null && Catalog.TARGET_DEFAULT.equals(target)) target = null;
             box.targetW = target == null ? 0 : tr.width(target) + TARGET_GAP;
-            titleW = 20 + tr.width(name) + (a.unavailable ? 10 : 0) + box.targetW;
+            titleW = 20 + tr.width(name) + (a.unavailable ? 10 : 0) + box.targetW + fold;
         }
 
         List<Chip> chips = new ArrayList<>();
@@ -484,8 +513,10 @@ public final class Layout {
         for (int i = 0; i < settings.size(); i++) {
             if (settings.get(i).quiet) continue;
             Chip c = new Chip(-1, i, markerChipWidth(n, i, tr));
-            c.fitted = Draw.ordered(Draw.fit(tr, markerText(n, i),
-                    c.w - (markerBound(n, i) ? 13 : 8) - 13));
+            String full = markerText(n, i);
+            String shown = Draw.fit(tr, full, c.w - (markerBound(n, i) ? 13 : 8) - 13);
+            c.cut = !shown.equals(full);
+            c.fitted = Draw.ordered(shown);
             chips.add(c);
         }
         if (box.card != null) plusChip(box, chips, tr);
@@ -508,17 +539,21 @@ public final class Layout {
         int rows = chips.isEmpty() ? 0 : row + 1;
 
         box.w = Math.max(MIN_W, Math.max(titleW, used) + PAD * 2);
+        if (fold > 0) {
+            box.foldX = box.x + box.w - FOLD_EDGE - FOLD_BTN;
+            box.foldY = box.y + box.hatH + 5 + 8 - FOLD_BTN / 2;
+        }
         if (box.card != null) {
             placeCard(box, tr);
         } else {
             box.title = Draw.ordered(Draw.fit(tr, name,
-                    box.w - PAD * 2 - 20 - (a.unavailable ? 9 : 0) - box.targetW));
+                    box.w - PAD * 2 - 20 - (a.unavailable ? 9 : 0) - box.targetW - fold));
             if (target != null) {
-                int room = box.w - PAD * 2 - 20 - (a.unavailable ? 9 : 0);
+                int room = box.w - PAD * 2 - 20 - (a.unavailable ? 9 : 0) - fold;
                 String fitted = Draw.fit(tr, target, room);
                 box.targetW = tr.width(fitted) + TARGET_GAP;
                 box.target = Draw.ordered(fitted);
-                box.targetX = box.x + box.w - PAD - (a.unavailable ? 10 : 0)
+                box.targetX = box.titleRight() - (a.unavailable ? 10 : 0)
                         - (box.targetW - TARGET_GAP);
             }
         }
@@ -616,13 +651,14 @@ public final class Layout {
         c.iconY = big ? top + (c.idH - c.iconSize) / 2 : top + 5;
         int inkY = big ? top + (c.idH - 8) / 2 : top + 9;
         int textX = left + c.iconSize + (big ? 4 : 3);
+        if (box.foldX >= 0) box.foldY = inkY + 4 - FOLD_BTN / 2;
         if (c.verbRaw != null) {
             c.verb = Draw.ordered(c.verbRaw);
             c.verbW = tr.width(c.verbRaw);
             c.verbX = textX;
             textX += c.verbW + 5;
         }
-        int right = box.x + box.w - PAD;
+        int right = box.titleRight();
         if (c.kindRaw != null) {
             c.kindW = tr.width(c.kindRaw);
             c.kindX = right - c.kindW;
@@ -716,9 +752,9 @@ public final class Layout {
         c.fitted = Draw.ordered(label);
         boolean grad = Settings.gradient();
         c.border = Draw.opaque(Draw.shade(0xB8C2D4, -0.62f));
-        c.top = Theme.LIGHT ? Draw.argb(0xC4, 0xF4F6FA) : Draw.argb(0xB4, 0x11151D);
+        c.top = Theme.CHIP_TOP;
         c.bottom = grad
-                ? (Theme.LIGHT ? Draw.argb(0xC4, 0xE4E8F0) : Draw.argb(0xB4, 0x090C12))
+                ? Theme.CHIP_BOTTOM
                 : c.top;
         c.ink = Theme.TEXT_FAINT;
         c.dim = Draw.shade(Theme.TEXT_FAINT, -0.20f);
@@ -741,19 +777,23 @@ public final class Layout {
         List<Value> v = n.values.get(argIndex);
         if (v == null || v.isEmpty()) return n.args().get(argIndex).purpose;
         if (v.size() == 1) return display(v.get(0));
+        boolean holes = Catalog.slots(n.action, argIndex) != null;
         StringBuilder sb = new StringBuilder();
         for (Value x : v) {
+            if (holes && x.isBlank()) continue;
             if (sb.length() > 0) sb.append(", ");
             sb.append(display(x));
         }
-        return sb.toString();
+        return sb.isEmpty() ? n.args().get(argIndex).purpose : sb.toString();
     }
 
     public static String argNote(Script.Node n, int argIndex) {
         if (n.invokes() && argIndex > 0 && argFilled(n, argIndex))
             return n.args().get(argIndex).purpose;
         Value v = chipValue(n, argIndex);
-        return v == null ? "" : v.note();
+        if (v == null) return "";
+        boolean obvious = Value.BLOCK.equals(v.type) && Value.BLOCK.equals(Values.defaultKind(n.args().get(argIndex).type));
+        return obvious ? "" : v.note();
     }
 
     public static boolean argFilled(Script.Node n, int argIndex) {
@@ -786,10 +826,18 @@ public final class Layout {
         boolean withItem = v != null && v.hasIcon();
         int room = right - (withItem ? CHIP_ITEM_INK_X : CHIP_INK_X);
 
-        if (v != null && Value.TEXT.equals(v.type))
-            c.fitted = McText.fit(tr, McText.runs(v.text, v.parsing), room).getVisualOrderText();
-        else
-            c.fitted = Draw.ordered(Draw.fit(tr, argText(n, c.argIndex), room));
+        if (v != null && Value.TEXT.equals(v.type)) {
+            List<McText.Run> runs = McText.runs(v.text, v.parsing);
+            int total = 0;
+            for (McText.Run r : runs) total += tr.width(r.text());
+            c.cut = total > room;
+            c.fitted = McText.fit(tr, runs, room).getVisualOrderText();
+        } else {
+            String full = argText(n, c.argIndex);
+            String shown = Draw.fit(tr, full, room);
+            c.cut = !shown.equals(full);
+            c.fitted = Draw.ordered(shown);
+        }
         if (withItem) c.icon = Stacks.preview(v);
 
         int tc = v != null ? v.color()
@@ -802,9 +850,9 @@ public final class Layout {
             c.bottom = chipBottom(tc);
         } else {
             c.border = Draw.opaque(Draw.shade(tc, -0.58f));
-            c.top = Theme.LIGHT ? Draw.argb(0xC4, 0xF4F6FA) : Draw.argb(0xB4, 0x11151D);
+            c.top = Theme.CHIP_TOP;
             c.bottom = grad
-                    ? (Theme.LIGHT ? Draw.argb(0xC4, 0xE4E8F0) : Draw.argb(0xB4, 0x090C12))
+                    ? Theme.CHIP_BOTTOM
                     : c.top;
         }
         c.dot = Draw.opaque(c.filled ? Draw.shade(tc, -0.55f) : tc);

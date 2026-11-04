@@ -27,6 +27,20 @@ public final class GuiTextRenderState implements ScreenArea {
         this.scissor = scissor;
     }
 
+    public GuiTextRenderState(Matrix3x2fc pose, Font.PreparedText ready, ScreenRectangle scissor) {
+        this.font = null;
+        this.text = null;
+        this.pose = pose;
+        this.x = 0;
+        this.y = 0;
+        this.color = 0;
+        this.dropShadow = false;
+        this.scissor = scissor;
+        this.prepared = ready;
+        ScreenRectangle b = ready.bounds().transformMaxBounds(pose);
+        this.bounds = scissor != null ? scissor.intersection(b) : b;
+    }
+
     public Font.PreparedText ensurePrepared() {
         if (prepared == null) {
             prepared = font.prepareText(text, x, y, color, dropShadow, false, 0);

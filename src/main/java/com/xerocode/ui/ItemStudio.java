@@ -2,6 +2,7 @@ package com.xerocode.ui;
 
 import com.xerocode.Components;
 import com.xerocode.Stacks;
+import com.xerocode.TagNames;
 import com.xerocode.Env;
 import com.xerocode.Value;
 import com.xerocode.Values;
@@ -54,6 +55,8 @@ public final class ItemStudio implements Overlay {
 
     private final EditBox nameField, countField, damageField, modelField;
     private MultiLineEditBox nbtBox;
+    private int nbtW;
+    private final Sizer sizer = new Sizer("item", 320, 200, true);
     private Ui.Chips modeChips, glintChips, hideChips, viewChips;
 
     private ItemPicker picker;
@@ -68,7 +71,7 @@ public final class ItemStudio implements Overlay {
     private int lastMx, lastMy;
     private int cardY, pickY, numsY, nameY, modeY, nameBtnY, loreY, enchY, propY, glintY, hideY;
     private int prevY, prevH, nbtY, nbtH, nbtMsgY, nbtBtnY, footY;
-    private int tagsY, tagsAddY, compY, compHintY, compAddY;
+    private int tagsY, tagsHintY, tagsAddY, compY, compHintY, compAddY;
     private boolean textMode, quiet;
     private final List<EditBox[]> tagFields = new ArrayList<>();
     private final List<EditBox[]> compFields = new ArrayList<>();
@@ -134,6 +137,12 @@ public final class ItemStudio implements Overlay {
         List<String[]> out = new ArrayList<>(fields.size());
         for (EditBox[] f : fields) out.add(new String[]{f[0].getValue(), f[1].getValue()});
         return out;
+    }
+
+    private boolean tagsUnclean() {
+        for (EditBox[] f : tagFields)
+            if (!f[0].getValue().trim().equals(TagNames.clean(f[0].getValue()))) return true;
+        return false;
     }
 
     private void rowsEdited() {
@@ -233,6 +242,7 @@ public final class ItemStudio implements Overlay {
                 .setShowBackground(false)
                 .setShowDecorations(false)
                 .build(tr, rightColW(screenW) - 8, 60, Component.literal("компоненты"));
+        nbtW = rightColW(screenW);
         box.setCharacterLimit(16384);
         box.setValue(textMode ? Stacks.pretty(text) : text);
         box.setValueListener(s -> { if (!quiet) v.components = s; });
@@ -291,16 +301,16 @@ public final class ItemStudio implements Overlay {
     private int leftX()  { return x + PAD; }
     private int rightX() { return oneCol(screenW) ? x + PAD : x + PAD + lw + GUTTER; }
 
-    private static int panelW(int screenW) { return Ui.fitW(screenW, 660); }
+    private int panelW(int screenW) { return sizer.w(screenW, Ui.fitW(screenW, 660)); }
 
-    private static boolean oneCol(int screenW) { return panelW(screenW) - PAD * 2 < 320; }
+    private boolean oneCol(int screenW) { return panelW(screenW) - PAD * 2 < 320; }
 
-    private static int leftColW(int screenW) {
+    private int leftColW(int screenW) {
         int inner = panelW(screenW) - PAD * 2;
         return oneCol(screenW) ? inner : (inner - GUTTER) * 55 / 100;
     }
 
-    private static int rightColW(int screenW) {
+    private int rightColW(int screenW) {
         int inner = panelW(screenW) - PAD * 2;
         return oneCol(screenW) ? inner : inner - GUTTER - leftColW(screenW);
     }
@@ -309,6 +319,11 @@ public final class ItemStudio implements Overlay {
         w = panelW(screenW);
         lw = leftColW(screenW);
         rw = rightColW(screenW);
+        if (nbtBox != null && nbtW != rw) {
+            boolean nbtFocused = nbtBox.isFocused();
+            nbtBox = buildNbtBox(screenW, v.components);
+            nbtBox.setFocused(nbtFocused);
+        }
         boolean one = oneCol(screenW);
         loreRows = LORE_ROWS[squeeze];
         enchRows = ENCH_ROWS[squeeze];
@@ -340,6 +355,7 @@ public final class ItemStudio implements Overlay {
         prevH = one ? prevMin : Math.max(prevMin, avail * 30 / 100);
         right = prevY + prevH + 8;
         tagsY = right + CAP;                 right = tagsY + tagFields.size() * (ROW + 2);
+        tagsHintY = right;                   if (!tagFields.isEmpty()) right += 11 + 2;
         tagsAddY = right;                    right += ADD_H + 8;
         compY = right + HEAD_ROW;
         if (textMode) {
@@ -359,7 +375,7 @@ public final class ItemStudio implements Overlay {
 
         int contentH = (one ? right : Math.max(at, right)) + 8;
         int natural = contentH + 1 + FOOT_H;
-        h = Ui.fitH(screenH, natural);
+        h = Math.min(natural, sizer.h(screenH, Ui.fitH(screenH, natural)));
         if (h < natural && squeeze < LORE_ROWS.length - 1) { squeeze++; layout(); return; }
         x = Ui.midX(screenW, w);
         y = Ui.midY(screenH, h);
@@ -383,6 +399,7 @@ public final class ItemStudio implements Overlay {
         nbtBox.setY(absY(nbtY) + 3);
         nbtBox.setWidth(rw - 8);
         nbtBox.setHeight(Math.max(12, nbtH - 6));
+        nbtBox.setScrollAmount(nbtBox.scrollAmount());
         for (int i = 0; i < tagFields.size(); i++) placeRow(tagFields.get(i), absY(tagsY) + i * (ROW + 2));
         for (int i = 0; i < compFields.size(); i++) placeRow(compFields.get(i), absY(compY) + i * (ROW + 2));
     }
@@ -408,14 +425,32 @@ public final class ItemStudio implements Overlay {
         return on;
     }
 
+    private static final String RESET = "Сбросить";
+    private int resetSig = Integer.MIN_VALUE;
+    private boolean resetOn, resetHint;
+
     private String pickLabel() { return v.itemId.isEmpty() ? "Выбрать предмет" : "Другой предмет"; }
 
     private Ui.Cluster itemRow() {
         if (Env.browser())
-            return new Ui.Cluster(leftX(), lw, 5, Ui.buttonW(tr, Draw.SEARCH, pickLabel()));
+            return new Ui.Cluster(leftX(), lw, 5, Ui.buttonW(tr, Draw.SEARCH, pickLabel()),
+                    Ui.buttonW(tr, Draw.RESET, RESET));
         return new Ui.Cluster(leftX(), lw, 5,
                 Ui.buttonW(tr, Draw.SEARCH, pickLabel()),
-                Ui.buttonW(tr, Draw.LOAD, "Взять из руки"));
+                Ui.buttonW(tr, Draw.LOAD, "Взять из руки"),
+                Ui.buttonW(tr, Draw.RESET, RESET));
+    }
+
+    private int resetIndex() { return Env.browser() ? 1 : 2; }
+
+    private boolean canReset() {
+        if (v.itemId.isEmpty()) return false;
+        int sig = fieldSig() * 31 + v.components.hashCode();
+        if (sig != resetSig) {
+            resetSig = sig;
+            resetOn = Stacks.customized(v);
+        }
+        return resetOn;
     }
 
     private Ui.Cluster nameRow() {
@@ -474,6 +509,7 @@ public final class ItemStudio implements Overlay {
         Ui.hairline(ctx, x + 1, y + HEAD_H, w - 2);
 
         ctx.enableScissor(x + 1, y + pane.top(), x + w - 1, y + footY);
+        resetHint = false;
         drawLeft(ctx, mouseX, mouseY, delta);
         drawRight(ctx, mouseX, mouseY, delta);
         ctx.disableScissor();
@@ -481,6 +517,7 @@ public final class ItemStudio implements Overlay {
 
         Ui.hairline(ctx, x + 1, footAbsY() - 1, w - 2);
         drawFooter(ctx, mouseX, mouseY);
+        sizer.draw(ctx, mouseX, mouseY, x, y, w, h);
         if (ids.active()) {
             ctx.nextStratum();
             ids.render(ctx, tr, mouseX, mouseY);
@@ -511,6 +548,10 @@ public final class ItemStudio implements Overlay {
         if (!Env.browser())
             Ui.glyphButton(ctx, tr, mouseX, mouseY, items.x(1), absY(pickY), items.w(1), BTN_H,
                     Draw.LOAD, "Взять из руки", Ui.GHOST, held() != null);
+        int ri = resetIndex();
+        if (Ui.glyphButton(ctx, tr, mouseX, mouseY, items.x(ri), absY(pickY), items.w(ri), BTN_H,
+                Draw.RESET, RESET, Ui.GHOST, canReset()))
+            resetHint = true;
 
         int cw = numW();
         String[] caps = {"КОЛИЧЕСТВО", "ПРОЧНОСТЬ", "МОДЕЛЬ"};
@@ -684,6 +725,7 @@ public final class ItemStudio implements Overlay {
         if (error != null)
             Draw.roundOutline(ctx, rightX(), absY(nbtY), rw, nbtH, Ui.R_SM,
                     Draw.opaque(Theme.DANGER));
+        grab.frame();
         nbtBox.extractRenderState(ctx, mouseX, mouseY, delta);
         if (error == null) {
             Draw.textFit(ctx, tr, v.components.isBlank()
@@ -703,8 +745,29 @@ public final class ItemStudio implements Overlay {
     private void drawTags(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         Ui.caption(ctx, tr, "ТЕГИ", rightX(), absY(tagsY) - CAP, rw,
                 tagFields.isEmpty() ? "" : String.valueOf(tagFields.size()));
-        for (int i = 0; i < tagFields.size(); i++)
-            drawRow(ctx, mouseX, mouseY, delta, tagFields.get(i), absY(tagsY) + i * (ROW + 2), Draw.EQUAL, null);
+        String said = null;
+        boolean fixable = true, pinned = false;
+        for (int i = 0; i < tagFields.size(); i++) {
+            EditBox[] f = tagFields.get(i);
+            int ry = absY(tagsY) + i * (ROW + 2);
+            drawRow(ctx, mouseX, mouseY, delta, f, ry, Draw.EQUAL, null);
+            String name = f[0].getValue();
+            String problem = TagNames.problem(name);
+            if (problem == null) continue;
+            boolean soft = TagNames.fixable(name);
+            Draw.roundOutline(ctx, rightX(), ry, keyW(), ROW, Ui.R_SM,
+                    Draw.opaque(soft ? Theme.WARN : Theme.DANGER));
+            boolean mine = focus == ROWS && f[0] == rowFocus;
+            if (pinned) continue;
+            if (said == null || mine || fixable && !soft) {
+                said = problem;
+                fixable = soft;
+                pinned = mine;
+            }
+        }
+        if (said != null)
+            Draw.textFit(ctx, tr, said, rightX() + 2, absY(tagsHintY) + 2, rw - 4,
+                    fixable ? Theme.WARN : Theme.DANGER, false);
         Ui.glyphButton(ctx, tr, mouseX, mouseY, rightX(), absY(tagsAddY), rw, ADD_H,
                 Draw.PLUS, "добавить тег", Ui.GHOST, !v.itemId.isEmpty());
     }
@@ -825,8 +888,9 @@ public final class ItemStudio implements Overlay {
         if (focus == NBT || focus == ROWS) { focus = NAME; rowFocus = null; focusFields(); }
         rowsFrom = "\0";
         syncRows();
-        setBox(v.components);
         relayout();
+        setBox(v.components);
+        nbtBox.setScrollAmount(0);
     }
 
     private static final int OK_W = 56, NO_W = 52, FOOT_BTN_H = 16;
@@ -835,7 +899,9 @@ public final class ItemStudio implements Overlay {
 
     private void drawFooter(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int fy = footBtnY();
-        String hint = System.currentTimeMillis() - flashAt < 1800 ? flash : Stacks.summary(v);
+        String hint = System.currentTimeMillis() - flashAt < 1800 ? flash
+                : resetHint ? "оставить только материал — без названия, описания, чар и компонентов"
+                : Stacks.summary(v);
         if (hint.isEmpty()) hint = "Enter — готово, Esc — отмена";
         Draw.textFit(ctx, tr, hint, x + PAD, fy + 4,
                 inner() - (OK_W + Ui.FOOT_GAP + NO_W + 6), Theme.TEXT_FAINT, false);
@@ -885,6 +951,10 @@ public final class ItemStudio implements Overlay {
         }
 
         int mx = (int) click.x(), my = (int) click.y();
+        if (sizer.press(click, doubled, x, y, w, h)) {
+            if (!sizer.active()) refit();
+            return true;
+        }
         if (Ui.hit(mx, my, x + w - PAD - 14, y + 6, 14, 14)) { closed = true; return true; }
         if (!pane.inBody(my, y)) {
             footClicked(mx, my);
@@ -896,6 +966,15 @@ public final class ItemStudio implements Overlay {
         if (items.hit(0, mx, my, absY(pickY), BTN_H)
                 || Ui.hit(mx, my, leftX(), absY(cardY), lw, CARD_H)) {
             openPicker();
+            return true;
+        }
+        if (items.hit(resetIndex(), mx, my, absY(pickY), BTN_H)) {
+            if (canReset()) {
+                readForm();
+                Stacks.reset(v);
+                sync();
+                toast("свойства сброшены · «Отмена» вернёт всё");
+            }
             return true;
         }
         if (!Env.browser() && items.hit(1, mx, my, absY(pickY), BTN_H)) {
@@ -1002,7 +1081,7 @@ public final class ItemStudio implements Overlay {
             focus = NBT;
             focusFields();
             nbtBox.mouseClicked(click, doubled);
-            grab.take(nbtBox);
+            grab.take(nbtBox, mx);
             return true;
         }
         Ui.Cluster nbt = nbtRow();
@@ -1056,7 +1135,7 @@ public final class ItemStudio implements Overlay {
         readForm();
         picker = new ItemPicker(tr, screenW, screenH, Values.color(Value.ITEM), Stacks.build(v),
                 stack -> {
-                    Stacks.read(v, stack);
+                    Stacks.swapItem(v, stack);
                     sync();
                 });
     }
@@ -1101,6 +1180,10 @@ public final class ItemStudio implements Overlay {
     }
 
     public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
+        if (sizer.drag(click.x(), click.y())) {
+            refit();
+            return true;
+        }
         if (bar.dragged(click.y(), 1, pane.max(), v -> pane.scroll = v)) return true;
         if (loreBar.dragged(click.y(), ROW + 2, maxLoreScroll(), v -> loreScroll = v)) return true;
         if (picker != null) return picker.mouseDragged(click, dx, dy);
@@ -1110,6 +1193,7 @@ public final class ItemStudio implements Overlay {
     }
 
     public void mouseReleased() {
+        sizer.release();
         bar.release();
         loreBar.release();
         grab.release();
@@ -1275,8 +1359,14 @@ public final class ItemStudio implements Overlay {
         focusFields();
     }
 
+    private void refit() {
+        squeeze = 0;
+        relayout();
+    }
+
     private void finish() {
         readForm();
+        if (!textMode && tagsUnclean()) v.components = Stacks.withTags(v.components, rowsOf(tagFields));
         writeNbt();
         done.apply(v);
         closed = true;

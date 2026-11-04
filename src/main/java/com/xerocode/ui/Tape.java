@@ -63,10 +63,26 @@ public final class Tape {
         }
     }
 
+    private static final class Piece {
+        final int x0, y0, x1, y1, quadFrom, opFrom;
+        Batch.Part part;
+        List<Object> ops;
+
+        Piece(int x0, int y0, int x1, int y1, int quadFrom, int opFrom) {
+            this.x0 = x0; this.y0 = y0; this.x1 = x1; this.y1 = y1;
+            this.quadFrom = quadFrom; this.opFrom = opFrom;
+        }
+
+        boolean seen(double vx0, double vy0, double vx1, double vy1) {
+            return x1 >= vx0 && x0 <= vx1 && y1 >= vy0 && y0 <= vy1;
+        }
+    }
+
     private final long key;
     private final int epochAt;
-    private int[] quads = new int[0];
-    private final Batch.Cache cache = new Batch.Cache();
+    private Piece[] pieces = new Piece[0];
+    private Batch.Part[] shown = new Batch.Part[0];
+    private List<Piece> marks = new ArrayList<>();
     private List<Object> ops = new ArrayList<>();
     private List<TextRenderable> capture;
 
@@ -81,12 +97,35 @@ public final class Tape {
 
     static void begin(long key) { recording = new Tape(key); }
 
+    static void mark(int x0, int y0, int x1, int y1) {
+        Tape t = recording;
+        if (t == null) return;
+        Batch b = Draw.batch();
+        t.marks.add(new Piece(x0, y0, x1, y1, b == null ? 0 : b.size(), t.ops.size()));
+    }
+
     static Tape end(Batch batch) {
         Tape t = recording;
         abort();
         if (t == null) return null;
-        if (batch != null) t.quads = batch.snapshot();
-        t.coalesce();
+        int quads = batch == null ? 0 : batch.size();
+        List<Piece> list = t.marks;
+        if (list.isEmpty())
+            list = List.of(new Piece(Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, 0, 0));
+        int n = list.size();
+        t.pieces = new Piece[n];
+        t.shown = new Batch.Part[n];
+        for (int i = 0; i < n; i++) {
+            Piece p = list.get(i);
+            int quadFrom = i == 0 ? 0 : p.quadFrom, opFrom = i == 0 ? 0 : p.opFrom;
+            int quadTo = i + 1 < n ? list.get(i + 1).quadFrom : quads;
+            int opTo = i + 1 < n ? list.get(i + 1).opFrom : t.ops.size();
+            p.part = new Batch.Part(batch == null ? new int[0] : batch.copy(quadFrom, quadTo));
+            p.ops = coalesce(t.ops.subList(opFrom, opTo));
+            t.pieces[i] = p;
+        }
+        t.marks = null;
+        t.ops = null;
         return t;
     }
 
@@ -95,7 +134,7 @@ public final class Tape {
         scale = 1;
     }
 
-    private void coalesce() {
+    private static List<Object> coalesce(List<Object> ops) {
         List<Object> out = new ArrayList<>(ops.size());
         Glyphs open = null;
         List<TextRenderable> joined = null;
@@ -121,7 +160,7 @@ public final class Tape {
             out.add(op);
         }
         if (open != null) seal(open, joined);
-        ops = out;
+        return out;
     }
 
     private static void bakeInto(TextRenderable[] glyphs, List<TextRenderable> out) {
@@ -157,9 +196,23 @@ public final class Tape {
         if (recording != null) recording.ops.add(new Icon(stack, x, y, size));
     }
 
-    void replay(GuiGraphicsExtractor ctx, Font font, ScreenRectangle area) {
-        Batch.replay(ctx, area, area, quads, cache);
+    void replay(GuiGraphicsExtractor ctx, Font font, ScreenRectangle area,
+                double vx0, double vy0, double vx1, double vy1) {
+        int n = 0;
+        boolean any = false;
+        for (Piece p : pieces) {
+            if (!p.seen(vx0, vy0, vx1, vy1)) continue;
+            any = true;
+            if (p.part.count() > 0) shown[n++] = p.part;
+        }
+        if (!any) return;
+        if (n > 0) Batch.replay(ctx, area, area, shown, n);
         SmoothText.Pen pen = null;
+        for (Piece p : pieces)
+            if (p.seen(vx0, vy0, vx1, vy1)) pen = play(ctx, font, p.ops, pen);
+    }
+
+    private static SmoothText.Pen play(GuiGraphicsExtractor ctx, Font font, List<Object> ops, SmoothText.Pen pen) {
         for (Object op : ops) {
             if (op instanceof Glyphs g) {
                 if (g.scale > 1) {
@@ -183,6 +236,7 @@ public final class Tape {
                 else Draw.item(ctx, i.stack, i.x, i.y, i.size);
             }
         }
+        return pen;
     }
 
     private static void lift(GuiGraphicsExtractor ctx, int x, int y, int scale) {

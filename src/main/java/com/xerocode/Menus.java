@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import net.minecraft.world.item.ItemStack;
 
 public final class Menus {
     public static final int PREV = 1, NEXT = 2;
@@ -22,8 +23,14 @@ public final class Menus {
         public Node child;
         public Catalog.Action action;
         public Catalog.Category category;
+        public String skin = "";
 
         Cell(int slot, String item) { this.slot = slot; this.item = item; }
+
+        public ItemStack icon() {
+            return action != null && !action.item.isEmpty() ? action.icon()
+                    : Catalog.stackOf(item, false, skin);
+        }
     }
 
     public static final class Page {
@@ -126,6 +133,7 @@ public final class Menus {
                 } else if (co.has("k")) {
                     cell.name = co.get("n").getAsString();
                     cell.description = co.has("d") ? co.get("d").getAsString() : "";
+                    if (co.has("t")) cell.skin = co.get("t").getAsString();
                     cell.child = node(c, co.getAsJsonObject("k"));
                 } else {
                     String sub = co.has("u") ? co.get("u").getAsString() : null;

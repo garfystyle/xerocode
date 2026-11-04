@@ -16,10 +16,13 @@ public final class ParticleStage implements CatalogPicker.Extra {
     public static final int H = 46;
     private static final int CAP = 60;
     private static final int ITEM_CAP = 14;
+    private static final double HANG = 0.55;
+    private static final double FLASH_LIFE = 0.45, FLASH_EVERY = 0.7, FLASH_SPAN = 1.2;
 
     private static final class P {
         double x, y, vx, vy, age, life, scale, seed;
         double cx;
+        int tint;
     }
 
     private final List<P> live = new ArrayList<>();
@@ -75,7 +78,7 @@ public final class ParticleStage implements CatalogPicker.Extra {
         double count = value == null ? 1 : Math.max(0, value.count);
         int cap = asItem ? ITEM_CAP : CAP;
 
-        if (live.isEmpty()) prime(w, h, motion, cap);
+        if (live.isEmpty() && motion != ParticleLook.Motion.FLASH) prime(w, h, motion, cap);
         for (int i = live.size() - 1; i >= 0; i--) {
             P p = live.get(i);
             p.age += dt;
@@ -83,6 +86,14 @@ public final class ParticleStage implements CatalogPicker.Extra {
             move(p, dt, h, motion);
         }
 
+        if (motion == ParticleLook.Motion.FLASH) {
+            debt -= dt;
+            if (debt <= 0) {
+                debt = FLASH_EVERY;
+                live.add(spawn(w, h, motion, lane(w)));
+            }
+            return;
+        }
         if (motion == ParticleLook.Motion.BURST) {
             debt -= dt;
             if (debt <= 0) {
@@ -121,6 +132,7 @@ public final class ParticleStage implements CatalogPicker.Extra {
         p.seed = rng.nextDouble() * 6.28;
         p.scale = 0.8 + rng.nextDouble() * 0.5;
         p.cx = cx;
+        p.tint = tint();
         switch (motion) {
             case FALL -> {
                 p.x = rng.nextDouble() * w;
@@ -156,6 +168,11 @@ public final class ParticleStage implements CatalogPicker.Extra {
                 p.y = 5 + rng.nextDouble() * 4;
                 p.life = 1.5;
             }
+            case FLASH -> {
+                p.x = cx + (rng.nextDouble() - 0.5) * sx;
+                p.y = cy;
+                p.life = FLASH_LIFE;
+            }
             case DRIFT -> {
                 p.x = rng.nextDouble() * w;
                 p.y = h * 0.25 + rng.nextDouble() * h * 0.5;
@@ -165,6 +182,11 @@ public final class ParticleStage implements CatalogPicker.Extra {
             }
         }
         return p;
+    }
+
+    private int tint() {
+        int[] palette = ParticleLook.tints(id);
+        return palette == null ? 0xFFFFFF : palette[rng.nextInt(palette.length)];
     }
 
     private double lane(int w) {
@@ -194,7 +216,7 @@ public final class ParticleStage implements CatalogPicker.Extra {
                 p.vy = dx * 1.9 - dy * 0.5;
             }
             case DRIP -> {
-                if (p.age > 0.55) p.vy += 75 * dt;
+                if (p.age > HANG) p.vy += 75 * dt;
             }
             case DRIFT -> {
                 p.vx += Math.cos(p.age * 2 + p.seed) * 6 * dt;
@@ -210,6 +232,7 @@ public final class ParticleStage implements CatalogPicker.Extra {
         Pickers.Entry entry = Pickers.particle(id);
         boolean tinted = entry != null && entry.has(Pickers.COLOR);
         boolean fades = entry != null && entry.has(Pickers.TO_COLOR);
+        boolean cools = ParticleLook.cools(id);
         double sized = entry != null && entry.has(Pickers.SIZE) && value != null
                 ? Math.max(0.25, Math.min(3, value.size)) : 1;
         int from = value == null ? 0xFFFFFF : value.color & 0xFFFFFF;
@@ -218,16 +241,25 @@ public final class ParticleStage implements CatalogPicker.Extra {
         ctx.enableScissor(x + 1, y + 1, x + w - 1, y + h - 1);
         for (P p : live) {
             double t = Math.min(1, p.age / p.life);
-            float alpha = (float) Math.min(1, Math.min(t / 0.15, (1 - t) / 0.35));
+            float alpha;
+            int size;
+            if (motion == ParticleLook.Motion.FLASH) {
+                double tick = 4 * t - 1;
+                alpha = (float) Math.max(0, Math.min(1, 0.6 - tick * 0.125));
+                size = (int) Math.round(h * FLASH_SPAN * Math.abs(Math.sin(tick * Math.PI / 4)));
+                if (size < 2) continue;
+            } else {
+                alpha = (float) Math.min(1, Math.min(t / 0.15, (1 - t) / 0.35));
+                double shrink = motion == ParticleLook.Motion.BURST ? 1 - 0.45 * t : 1;
+                size = Math.max(2, (int) Math.round(6.5 * p.scale * sized * shrink));
+            }
             if (alpha <= 0.02f) continue;
-            double shrink = motion == ParticleLook.Motion.BURST ? 1 - 0.45 * t : 1;
-            int size = (int) Math.round(6.5 * p.scale * sized * shrink);
-            if (size < 2) size = 2;
             int px = (int) Math.round(x + p.x) - size / 2;
             int py = (int) Math.round(y + p.y) - size / 2;
 
             if (!textures.isEmpty()) {
-                int rgb = !tinted ? 0xFFFFFF : (fades ? Draw.mix(from, to, (float) t) : from);
+                int rgb = tinted ? (fades ? Draw.mix(from, to, (float) t) : from)
+                        : cools ? ParticleLook.cooled(p.age / HANG) : p.tint;
                 TextureAtlasSprite sprite = ParticleLook.sprite(
                         textures.get(Math.min(textures.size() - 1, (int) (t * textures.size()))));
                 if (sprite != null)

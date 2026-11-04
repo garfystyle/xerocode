@@ -4,7 +4,7 @@ import sys
 import brotli
 from PIL import Image
 
-TEXT = (".js", ".html", ".css", ".json")
+TEXT = (".js", ".html", ".css", ".json", ".ttf")
 
 
 def keep(src, dst, data):

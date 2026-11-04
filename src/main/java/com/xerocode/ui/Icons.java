@@ -4,6 +4,7 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.item.TrackingItemStackRenderState;
 import net.minecraft.client.renderer.state.gui.GuiItemRenderState;
@@ -51,7 +52,7 @@ final class Icons {
             level = mc.level;
         }
         TrackingItemStackRenderState state = cache.get(stack);
-        if (state == MOVING) return vanilla(ctx, stack, x, y);
+        if (state == MOVING || stack.has(DataComponents.PROFILE)) return vanilla(ctx, stack, x, y);
         try {
             if (state == null) {
                 state = new TrackingItemStackRenderState();

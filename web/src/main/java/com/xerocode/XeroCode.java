@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 public final class XeroCode {
     public static final Logger LOG = LoggerFactory.getLogger("xerocode");
     public static final String RESTART = "restart";
+    public static final String CLOSE = "close";
 
     private static Script script;
     private static String plot = "";
@@ -48,6 +49,8 @@ public final class XeroCode {
 
     public static void canvasClosed() {}
 
+    public static void canvasShut() {}
+
     public static void offerUpdate(EditorScreen editor) {}
 
     public static String updateNote() { return ""; }
@@ -55,16 +58,22 @@ public final class XeroCode {
     public static void openCanvas(Minecraft client) {
         if (!Catalog.loaded()) Catalog.load();
         Settings settings = Settings.get();
+        if (settings.mode == Settings.Mode.CODE) {
+            client.gui.setScreen(new com.xerocode.ui.CodeScreen());
+            return;
+        }
         if (settings.mode != Settings.Mode.CANVAS) {
             settings.mode = Settings.Mode.CANVAS;
             settings.save();
         }
-        client.gui.setScreen(new EditorScreen(script()));
+        client.gui.setScreen(new EditorScreen(Tabs.activeScript()));
     }
 
     public static void saveAll() {
         if (script == null) return;
         if (Minecraft.getInstance().gui.screen() instanceof EditorScreen editor) editor.rememberView();
+        if (Minecraft.getInstance().gui.screen() instanceof com.xerocode.ui.CodeScreen code) code.saveNow();
         script.save();
+        Tabs.saveAll(script);
     }
 }

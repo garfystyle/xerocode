@@ -57,13 +57,6 @@ public final class Mapping {
 
     public record Sel(String id, String name) {}
 
-    public record Rule(String to, boolean invert, Map<String, String> set,
-                       Map<String, String> args) {
-        public String argId(String old) { return args.getOrDefault(old, old); }
-    }
-
-    private static final Map<String, Rule> UPGRADES = new HashMap<>();
-
     private static final Map<String, List<Sel>> SELECTIONS = new HashMap<>();
 
     private static final Map<String, String> EVENTS = new HashMap<>();
@@ -120,17 +113,6 @@ public final class Mapping {
                 ACTIONS.put(id, act);
             }
 
-            if (root.has("upgrade")) {
-                JsonObject up = root.getAsJsonObject("upgrade");
-                for (String id : up.keySet()) {
-                    JsonObject u = up.getAsJsonObject(id);
-                    UPGRADES.put(id, new Rule(u.get("to").getAsString(),
-                            u.has("invert") && u.get("invert").getAsBoolean(),
-                            u.has("set") ? strings(u.getAsJsonObject("set")) : Map.of(),
-                            u.has("args") ? strings(u.getAsJsonObject("args")) : Map.of()));
-                }
-            }
-
             if (root.has("selections")) {
                 JsonObject sel = root.getAsJsonObject("selections");
                 for (String family : sel.keySet()) {
@@ -159,7 +141,6 @@ public final class Mapping {
         return out;
     }
 
-    public static Rule upgrade(String id) { return id == null ? null : UPGRADES.get(id); }
 
     public static int renamedArg(Catalog.Action action, String label) {
         Act act = loaded() ? forExport(action) : null;
@@ -184,12 +165,14 @@ public final class Mapping {
 
     public static String actionId(Catalog.Action action) {
         if (action == null || action.category == null) return null;
+        if (action.serverId != null) return action.serverId;
         String key = Catalog.keyOf(action);
         if (Catalog.namesakes(action).size() > 1)
             for (Map.Entry<String, Act> e : ACTIONS.entrySet())
                 if (key.equals(e.getValue().key) && action.subcategory != null
-                        && action.subcategory.equals(e.getValue().sub)) return e.getKey();
-        return EXPORT_ACTIONS.get(key);
+                        && action.subcategory.equals(e.getValue().sub))
+                    return action.serverId = e.getKey();
+        return action.serverId = EXPORT_ACTIONS.get(key);
     }
 
     public static Catalog.Action catalogAction(Act act) {
@@ -313,6 +296,22 @@ public final class Mapping {
         String id = actionId(action);
         List<String> out = id == null ? null : CONDITIONAL.get(id);
         return out == null ? List.of() : out;
+    }
+
+    public static List<Catalog.Action> conditions(Catalog.Action block) {
+        List<Catalog.Action> out = new ArrayList<>();
+        for (String name : conditionCategories(block)) {
+            Catalog.Category category = Catalog.category(name);
+            if (category == null) continue;
+            for (List<Catalog.Action> sub : category.subActions)
+                for (Catalog.Action a : sub) if (!a.deprecated) out.add(a);
+        }
+        return out;
+    }
+
+    public static boolean allowsCondition(Catalog.Action block, Catalog.Action condition) {
+        return condition != null && condition.category != null
+                && conditionCategories(block).contains(condition.category.name);
     }
 
     public static boolean invertible(Catalog.Action action) {

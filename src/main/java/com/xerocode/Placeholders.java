@@ -63,5 +63,36 @@ public final class Placeholders {
                 it.name(), "", categoryName(it.category()), it.description()));
     }
 
+    public static String strip(String s) {
+        if (s == null || s.indexOf('%') < 0) return s == null ? "" : s;
+        int n = s.length();
+        StringBuilder out = new StringBuilder(n);
+        int i = 0;
+        while (i < n) {
+            char c = s.charAt(i);
+            int end = i + 1;
+            while (c == '%' && end < n && word(s.charAt(end))) end++;
+            if (c != '%' || end == i + 1) { out.append(c); i++; continue; }
+            if (end == n) break;
+            char next = s.charAt(end);
+            if (next == '%') i = end + 1;
+            else if (next == '(') i = closed(s, end);
+            else { out.append(s, i, end); i = end; }
+        }
+        return out.toString();
+    }
+
+    private static int closed(String s, int open) {
+        int depth = 0;
+        for (int k = open; k < s.length(); k++) {
+            char c = s.charAt(k);
+            if (c == '(') depth++;
+            else if (c == ')' && --depth == 0) return k + 1;
+        }
+        return s.length();
+    }
+
+    private static boolean word(char c) { return c == '_' || Character.isLetterOrDigit(c); }
+
     private Placeholders() {}
 }

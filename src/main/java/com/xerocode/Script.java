@@ -3,6 +3,7 @@ package com.xerocode;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -10,6 +11,7 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -144,6 +146,14 @@ public final class Script {
         public final List<Node> chain = new ArrayList<>();
         public boolean folded;
 
+        public int view;
+        private String frozen, bytesOf;
+        private byte[] bytes;
+        private boolean coded;
+        private int codedView, codeBase, codeStep;
+        private int frozenHash;
+        private double frozenX, frozenY;
+
         public boolean foldable() { return chain.size() > 1; }
 
         public boolean hides() { return folded && foldable(); }
@@ -219,8 +229,12 @@ public final class Script {
     }
 
     public transient String plot = "";
+    public transient Path home;
+    private transient String savedShell;
+    private transient String[] savedParts;
+    private transient Path savedPath;
 
-    private static Path dir() {
+    static Path dir() {
         return Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode");
     }
 
@@ -248,19 +262,74 @@ public final class Script {
         }
     }
 
-    public JsonObject toJson() {
-        JsonArray arr = new JsonArray();
-        for (Root r : roots) {
-            JsonObject ro = new JsonObject();
-            ro.addProperty("id", r.id);
-            ro.addProperty("x", r.x);
-            ro.addProperty("y", r.y);
-            if (r.hides()) ro.addProperty("f", true);
-            ro.add("chain", writeChain(r.chain));
-            arr.add(ro);
+    public JsonObject toJson() { return toJson(roots); }
+
+    private static JsonObject rootJson(Root r) {
+        JsonObject ro = new JsonObject();
+        ro.addProperty("id", r.id);
+        ro.addProperty("x", r.x);
+        ro.addProperty("y", r.y);
+        if (r.hides()) ro.addProperty("f", true);
+        ro.add("chain", writeChain(r.chain));
+        return ro;
+    }
+
+    public static String frozen(Root r) {
+        int h = viewHash(r);
+        if (r.frozen == null || h != r.frozenHash || r.x != r.frozenX || r.y != r.frozenY) {
+            r.frozen = rootJson(r).toString();
+            r.frozenHash = h;
+            r.frozenX = r.x;
+            r.frozenY = r.y;
         }
+        return r.frozen;
+    }
+
+    public static Root thaw(String text) {
+        return readRoot(JsonParser.parseString(text).getAsJsonObject());
+    }
+
+    private static byte[] frozenBytes(Root r, String text) {
+        if (r.bytesOf != text) {
+            r.bytes = text.getBytes(StandardCharsets.UTF_8);
+            r.bytesOf = text;
+        }
+        return r.bytes;
+    }
+
+    private static byte[] joined(String shell, List<Root> list, String[] parts) {
+        byte[] head = shell.substring(0, shell.length() - 2).getBytes(StandardCharsets.UTF_8);
+        int size = head.length + 2 + Math.max(0, parts.length - 1);
+        for (int i = 0; i < parts.length; i++) size += frozenBytes(list.get(i), parts[i]).length;
+        byte[] out = new byte[size];
+        System.arraycopy(head, 0, out, 0, head.length);
+        int at = head.length;
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) out[at++] = ',';
+            byte[] part = list.get(i).bytes;
+            System.arraycopy(part, 0, out, at, part.length);
+            at += part.length;
+        }
+        out[at] = ']';
+        out[at + 1] = '}';
+        return out;
+    }
+
+    public boolean warm(long until) {
+        for (int i = 0, n = roots.size(); i < n; i++) {
+            Root r = roots.get(i);
+            if (r.bytes != null) continue;
+            if (System.nanoTime() >= until) return false;
+            frozenBytes(r, frozen(r));
+        }
+        return true;
+    }
+
+    private JsonObject toJson(List<Root> roots) {
+        JsonArray arr = new JsonArray();
+        for (Root r : roots) arr.add(rootJson(r));
         JsonObject root = new JsonObject();
-        root.addProperty("version", 1);
+        root.addProperty("version", VERSION);
         if (paletteW > 0) root.addProperty("paletteW", paletteW);
         root.addProperty("viewX", viewX);
         root.addProperty("viewY", viewY);
@@ -277,43 +346,82 @@ public final class Script {
         if (root.has("viewY")) s.viewY = root.get("viewY").getAsDouble();
         if (root.has("viewZoom"))
             s.viewZoom = Math.max(0.1, Math.min(2.0, root.get("viewZoom").getAsDouble()));
-        for (JsonElement re : root.getAsJsonArray("roots")) {
-            JsonObject ro = re.getAsJsonObject();
-            Root rt = new Root(ro.get("x").getAsDouble(), ro.get("y").getAsDouble(),
-                    ro.has("id") ? ro.get("id").getAsString() : null);
-            rt.chain.addAll(readChain(ro.getAsJsonArray("chain")));
-            rt.folded = ro.has("f") && ro.get("f").isJsonPrimitive() && ro.get("f").getAsBoolean();
-            s.roots.add(rt);
-        }
+        for (JsonElement re : root.getAsJsonArray("roots")) s.roots.add(readRoot(re.getAsJsonObject()));
+        if (Json.num(root, "version") < VERSION) for (Root r : s.roots) unwrapPlural(r.chain);
         return s;
     }
 
-    public void replaceWith(Script other) {
-        roots.clear();
-        roots.addAll(other.roots);
+    private static Root readRoot(JsonObject ro) {
+        Root rt = new Root(ro.get("x").getAsDouble(), ro.get("y").getAsDouble(),
+                ro.has("id") ? ro.get("id").getAsString() : null);
+        rt.chain.addAll(readChain(ro.getAsJsonArray("chain")));
+        rt.folded = ro.has("f") && ro.get("f").isJsonPrimitive() && ro.get("f").getAsBoolean();
+        return rt;
     }
 
-    public int fingerprint() {
-        int h = roots.size();
-        for (Root r : roots) {
-            h = h * 31 + Double.hashCode(r.x);
-            h = h * 31 + Double.hashCode(r.y);
-            h = chainHash(h, r.chain);
-            h = foldHash(h * 31 + (r.hides() ? 1 : 0), r.chain);
-        }
-        return h;
-    }
+    private static final int VERSION = 2;
 
-    private static int foldHash(int h, List<Node> chain) {
+    private static final java.util.Set<String> WRAPPED_BEFORE_2 = java.util.Set.of(
+            "set_variable_set_map_value/key", "set_variable_set_map_value/value",
+            "if_variable_item_has_tag/value", "if_variable_map_has_key/key",
+            "if_entity_is_standing_on_block/locations", "if_entity_has_custom_tag/tag_value");
+
+    public static void unwrapPlural(List<Node> chain) {
+        if (!Mapping.loaded()) return;
         for (Node n : chain) {
-            h = h * 31 + (n.folded ? 1 : 0);
-            if (!n.body.isEmpty()) h = foldHash(h, n.body);
+            String sid = serverId(n.action);
+            Mapping.Act act = sid == null ? null : Mapping.action(sid);
+            if (act != null) n.values.forEach((idx, list) -> {
+                if (list.size() != 1 || !Value.ARRAY.equals(list.get(0).type)
+                        || !WRAPPED_BEFORE_2.contains(sid + "/" + act.argNames.get(idx))) return;
+                Value wrapped = list.remove(0);
+                for (Value cell : wrapped.items) if (!cell.isBlank()) list.add(cell);
+            });
+            if (n.cond != null) unwrapPlural(List.of(n.cond));
+            unwrapPlural(n.body);
+        }
+    }
+
+    public int fingerprint() { return fingerprint(roots.size(), 0, roots.size()); }
+
+    public int fingerprint(int h, int from, int to) {
+        for (int i = from; i < to; i++) {
+            Root r = roots.get(i);
+            r.view = viewHash(r);
+            h = h * 31 + r.view;
         }
         return h;
     }
 
     public static int viewHash(Root r) {
-        return foldHash(rootHash(r) * 31 + (r.hides() ? 1 : 0), r.chain);
+        int h = Double.hashCode(r.x) * 31 + Double.hashCode(r.y);
+        return printHash(h * 31 + (r.hides() ? 1 : 0), r.chain);
+    }
+
+    private static int printHash(int h, List<Node> chain) {
+        int size = chain.size();
+        h = h * 31 + size;
+        for (int i = 0; i < size; i++) h = printHash(h, chain.get(i));
+        return h;
+    }
+
+    private static int printHash(int h, Node n) {
+        h = (h * 31 + System.identityHashCode(n.action)) * 31 + (n.folded ? 1 : 0);
+        if (!n.dynKeys.isEmpty()) h = h * 31 + n.dynKeys.hashCode();
+        if (!n.dynMarkerKeys.isEmpty()) h = h * 31 + n.dynMarkerKeys.hashCode() + 1;
+        if (n.raw != null) h = h * 31 + n.raw.hashCode();
+        for (Map.Entry<Integer, List<Value>> e : n.values.entrySet()) {
+            List<Value> list = e.getValue();
+            h = h * 31 + e.getKey();
+            for (int i = 0, size = list.size(); i < size; i++) h = h * 31 + list.get(i).print();
+        }
+        for (Map.Entry<Integer, String> e : n.markers.entrySet())
+            h = (h * 31 + e.getKey()) * 31 + e.getValue().hashCode();
+        if (!n.markerVars.isEmpty())
+            for (Map.Entry<Integer, Value> e : n.markerVars.entrySet())
+                h = (h * 31 + e.getKey()) * 31 + e.getValue().print();
+        if (n.cond != null) h = printHash(h, n.cond);
+        return n.body.isEmpty() ? h : printHash(h, n.body);
     }
 
     public static boolean unfoldTo(List<Node> chain, Node target) {
@@ -327,6 +435,20 @@ public final class Script {
     public int codeHash() {
         int h = roots.size();
         for (Root r : roots) h = chainHash(h, r.chain);
+        return h;
+    }
+
+    public int codeHashByView() {
+        int h = roots.size();
+        for (Root r : roots) {
+            if (!r.coded || r.codedView != r.view) {
+                r.codeBase = chainHash(0, r.chain);
+                r.codeStep = chainHash(1, r.chain) - r.codeBase;
+                r.codedView = r.view;
+                r.coded = true;
+            }
+            h = h * r.codeStep + r.codeBase;
+        }
         return h;
     }
 
@@ -351,7 +473,18 @@ public final class Script {
     public void save() {
         if (scratch) return;
         try {
-            Json.write(file(plot), toJson());
+            List<Root> parked = Collab.parked(this);
+            Path path = home != null ? home : file(plot);
+            List<Root> list = parked != null ? parked : roots;
+            String shell = toJson(List.of()).toString();
+            String[] parts = new String[list.size()];
+            for (int i = 0; i < parts.length; i++) parts[i] = frozen(list.get(i));
+            if (shell.equals(savedShell) && Arrays.equals(parts, savedParts) && path.equals(savedPath)
+                    && Files.exists(path)) return;
+            Json.write(path, joined(shell, list, parts));
+            savedShell = shell;
+            savedParts = parts;
+            savedPath = path;
         } catch (IOException e) {
             XeroCode.LOG.error("[xerocode] save failed", e);
         }
@@ -387,6 +520,13 @@ public final class Script {
         adopt(plot);
         Script script = read(file(plot));
         script.plot = plot == null ? "" : plot;
+        return script;
+    }
+
+    public static Script loadFrom(Path home, String plot) {
+        Script script = read(home);
+        script.plot = plot == null ? "" : plot;
+        script.home = home;
         return script;
     }
 
@@ -521,8 +661,6 @@ public final class Script {
     private static final String VARIABLE = "Действие с переменной|";
 
     private static final Map<String, Moved> MOVED = Map.of(
-            VARIABLE + "Получить значение словаря",
-            new Moved(VARIABLE + "Получить значение словаря", new int[]{1, 3, 2, 0}, o -> true),
             VARIABLE + "Распаковать список",
             new Moved(VARIABLE + "Разложить список", new int[]{1, 0}, o -> true),
             VARIABLE + "Получить список хранимых зачарований предмета",
@@ -537,6 +675,12 @@ public final class Script {
         if (o.has("sid")) return null;
         Moved m = MOVED.get(key);
         return m != null && m.applies().test(o) ? m : null;
+    }
+
+    private static Catalog.Action retiredBySid(Catalog.Action a, String sid) {
+        if (a.deprecated) return a;
+        Catalog.Action bySid = Mapping.catalogAction(Mapping.action(sid));
+        return bySid != null && bySid != a && bySid.deprecated ? bySid : a;
     }
 
     private static Catalog.Action byServerId(String sid, boolean branch) {
@@ -626,8 +770,9 @@ public final class Script {
         Moved move = moved(o, key);
         if (move != null) key = move.key();
         Catalog.Action a = Catalog.byKey(key);
-        if (a == null && sid != null)
-            a = byServerId(sid, key.startsWith(Catalog.ELSE_CATEGORY + "|"));
+        boolean branch = key.startsWith(Catalog.ELSE_CATEGORY + "|");
+        if (a != null && sid != null && !branch) a = retiredBySid(a, sid);
+        if (a == null && sid != null) a = byServerId(sid, branch);
         if (a != null && Catalog.namesakes(a).size() > 1) a = namesake(a, o, sid);
         if (a == null) {
             a = Catalog.unknownAction(sid == null ? key : sid);
@@ -663,6 +808,6 @@ public final class Script {
         if (o.has("r") && o.get("r").isJsonObject()) n.raw = o.getAsJsonObject("r");
         if (n.cond == null && Mapping.loaded() && Mapping.hasConditional(n.action))
             Importer.adoptConditional(n);
-        return Upgrade.node(n);
+        return n;
     }
 }

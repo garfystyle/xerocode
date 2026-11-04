@@ -58,7 +58,7 @@ public final class ModulesScreen extends Screen {
     private String query = "";
     private Modules.Sort sort = Modules.Sort.INSTALLS;
     private String category = "";
-    private boolean approvedOnly, mineOnly;
+    private boolean approvedOnly, mineOnly, openOnly = true;
 
     private List<Modules.Module> view = List.of();
     private String viewKey = "";
@@ -121,6 +121,7 @@ public final class ModulesScreen extends Screen {
         for (Modules.Category c : Modules.CATEGORIES) rails.add(new Rail("cat", c.label(), c.id()));
         rails.add(new Rail("head", "ОТБОР", ""));
         rails.add(new Rail("flag", "Только проверенные", "approved"));
+        rails.add(new Rail("flag", "Только с открытым кодом", "open"));
         if (!Env.browser()) {
             rails.add(new Rail("head", "МОЁ", ""));
             rails.add(new Rail("flag", "Только мои", "mine"));
@@ -187,10 +188,12 @@ public final class ModulesScreen extends Screen {
             counts.clear();
             for (Modules.Module m : all) counts.merge(m.category, 1, Integer::sum);
         }
-        String key = Modules.version() + "|" + sort + "|" + category + "|" + approvedOnly + "|" + mineOnly + "|" + query;
+        String key = Modules.version() + "|" + sort + "|" + category + "|" + approvedOnly + "|" + mineOnly
+                + "|" + openOnly + "|" + query;
         if (key.equals(viewKey)) return;
         viewKey = key;
         view = Modules.pick(all, sort, category, approvedOnly, query);
+        if (openOnly) view = view.stream().filter(m -> m.open).toList();
         if (mineOnly) {
             String me = ModuleActions.me();
             view = view.stream().filter(m -> m.author.equalsIgnoreCase(me)).toList();
@@ -370,7 +373,8 @@ public final class ModulesScreen extends Screen {
         return switch (row.kind()) {
             case "sort" -> sort.name().equals(row.value());
             case "cat" -> category.equals(row.value());
-            case "flag" -> "mine".equals(row.value()) ? mineOnly : approvedOnly;
+            case "flag" -> "mine".equals(row.value()) ? mineOnly
+                    : "open".equals(row.value()) ? openOnly : approvedOnly;
             default -> false;
         };
     }
@@ -498,6 +502,7 @@ public final class ModulesScreen extends Screen {
         if (!query.isEmpty()) return "ничего не нашлось по запросу «" + query + "»";
         if (mineOnly) return "твоих публичных модулей тут нет — приватные JustMC в каталог не отдаёт";
         if (approvedOnly) return "проверенных модулей тут нет";
+        if (openOnly) return "модулей с открытым кодом тут нет";
         return "в разделе «" + Modules.category(category).label() + "» пусто";
     }
 
@@ -698,6 +703,7 @@ public final class ModulesScreen extends Screen {
             case "cat" -> category = row.value();
             case "flag" -> {
                 if ("mine".equals(row.value())) mineOnly = !mineOnly;
+                else if ("open".equals(row.value())) openOnly = !openOnly;
                 else approvedOnly = !approvedOnly;
             }
             case "act" -> {

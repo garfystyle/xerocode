@@ -10,6 +10,7 @@ public final class Backstage {
     private static final float SKY = -90f;
     private static Marker marker;
     private static boolean broken;
+    private static boolean hidHud;
 
     private Backstage() {}
 
@@ -18,6 +19,10 @@ public final class Backstage {
         Entity cam = mc.getCameraEntity();
         if (cam != mc.player && !filming(mc)) return;
         try {
+            if (!mc.gui.hud.isHidden()) {
+                mc.gui.hud.toggle();
+                hidHud = true;
+            }
             if (marker == null || marker.level() != mc.level) marker = new Marker(EntityTypes.MARKER, mc.level);
             marker.snapTo(mc.player.getX(), mc.player.getY() + LIFT, mc.player.getZ(), mc.player.getYRot(), SKY);
             if (cam != marker) mc.setCameraEntity(marker);
@@ -32,14 +37,20 @@ public final class Backstage {
     }
 
     public static void restore(Minecraft mc) {
-        if (!filming(mc)) return;
-        try {
-            if (mc.player != null) mc.setCameraEntity(mc.player);
-        } catch (Throwable ignored) {
+        if (filming(mc)) {
+            try {
+                if (mc.player != null) mc.setCameraEntity(mc.player);
+            } catch (Throwable ignored) {
+            }
+        }
+        if (hidHud) {
+            hidHud = false;
+            if (mc.gui.hud.isHidden()) mc.gui.hud.toggle();
         }
     }
 
     public static void guard(Minecraft mc) {
-        if (filming(mc) && !(mc.gui.screen() instanceof EditorScreen)) restore(mc);
+        if ((filming(mc) || hidHud) && !(mc.gui.screen() instanceof EditorScreen) && !(mc.gui.screen() instanceof CodeScreen))
+            restore(mc);
     }
 }

@@ -27,6 +27,8 @@ public final class LinePut {
     private enum Step { NEAR, HAND, WIPE, PAUSE, GIVE, BUILD }
 
     private static LinePut current;
+    private static volatile String lastSaid = "";
+    private static volatile boolean lastBad;
 
     private final ClientLevel world;
     private final LineEdit.Where at;
@@ -56,6 +58,10 @@ public final class LinePut {
     }
 
     public static boolean busy() { return current != null; }
+
+    static String lastSaid() { return lastSaid; }
+
+    static boolean lastBad() { return lastBad; }
 
     public static String start(Minecraft client, LineEdit.Where at, JsonObject fresh, JsonObject original) {
         if (current != null) return "строка уже ставится";
@@ -189,6 +195,8 @@ public final class LinePut {
 
     private void finish(Minecraft client, String said, boolean bad, boolean keepInHand) {
         current = null;
+        lastSaid = said;
+        lastBad = bad;
         if (!keepInHand) {
             Inventory inv = client.player.getInventory();
             inv.setItem(slot, slotBefore);

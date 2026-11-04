@@ -20,6 +20,7 @@ import net.minecraft.world.item.ItemStack;
 public final class Backpack {
     public static final int MAX = 300;
     public static final int NAME_MAX = 48;
+    private static final int VERSION = 3;
 
     public static final class Part {
         public final double x, y;
@@ -257,7 +258,8 @@ public final class Backpack {
         try {
             JsonObject root = Json.read(p);
             if (!root.has("items")) return;
-            if (!root.has("version") || root.get("version").getAsInt() < 2) keepOld(p);
+            int version = Json.num(root, "version");
+            if (version < 2) keepOld(p);
             for (JsonElement e : root.getAsJsonArray("items")) {
                 JsonObject o = e.getAsJsonObject();
                 Item item = new Item(
@@ -276,6 +278,7 @@ public final class Backpack {
                     part.chain.addAll(Script.readChain(o.getAsJsonArray("chain")));
                     if (!part.chain.isEmpty()) item.parts.add(part);
                 }
+                if (version < VERSION) for (Part part : item.parts) Script.unwrapPlural(part.chain);
                 if (!item.empty()) ITEMS.add(item);
             }
         } catch (Exception e) {
@@ -304,7 +307,7 @@ public final class Backpack {
             items.add(o);
         }
         JsonObject root = new JsonObject();
-        root.addProperty("version", 2);
+        root.addProperty("version", VERSION);
         root.add("items", items);
         try {
             Json.write(file(), root);

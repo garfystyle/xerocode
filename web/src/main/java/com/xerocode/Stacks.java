@@ -251,6 +251,30 @@ public final class Stacks {
         v.components = nbt.isEmpty() ? "" : nbt.toString();
     }
 
+    public static void swapItem(Value v, ItemStack picked) {
+        String id = idOf(picked);
+        if (id == null || id.isEmpty()) return;
+        v.itemId = id;
+        Nbt.Compound theirs = picked.getComponentsPatch().nbt();
+        if (theirs == null || theirs.isEmpty()) return;
+        Nbt.Compound mine = v.components.isBlank() ? new Nbt.Compound() : compound(v.components);
+        if (mine == null) return;
+        for (Map.Entry<String, Nbt.Tag> e : theirs.map.entrySet())
+            if (!MODELLED.contains(e.getKey())) mine.put(e.getKey(), e.getValue());
+        v.components = mine.isEmpty() ? "" : mine.toString();
+    }
+
+    public static void reset(Value v) {
+        ItemStack plain = stack(v.itemId);
+        if (!plain.isEmpty()) read(v, plain);
+    }
+
+    public static boolean customized(Value v) {
+        return v.itemCount != 1 || !v.itemName.isEmpty() || !v.lore.isEmpty() || !v.enchants.isEmpty()
+                || v.unbreakable || v.itemDamage > 0 || v.modelData >= 0 || v.glint != 0
+                || v.hideTooltip || !v.hidden.isEmpty() || extraCount(v.components) > 0;
+    }
+
     public static void readText(Value v) {
         Nbt.Compound nbt = compound(v.components);
         if (nbt == null) return;
@@ -484,7 +508,7 @@ public final class Stacks {
         if (nbt == null) return snbt;
         Nbt.Compound mine = new Nbt.Compound();
         for (String[] t : tags) {
-            String key = t[0].trim();
+            String key = TagNames.clean(t[0]);
             if (!key.isEmpty()) mine.put(TAG_PREFIX + key, new Nbt.Str(t[1]));
         }
         mergeTags(nbt, mine);

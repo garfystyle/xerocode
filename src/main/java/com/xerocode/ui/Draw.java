@@ -383,16 +383,16 @@ public final class Draw {
     public static int badgeWidth(Font tr, String s) { return tr.width(s) + 8; }
 
     public static void glyph(GuiGraphicsExtractor ctx, String[] rows, int x, int y, int rgb) {
-        if (rows == USERS) cells(ctx, USERS_BACK, x, y, argb(0x80, rgb));
-        cells(ctx, rows, x, y, opaque(rgb));
+        cells(ctx, rows, x, y, '+', argb(0x80, rgb));
+        cells(ctx, rows, x, y, '#', opaque(rgb));
     }
 
-    private static void cells(GuiGraphicsExtractor ctx, String[] rows, int x, int y, int c) {
+    private static void cells(GuiGraphicsExtractor ctx, String[] rows, int x, int y, char mark, int c) {
         for (int r = 0; r < rows.length; r++) {
             String row = rows[r];
             int run = 0;
             for (int i = 0; i <= row.length(); i++) {
-                boolean on = i < row.length() && row.charAt(i) == '#';
+                boolean on = i < row.length() && row.charAt(i) == mark;
                 if (on) { run++; continue; }
                 if (run > 0) { quad(ctx, x + i - run, y + r, x + i, y + r + 1, c, c); run = 0; }
             }
@@ -403,18 +403,23 @@ public final class Draw {
     public static int glyphH(String[] rows) { return rows.length; }
 
     public static final String[] CHEVRON_LEFT = {
-            "  #  ",
-            " ##  ",
-            "##   ",
-            " ##  ",
-            "  #  "};
+            "   #",
+            "  ##",
+            " ## ",
+            "##  ",
+            " ## ",
+            "  ##",
+            "   #"};
     public static final String[] HOME = {
-            "   #   ",
-            "  ###  ",
-            " ##### ",
-            "#######",
-            " ## ## ",
-            " ## ## "};
+            "    #    ",
+            "   ###   ",
+            "  #+ +#  ",
+            " #+   +# ",
+            "##     ##",
+            " #     # ",
+            " # +#+ # ",
+            " # # # # ",
+            " ### ### "};
     public static final String[] EQUAL = {
             "#####",
             "     ",
@@ -457,107 +462,122 @@ public final class Draw {
             "     #",
             "    ##",
             "#  ## ",
-            "## ## ",
-            " #### ",
-            "  ##  "};
+            "####  ",
+            " ##   "};
     public static final String[] STAR = {
-            "   #   ",
-            "  ###  ",
-            "#######",
-            " ##### ",
-            "  ###  ",
-            " ## ## ",
-            "#     #"};
-    public static final String[] SHOP = {
+            "    #    ",
+            "   +#+   ",
+            "   ###   ",
+            "+#######+",
+            " +#####+ ",
             "  #####  ",
-            " #     # ",
-            " #     # ",
-            "#########",
-            "#       #",
-            "#       #",
-            "#       #",
+            "  #####  ",
+            " +##+##+ ",
+            " #+   +# "};
+    public static final String[] SHOP = {
+            "    #    ",
+            "  ## ##  ",
+            "##     ##",
+            "# ## ## #",
+            "#   #   #",
+            "#   #   #",
+            "##  #  ##",
+            "  ## ##  ",
+            "    #    "};
+    public static final String[] GRAB = {
+            "    #    ",
+            "    #    ",
+            "    #    ",
+            "  # # #  ",
+            "  +###+  ",
+            "   +#+   ",
+            "         ",
             "#       #",
             "#########"};
-    public static final String[] GRAB = {
-            "  ###  ",
-            "  ###  ",
-            "  ###  ",
-            "#######",
-            " ##### ",
-            "  ###  ",
-            "   #   "};
     public static final String[] SEARCH = {
-            " ###  ",
-            "#   # ",
-            "#   # ",
-            "#   # ",
-            " ###  ",
-            "   ## ",
-            "    ##"};
+            " +###+   ",
+            "+#   #+  ",
+            "#     #  ",
+            "#     #  ",
+            "#     #  ",
+            "+#   #+  ",
+            " +###+#  ",
+            "      ## ",
+            "       ##"};
     public static final String[] TRASH = {
-            "  ###  ",
-            "#######",
-            " ##### ",
-            " # # # ",
-            " # # # ",
-            " # # # ",
-            " ##### "};
+            "   ###   ",
+            "#########",
+            " #     # ",
+            " # # # # ",
+            " # # # # ",
+            " # # # # ",
+            " # # # # ",
+            " #     # ",
+            " +#####+ "};
     public static final String[] LOAD = {
-            "   #   ",
-            "   #   ",
-            " ##### ",
-            "  ###  ",
-            "   #   ",
-            "       ",
-            "#######"};
-    public static final String[] UPLOAD = {
-            "   #   ",
-            "  ###  ",
-            " ##### ",
-            "   #   ",
-            "   #   ",
-            "       ",
-            "#######"};
-    public static final String[] FIT = {
-            "##   ##",
-            "#     #",
-            "       ",
-            "       ",
-            "       ",
-            "#     #",
-            "##   ##"};
-    public static final String[] UNDO = {
-            "  #    ",
-            " ##    ",
-            "###### ",
-            " ##   #",
-            "  #   #",
-            "     ##",
-            "       "};
-    public static final String[] REDO = {
-            "    #  ",
-            "    ## ",
-            " ######",
-            "#   ## ",
-            "#   #  ",
-            "##     ",
-            "       "};
-    public static final String[] WARN = {
-            "  #  ",
-            " ### ",
-            " ### ",
-            "  #  ",
-            "     ",
-            "  #  "};
-    public static final String[] WINDOW = {
-            "#########",
-            "#########",
+            "    #    ",
+            "    #    ",
+            "    #    ",
+            "  # # #  ",
+            "  +###+  ",
+            "   +#+   ",
             "#       #",
-            "# ##### #",
+            "#       #",
+            "+#######+"};
+    public static final String[] UPLOAD = {
+            "   +#+   ",
+            "  +###+  ",
+            "  # # #  ",
+            "    #    ",
+            "    #    ",
+            "    #    ",
+            "#       #",
+            "#       #",
+            "+#######+"};
+    public static final String[] FIT = {
+            "###   ###",
+            "#       #",
+            "#       #",
+            "         ",
+            "         ",
+            "         ",
+            "#       #",
+            "#       #",
+            "###   ###"};
+    public static final String[] UNDO = {
+            "   #     ",
+            "  ##     ",
+            " #######+",
+            "  ##    #",
+            "   #    #",
+            "        #",
+            "       +#",
+            "  #####+ "};
+    public static final String[] REDO = {
+            "     #   ",
+            "     ##  ",
+            "+####### ",
+            "#    ##  ",
+            "#    #   ",
+            "#        ",
+            "#+       ",
+            " +#####  "};
+    public static final String[] WARN = {
+            "   #   ",
+            "  +#+  ",
+            "  # #  ",
+            " ## ## ",
+            " ##### ",
+            "### ###"};
+    public static final String[] WINDOW = {
+            "+#######+",
+            "#########",
             "#       #",
             "# ###   #",
             "#       #",
-            "#########"};
+            "# ##### #",
+            "#       #",
+            "+#######+"};
     public static final String[] STRIKE_TEXT = {
             "### #### ",
             "         ",
@@ -571,96 +591,119 @@ public final class Draw {
             "         ",
             "         "};
     public static final String[] RESET = {
-            "#   ###  ",
-            "##    ## ",
-            "###    ##",
+            "  +###+ #",
+            " #+   +##",
+            "#+    ###",
+            "#        ",
             "#       #",
             "#       #",
-            "##     ##",
-            " ##   ## ",
-            "  #####  "};
+            "#+     +#",
+            " #+   +# ",
+            "  +###+  "};
     public static final String[] COPY = {
-            "  #####",
-            "  #   #",
-            "##### #",
-            "#   # #",
-            "#   ###",
-            "#   #  ",
-            "#####  "};
+            "   +####+",
+            "   #    #",
+            "+####+  #",
+            "#    #  #",
+            "#    #  #",
+            "#    #  #",
+            "#    ##+ ",
+            "#    #   ",
+            "+####+   "};
     public static final String[] CUT = {
-            "#     #",
-            " #   # ",
-            "  # #  ",
-            "   #   ",
-            "  # #  ",
-            " #   # ",
-            "### ###",
-            "# # # #",
-            "### ###"};
+            "#       #",
+            "+#     #+",
+            " +#   #+ ",
+            "  +# #+  ",
+            "    #    ",
+            "+##+ +##+",
+            "#  # #  #",
+            "#  # #  #",
+            "+##+ +##+"};
     public static final String[] USERS = {
-            "         ",
-            " ###     ",
-            " ###     ",
-            " ###     ",
-            "         ",
-            " ###     ",
-            "#####    ",
-            "#####    "};
-    private static final String[] USERS_BACK = {
-            "     ### ",
-            "     ### ",
-            "     ### ",
-            "         ",
-            "     ### ",
-            "     ####",
-            "      ###",
-            "      ###"};
+            " +#+     ",
+            " ### +#+ ",
+            " +#+ ### ",
+            "     +#+ ",
+            "+###+ ++ ",
+            "##### ##+",
+            "##### ###",
+            "##### ###"};
     public static final String[] SELECT = {
-            "##   ##",
-            "#     #",
-            "       ",
-            "       ",
-            "       ",
-            "#     #",
-            "##   ##"};
-    public static final String[] PASTE = {
-            "  ###  ",
-            "#######",
-            "#     #",
-            "# ### #",
-            "#     #",
-            "# ### #",
-            "#######"};
-    public static final String[] DUPLICATE = {
-            "#####    ",
+            "#        ",
+            "##       ",
+            "# #      ",
+            "#  #     ",
             "#   #    ",
-            "#   #  # ",
-            "#   # ###",
-            "#   #  # ",
-            "#####    "};
+            "#    #   ",
+            "#  ###   ",
+            "## #     ",
+            "#   #    "};
+    public static final String[] MARQUEE = {
+            "## ### ##",
+            "#       #",
+            "         ",
+            "#       #",
+            "#       #",
+            "#       #",
+            "         ",
+            "#       #",
+            "## ### ##"};
+    public static final String[] PASTE = {
+            "   +#+   ",
+            "+## # ##+",
+            "# +###+ #",
+            "#       #",
+            "# ##### #",
+            "#       #",
+            "# ###   #",
+            "#       #",
+            "+#######+"};
+    public static final String[] WRAP = {
+            "+#######+",
+            "#        ",
+            "#  ##### ",
+            "#  ##### ",
+            "#  ##### ",
+            "#        ",
+            "+#######+"};
+    public static final String[] DUPLICATE = {
+            "+####+   ",
+            "#    #   ",
+            "#    # # ",
+            "#    # # ",
+            "#    ####",
+            "#    # # ",
+            "#    # # ",
+            "+####+   "};
     public static final String[] TARGET = {
-            "  ###  ",
-            " #   # ",
-            "#     #",
-            "#  #  #",
-            "#     #",
-            " #   # ",
-            "  ###  "};
+            "    #    ",
+            "  +###+  ",
+            " +#   #+ ",
+            " #     # ",
+            "### # ###",
+            " #     # ",
+            " +#   #+ ",
+            "  +###+  ",
+            "    #    "};
     public static final String[] NOT = {
-            "  ###  ",
-            " #   # ",
-            "#   # #",
-            "#  #  #",
-            "# #   #",
-            " #   # ",
-            "  ###  "};
+            "  +###+  ",
+            " #+   ## ",
+            "#+    #+#",
+            "#    #  #",
+            "#   #   #",
+            "#  #    #",
+            "#+#    +#",
+            " ##   +# ",
+            "  +###+  "};
     public static final String[] NAME = {
-            "  ###  ",
-            " #   # ",
-            "#     #",
-            "#######",
-            "#     #",
-            "#     #"};
+            "  +###+  ",
+            "  # # #  ",
+            "    #    ",
+            "    #    ",
+            "    #    ",
+            "    #    ",
+            "   ###   "};
     public static final String[] LINES = {
             "#######",
             "       ",
@@ -668,49 +711,58 @@ public final class Draw {
             "       ",
             "#####  "};
     public static final String[] IMAGE = {
-            "#######",
-            "#     #",
-            "# #   #",
-            "#   # #",
-            "# ### #",
-            "#######"};
+            "+#######+",
+            "#       #",
+            "#  ##   #",
+            "#  ##   #",
+            "#     # #",
+            "#  # ####",
+            "# #######",
+            "+#######+"};
     public static final String[] LOCK = {
-            " ###  ",
-            "#   # ",
-            "#   # ",
-            "##### ",
-            "## ## ",
-            "##### "};
+            "  +#+  ",
+            " +# #+ ",
+            " #   # ",
+            " #   # ",
+            "#######",
+            "#######",
+            "### ###",
+            "#######",
+            "+#####+"};
     public static final String[] PIN = {
-            " ###  ",
-            "#   # ",
-            "# # # ",
-            "#   # ",
-            " ###  ",
-            "  #   ",
-            "  #   "};
+            " +###+ ",
+            "+#   #+",
+            "#     #",
+            "#  #  #",
+            "#     #",
+            "+#   #+",
+            " +# #+ ",
+            "  +#+  ",
+            "   #   "};
     public static final String[] ARROW_RIGHT = {
-            "     ",
-            "  #  ",
-            "#####",
-            "  #  ",
-            "     "};
+            "   #   ",
+            "    #  ",
+            "     # ",
+            "#######",
+            "     # ",
+            "    #  ",
+            "   #   "};
     public static final String[] BRICKS = {
-            "#######",
-            "#  #  #",
-            "#######",
-            "  #  # ",
-            "#######",
-            "#  #  #",
-            "#######"};
+            "+#######+",
+            "#   #   #",
+            "#########",
+            "# #   # #",
+            "#########",
+            "#   #   #",
+            "+#######+"};
     public static final String[] PLAY = {
-            "#    ",
-            "##   ",
-            "###  ",
-            "#### ",
-            "###  ",
-            "##   ",
-            "#    "};
+            "#      ",
+            "###    ",
+            "#####  ",
+            "#######",
+            "#####  ",
+            "###    ",
+            "#      "};
     public static final String[] PAUSE = {
             "##  ##",
             "##  ##",
@@ -721,12 +773,22 @@ public final class Draw {
             "##  ##"};
     public static final String[] REWIND = {
             "##    #",
-            "##   ##",
             "##  ###",
             "## ####",
+            "#######",
+            "## ####",
             "##  ###",
-            "##   ##",
             "##    #"};
+    public static final String[] CURSOR = {
+            "#      ",
+            "##     ",
+            "# #    ",
+            "#  #   ",
+            "#   #  ",
+            "#    # ",
+            "#  ### ",
+            "# #    ",
+            "##     "};
     public static final String[] GEAR = {
             "   ##    ",
             "#########",
@@ -735,37 +797,66 @@ public final class Draw {
             "     ##  ",
             "#########",
             "     ##  "};
+    public static final String[] SIDEBAR = {
+            "+#######+",
+            "####    #",
+            "####    #",
+            "####    #",
+            "####    #",
+            "####    #",
+            "####    #",
+            "+#######+"};
+    public static final String[] CODE = {
+            "      #    ",
+            "  #   # #  ",
+            " #   #   # ",
+            "#    #    #",
+            " #   #   # ",
+            "  # #   #  ",
+            "    #      "};
     public static final String[] CANVAS = {
-            "#######",
-            "#     #",
-            "# ### #",
-            "#     #",
-            "# ##  #",
-            "#     #",
-            "#######"};
-    public static final String[] PACK = {
-            "  ###  ",
-            " #   # ",
-            "#######",
-            "#######",
-            "#     #",
-            "# ### #",
-            "#     #",
-            "#######"};
-    public static final String[] KEYBOARD = {
+            "+#####+  ",
+            "#######  ",
+            "         ",
+            "+#######+",
             "#########",
+            "         ",
+            "+####+   ",
+            "######   "};
+    public static final String[] PACK = {
+            "   ###   ",
+            "  #   #  ",
+            " +#####+ ",
+            " #     # ",
+            " # ### # ",
+            " # # # # ",
+            " # ### # ",
+            " #     # ",
+            " +#####+ "};
+    public static final String[] KEYBOARD = {
+            "+#######+",
             "#       #",
             "# # # # #",
             "#       #",
             "# ##### #",
             "#       #",
-            "#########"};
+            "+#######+"};
     public static final String[] LOOP = {
-            " ##   ## ",
-            "#  # #  #",
-            "#   #   #",
-            "#  # #  #",
-            " ##   ## "};
+            "     #   ",
+            " +#####+ ",
+            "+#   #  #",
+            "#       #",
+            "#  #   +#",
+            " +#####+ ",
+            "   #     "};
+    public static final String[] SPEAKER = {
+            "   +#  + ",
+            "  +##   #",
+            "####  # #",
+            "####  # #",
+            "####  # #",
+            "  +##   #",
+            "   +#  + "};
 
     private Draw() {}
 }

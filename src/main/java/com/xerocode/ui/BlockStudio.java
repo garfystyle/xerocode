@@ -77,20 +77,25 @@ public final class BlockStudio extends PickerPanel {
 
     @Override
     protected void layout() {
-        int panelW = Ui.fitW(screenW, 700);
+        int panelW = sizer().w(screenW, Ui.fitW(screenW, 700));
         int measured = tr.width("Мой инвентарь") + 46;
         for (Rail r : rails) measured = Math.max(measured, tr.width(r.name()) + 46);
         int rail = railW(panelW, measured);
         int det = Math.min(DET_W, panelW - rail - Math.min(GRID_MIN, panelW * 45 / 100));
         det = det < 130 ? 0 : det;
         cols = Math.max(3, (panelW - rail - det - 10) / CELL);
-        rows = Math.max(3, Math.min(20, (Ui.fitH(screenH, 1000) - HEAD_H - FOOT_H - 8) / CELL));
-        place(panelW, HEAD_H + 1 + 4 + rows * CELL + 4 + FOOT_H, rail, det, "найти блок…");
+        rows = Math.max(3, Math.min(20, (Ui.fitH(screenH, 1000) - HEAD_H - footH() - 8) / CELL));
+        if (sizer().sizedH())
+            rows = Math.max(3, (sizer().h(screenH, 0) - HEAD_H - footH() - 9) / CELL);
+        place(panelW, HEAD_H + 1 + 4 + rows * CELL + 4 + footH(), rail, det, "найти блок…");
         scroll = Math.max(0, Math.min(maxScroll(), scroll));
     }
 
     @Override
     protected int searchMaxW() { return 220; }
+
+    @Override
+    protected String sizeKey() { return "blocks"; }
 
     @Override
     protected int bodyH() { return rows * CELL + 8; }
@@ -234,12 +239,12 @@ public final class BlockStudio extends PickerPanel {
             super.drawFooterLeft(ctx, mouseX, mouseY, room);
             return;
         }
-        Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, footY2(), fw, 16,
+        Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, footY2(), fw, footBtnH(),
                 Draw.LOAD, "Взять из руки", Ui.GHOST, canHand());
         Blocks.Entry it = focused();
         int left = room - fw - 8;
         if (it != null && left > 60)
-            Draw.textFit(ctx, tr, it.name(), x + PAD + fw + 8, footY2() + 4, left,
+            Draw.textFit(ctx, tr, it.name(), x + PAD + fw + 8, footY2() + (footBtnH() - 8) / 2, left,
                     Theme.TEXT_FAINT, false);
     }
 
@@ -271,7 +276,7 @@ public final class BlockStudio extends PickerPanel {
     @Override
     protected boolean bodyClicked(MouseButtonEvent click, boolean doubled, int mx, int my) {
         if (bar.grabbed(mx, my, CELL, maxScroll(), v -> scroll = v)) return true;
-        if (!Env.browser() && my >= footY() && Ui.hit(mx, my, x + PAD, footY2(), handW(), 16)) {
+        if (!Env.browser() && my >= footY() && Ui.hit(mx, my, x + PAD, footY2(), handW(), footBtnH())) {
             takeFromHand();
             return true;
         }

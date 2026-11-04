@@ -1,5 +1,6 @@
 package com.xerocode.web;
 
+import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 
 public final class Input {
@@ -13,6 +14,8 @@ public final class Input {
     private static double caretX, caretY;
     private static String selText = "", allText = "";
     private static final StringBuilder rects = new StringBuilder();
+    private static final StringBuilder pasteRects = new StringBuilder();
+    private static Consumer<String> pasteTo;
 
     private Input() {}
 
@@ -54,6 +57,18 @@ public final class Input {
         return clipboard;
     }
 
+    public static void readClipboard(Consumer<String> to) {
+        pasteTo = to;
+        Js.readClipboard();
+    }
+
+    static void clipboardRead(boolean ok, String text) {
+        if (ok && text != null && !text.isEmpty()) clipboard = text;
+        Consumer<String> to = pasteTo;
+        pasteTo = null;
+        if (to != null) to.accept(ok ? text : null);
+    }
+
     public static void setClipboard(String text) {
         clipboard = text == null ? "" : text;
         Js.setClipboard(clipboard);
@@ -89,6 +104,11 @@ public final class Input {
         rects.append(x).append(',').append(y).append(',').append(w).append(',').append(h);
     }
 
+    public static void pasteRect(int x, int y, int w, int h) {
+        if (pasteRects.length() > 0) pasteRects.append(',');
+        pasteRects.append(x).append(',').append(y).append(',').append(w).append(',').append(h);
+    }
+
     public static boolean touch() {
         return Js.touch();
     }
@@ -98,8 +118,9 @@ public final class Input {
         boolean on = focusWanted && focusDrawn;
         focusDrawn = false;
         Js.textFocus(on, caretX * scale, caretY * scale, rects.toString(), scale, selText, allText,
-                focusSerial);
+                focusSerial, pasteRects.toString());
         rects.setLength(0);
+        pasteRects.setLength(0);
         selText = "";
         allText = "";
     }

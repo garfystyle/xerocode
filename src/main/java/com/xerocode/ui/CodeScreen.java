@@ -602,6 +602,7 @@ public final class CodeScreen extends Screen {
             case "game" -> palette[Ink.LITERAL];
             case "save" -> palette[Ink.EVENT];
             case "line" -> palette[Ink.CONDITION];
+            case "option" -> palette[Ink.VALUE];
             default -> palette[Ink.VARIABLE];
         };
     }
@@ -1298,7 +1299,9 @@ public final class CodeScreen extends Screen {
 
     private void fromCanvas() {
         try {
-            Exporter.Result r = Exporter.export(Tabs.activeScript());
+            Script active = Tabs.activeScript();
+            List<Script> filled = Tabs.filled(active);
+            Exporter.Result r = filled.isEmpty() ? Exporter.export(active) : Exporter.export(filled);
             takeHandlers(r.json().getAsJsonArray("handlers"), "полотно");
         } catch (RuntimeException e) {
             XeroCode.LOG.error("[xerocode] полотно не перевелось", e);

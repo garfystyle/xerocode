@@ -38,6 +38,23 @@ public final class Exporter {
         }
     }
 
+    public static Result export(List<Script> scripts) {
+        Report report = new Report();
+        current = report;
+        try {
+            JsonArray handlers = new JsonArray();
+            for (Script script : scripts) {
+                Functions.rebuild(script);
+                collect(script, handlers, report);
+            }
+            JsonObject json = new JsonObject();
+            json.add("handlers", handlers);
+            return new Result(json, report);
+        } finally {
+            current = null;
+        }
+    }
+
     public static Map<Script.Root, Integer> positions(Script script) {
         Report report = new Report();
         List<Script.Root> roots = new ArrayList<>(script.roots);
@@ -51,10 +68,17 @@ public final class Exporter {
     }
 
     private static Result export(Script script, Report report) {
+        JsonArray handlers = new JsonArray();
+        collect(script, handlers, report);
+        JsonObject json = new JsonObject();
+        json.add("handlers", handlers);
+        return new Result(json, report);
+    }
+
+    private static void collect(Script script, JsonArray handlers, Report report) {
         List<Script.Root> roots = new ArrayList<>(script.roots);
         roots.sort(Comparator.<Script.Root>comparingDouble(r -> r.x).thenComparingDouble(r -> r.y));
 
-        JsonArray handlers = new JsonArray();
         for (Script.Root root : roots) {
             if (root.chain.isEmpty()) continue;
             JsonObject handler = handler(root.chain.get(0), report);
@@ -64,9 +88,6 @@ public final class Exporter {
             handlers.add(handler);
             report.lines++;
         }
-        JsonObject json = new JsonObject();
-        json.add("handlers", handlers);
-        return new Result(json, report);
     }
 
     private static JsonObject keptOp(Script.Node node) {

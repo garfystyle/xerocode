@@ -8,6 +8,7 @@ import com.xerocode.Sync;
 import com.xerocode.XeroCode;
 import com.xerocode.Publish;
 import com.xerocode.Script;
+import com.xerocode.Tabs;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.Minecraft;
@@ -16,11 +17,12 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 
 public final class ExportScreen extends DialogScreen {
-    private enum Phase { CONFIRM, RUNNING, DONE }
+    private enum Phase { CHOOSE, CONFIRM, RUNNING, DONE }
 
     private static final int ANSWER_TICKS = 1200;
     private static final String CANCEL = "Отмена";
-    private static final String SEND = "Отправить", RELOAD = "Перечитать мир";
+    private static final String SEND = "Отправить", RELOAD = "Перечитать мир", ALL = "Все полотна";
+    private static final int CHOOSE_ROWS = 6, NAME_ON_BUTTON = 14;
 
     private final Script script;
     private final Screen parent;
@@ -39,6 +41,10 @@ public final class ExportScreen extends DialogScreen {
     private long heardFrom;
     private List<String> answers = List.of();
     private boolean copied;
+    private List<Script> filled = List.of();
+    private int[] counts = {};
+    private int twins;
+    private boolean whole = true;
 
     private static final String COPY = "Копировать", COPIED = "Скопировано", DONE = "Готово";
 
@@ -70,9 +76,23 @@ public final class ExportScreen extends DialogScreen {
 
     @Override
     protected void init() {
-        if (code != null || failure != null) return;
+        if (code != null || failure != null || phase == Phase.CHOOSE) return;
+        filled = script == null ? List.of() : Tabs.filled(script);
+        if (filled.size() < 2) {
+            send(filled);
+            return;
+        }
+        counts = new int[filled.size()];
+        for (int i = 0; i < counts.length; i++) counts[i] = Exporter.positions(filled.get(i)).size();
+        twins = Tabs.twins(filled);
+        phase = Phase.CHOOSE;
+    }
+
+    private void send(List<Script> sending) {
+        whole = sending.size() == filled.size();
+        phase = Phase.RUNNING;
         try {
-            code = ready != null ? ready : Exporter.export(script);
+            code = ready != null ? ready : sending.isEmpty() ? Exporter.export(script) : Exporter.export(sending);
         } catch (Throwable e) {
             failure = e.getClass().getSimpleName();
             XeroCode.LOG.error("[xerocode] сборка кода не удалась", e);
@@ -83,6 +103,41 @@ public final class ExportScreen extends DialogScreen {
         if (replacing && risky()) { phase = Phase.CONFIRM; return; }
         begin();
     }
+
+    private String[] chooseLabels() {
+        if (!filled.contains(script)) return new String[]{CANCEL, ALL};
+        String name = Tabs.name(script);
+        if (name.length() > NAME_ON_BUTTON) name = name.substring(0, NAME_ON_BUTTON - 1) + "…";
+        return new String[]{CANCEL, "Только «" + name + "»", ALL};
+    }
+
+    private String twinsNote() {
+        return "На разных полотнах одинаковые строки: " + twins + " — в мире они задвоятся.";
+    }
+
+    private int chooseRows() { return Math.min(filled.size(), CHOOSE_ROWS + 1); }
+
+    private int chooseH() {
+        return chooseRows() * ROW + (twins > 0 ? GAP + paragraphRows(twinsNote(), bodyW()) * ROW : 0);
+    }
+
+    private void drawChoose(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
+        int rows = chooseRows(), named = filled.size() > rows ? rows - 1 : rows;
+        for (int i = 0; i < named; i++) {
+            String count = Ui.plural(counts[i], "строка", "строки", "строк");
+            int cw = font.width(count), at = y + ROW * i;
+            Draw.textFit(ctx, font, Tabs.name(filled.get(i)), x, at, w - cw - 8,
+                    filled.get(i) == script ? Theme.TEXT : Theme.TEXT_DIM, false);
+            Draw.textFit(ctx, font, count, x + w - cw, at, cw, Theme.TEXT_FAINT, false);
+        }
+        if (named < rows)
+            Draw.textFit(ctx, font, "и ещё полотен: " + (filled.size() - named), x, y + ROW * named, w,
+                    Theme.TEXT_FAINT, false);
+        if (twins > 0) paragraph(ctx, twinsNote(), x, y + rows * ROW + GAP, w, Theme.WARN);
+        rowButtons(ctx, mouseX, mouseY, x, w, Ui.ACCENT, chooseLabels());
+    }
+
+    private String where() { return whole && filled.size() > 1 ? "на полотнах" : "на полотне"; }
 
     private boolean risky() {
         if (code == null) return false;
@@ -98,13 +153,13 @@ public final class ExportScreen extends DialogScreen {
         if (canvasLines() == 0) return ready != null ? "Код пуст — код мира будет стёрт." : "Полотно пусто — код мира будет стёрт.";
         if (sync == Sync.State.DIVERGED) return "Мир и полотно разошлись.";
         if (sync == Sync.State.WORLD_AHEAD) return "Код в мире менялся мимо редактора.";
-        return ready != null ? "В мире строк больше, чем в коде." : "В мире строк больше, чем на полотне.";
+        return ready != null ? "В мире строк больше, чем в коде." : "В мире строк больше, чем " + where() + ".";
     }
 
     private String confirmCounts() {
         int canvas = canvasLines();
         String counts = "в мире " + (worldLines < 0 ? "?" : String.valueOf(worldLines))
-                + (ready != null ? "   ·   в коде " : "   ·   на полотне ") + canvas;
+                + (ready != null ? "   ·   в коде " : "   ·   " + where() + " ") + canvas;
         return worldLines > canvas ? counts + "   ·   исчезнет " + (worldLines - canvas) : counts;
     }
 
@@ -133,6 +188,7 @@ public final class ExportScreen extends DialogScreen {
     @Override
     protected int bodyH() {
         return switch (phase) {
+            case CHOOSE -> chooseH() + 12 + BTN_H;
             case CONFIRM -> confirmH() + 12 + BTN_H;
             case RUNNING -> ROW + 8 + BAR_H + 6 + ROW + 12 + BTN_H;
             case DONE -> ROW * doneLines().size() + 12 + BTN_H;
@@ -146,6 +202,7 @@ public final class ExportScreen extends DialogScreen {
 
     @Override
     protected String title() {
+        if (phase == Phase.CHOOSE) return "ЧТО ОТПРАВИТЬ";
         if (phase == Phase.CONFIRM) return "ОТПРАВКА СОТРЁТ КОД МИРА";
         if (phase == Phase.RUNNING) return "ОТПРАВКА КОДА";
         if (chatStep()) return "КОД ГОТОВ";
@@ -163,6 +220,7 @@ public final class ExportScreen extends DialogScreen {
 
     @Override
     protected void drawBody(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
+        if (phase == Phase.CHOOSE) { drawChoose(ctx, mouseX, mouseY, x, y, w); return; }
         if (phase == Phase.CONFIRM) { drawConfirm(ctx, mouseX, mouseY, x, y, w); return; }
         if (phase == Phase.RUNNING) drawRunning(ctx, x, y, w);
         else drawDone(ctx, x, y, w);
@@ -241,6 +299,14 @@ public final class ExportScreen extends DialogScreen {
 
     @Override
     protected boolean onClick(double mx, double my) {
+        if (phase == Phase.CHOOSE) {
+            String[] labels = chooseLabels();
+            int hit = hitRow(mx, my, bodyX(), bodyW(), labels);
+            if (hit == 0) { onClose(); return true; }
+            if (hit == labels.length - 1) { send(filled); return true; }
+            if (hit > 0) { send(List.of(script)); return true; }
+            return false;
+        }
         if (phase == Phase.CONFIRM) {
             int hit = hitRow(mx, my, bodyX(), bodyW(), CANCEL, RELOAD, SEND);
             if (hit == 0) { onClose(); return true; }
@@ -265,6 +331,7 @@ public final class ExportScreen extends DialogScreen {
 
     @Override
     protected boolean onEnter() {
+        if (phase == Phase.CHOOSE) { send(filled); return true; }
         if (phase != Phase.DONE) return false;
         finish();
         return true;
@@ -272,7 +339,7 @@ public final class ExportScreen extends DialogScreen {
 
     @Override
     protected void onEscape() {
-        if (phase == Phase.CONFIRM) { onClose(); return; }
+        if (phase == Phase.CHOOSE || phase == Phase.CONFIRM) { onClose(); return; }
         if (phase == Phase.RUNNING) stop();
         else finish();
     }
@@ -300,7 +367,8 @@ public final class ExportScreen extends DialogScreen {
             listening = job.state == Publish.State.SENT ? ANSWER_TICKS : 0;
             heardFrom = job.sentAt;
             if (job.state == Publish.State.SENT) {
-                if (script != null) Sync.published(script);
+                if (script != null) Sync.published(script, whole);
+                if (whole && script != null) Tabs.sent();
                 if (parent instanceof EditorScreen editor) editor.markPublished();
             }
             return;

@@ -19,7 +19,7 @@ public final class Sync {
 
     public static void mark(Script script, ClientLevel world) {}
 
-    public static void published(Script script) {}
+    public static void published(Script script, boolean whole) {}
 
     public static void settle(Script script, ClientLevel world) {}
 

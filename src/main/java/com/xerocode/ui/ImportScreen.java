@@ -1,8 +1,10 @@
 package com.xerocode.ui;
 
+import com.google.gson.JsonArray;
 import com.xerocode.Codespace;
 import com.xerocode.Importer;
 import com.xerocode.Sync;
+import com.xerocode.Tabs;
 import com.xerocode.XeroCode;
 import com.xerocode.Script;
 import java.nio.file.Path;
@@ -33,6 +35,7 @@ public final class ImportScreen extends DialogScreen {
     private boolean cancelled;
     private boolean replacing;
     private Path saved;
+    private int kept;
 
     public ImportScreen(Script script, List<BlockPos> lines) {
         this(script, lines, Mode.EMPTY);
@@ -68,6 +71,7 @@ public final class ImportScreen extends DialogScreen {
         if (failure != null || (result != null && result.brokenLines > 0)) rows++;
         if (result != null && result.unknownCount > 0) rows++;
         if (saved != null) rows++;
+        if (kept > 0) rows++;
         return rows;
     }
 
@@ -136,10 +140,17 @@ public final class ImportScreen extends DialogScreen {
     private void drawDivergedAsk(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
         int at = y + paragraph(ctx, askWhat(), x, y, w, Theme.TEXT) * ROW + GAP;
         Draw.textFit(ctx, font,
-                "в мире " + lines.size() + "   ·   на полотне " + script.roots.size(),
+                "в мире " + lines.size() + (Tabs.others(script).isEmpty() ? "   ·   на полотне " : "   ·   на полотнах ")
+                        + canvasLines(),
                 x, at, w, Theme.TEXT_DIM, false);
         if (mode == Mode.RELOAD) buttons(ctx, mouseX, mouseY, x, w, RELOAD, CANCEL);
         else rowButtons(ctx, mouseX, mouseY, x, w, Ui.ACCENT, KEEP, BESIDE, RELOAD);
+    }
+
+    private int canvasLines() {
+        int total = script.roots.size();
+        for (Script s : Tabs.others(script)) total += s.roots.size();
+        return total;
     }
 
     private void drawRunning(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int x, int y, int w) {
@@ -211,6 +222,9 @@ public final class ImportScreen extends DialogScreen {
             Draw.textFit(ctx, font,
                     "сохранены как есть, нет в каталоге: " + result.unknownCount
                             + " (" + String.join(", ", result.unknown) + ")",
+                    x, y + ROW * row++, w, Theme.TEXT_DIM, false);
+        if (kept > 0)
+            Draw.textFit(ctx, font, "обновлено на других полотнах: " + lineWord(kept),
                     x, y + ROW * row++, w, Theme.TEXT_DIM, false);
         buttons(ctx, mouseX, mouseY, x, w, OPEN, null);
     }
@@ -308,7 +322,10 @@ public final class ImportScreen extends DialogScreen {
             } else if (!wasEmpty) {
                 startX = (int) Math.round(script.lastRootX()) + BESIDE_STEP;
             }
-            result = Importer.importInto(script, scan.handlers(), font, startX);
+            JsonArray world = scan.handlers();
+            JsonArray mine = Tabs.takeBack(script, world);
+            kept = world.size() - mine.size();
+            result = Importer.importInto(script, mine, font, startX);
             if (result.lines > 0) script.fitOnOpen = true;
             script.save();
             if ((replacing || wasEmpty) && !cancelled && scan.state == Codespace.State.DONE

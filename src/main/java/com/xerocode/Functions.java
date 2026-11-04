@@ -29,6 +29,8 @@ public final class Functions {
     public static Known of(Script script) {
         Known known = new Known(new LinkedHashMap<>(), new LinkedHashMap<>());
         for (Script.Root r : script.roots) collect(r.chain, known);
+        for (Script other : Tabs.others(script))
+            for (Script.Root r : other.roots) collect(r.chain, known);
         return known;
     }
 
@@ -106,11 +108,19 @@ public final class Functions {
         if (from.isBlank() || to.isBlank() || to.equals(from)) return -1;
         int moved = 0;
         for (Script.Root r : script.roots) moved += renameCalls(r.chain, renamed, process, from, to);
+        for (Script other : Tabs.others(script)) {
+            int there = 0;
+            for (Script.Root r : other.roots) there += renameCalls(r.chain, renamed, process, from, to);
+            if (there > 0) other.save();
+            moved += there;
+        }
         return moved;
     }
 
     public static boolean taken(Script script, Script.Node except, boolean process, String name) {
         for (Script.Root r : script.roots) if (declared(r.chain, except, process, name)) return true;
+        for (Script other : Tabs.others(script))
+            for (Script.Root r : other.roots) if (declared(r.chain, except, process, name)) return true;
         return false;
     }
 

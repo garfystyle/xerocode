@@ -28,6 +28,7 @@ final class TopBar {
         int width();
         double zoom();
         boolean empty();
+        boolean nothingToSend();
         boolean finding();
         boolean selecting();
         int pickedCount();
@@ -132,7 +133,7 @@ final class TopBar {
         Btn upload = btn(3, UPLOAD, Draw.UPLOAD, "Сохранить на сервер  "
                 + hotkey(Settings.Hot.UPLOAD) + (Env.browser()
                 ? "\nДаст команду для чата JustMC" : "\nЗаписать код блоками в мир"));
-        upload.enabled = !host.empty();
+        upload.enabled = !host.nothingToSend();
         list.add(upload);
         list.add(btn(3, LOAD, Draw.LOAD, "Загрузить json\nПолотно заменится кодом из файла"));
         int stashed = Backpack.count();

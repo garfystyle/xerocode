@@ -6,14 +6,21 @@ import com.google.gson.JsonObject;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public final class Tabs {
     public static final int MAX = 10;
     public static final int NAME_MAX = 40;
     private static final String MAIN = "main";
     private static final String INDEX = "index.json";
+    private static final String EMPTY_OP = "empty";
 
     public static final class Tab {
         public final String id;
@@ -32,6 +39,9 @@ public final class Tabs {
     private static Script mainRef;
     private static Path folder;
     private static int active;
+    private static boolean touched;
+
+    private record Placed(Script script, Script.Root root) {}
 
     public static List<Tab> all() {
         fresh();
@@ -69,6 +79,144 @@ public final class Tabs {
     }
 
     public static boolean full() { return all().size() >= MAX; }
+
+    public static List<Script> others(Script script) {
+        if (mainRef == null) return List.of();
+        int own = indexOf(script);
+        if (own < 0) return List.of();
+        List<Script> out = new ArrayList<>();
+        for (int i = 0; i < TABS.size(); i++) if (i != own) out.add(script(i));
+        return out;
+    }
+
+    public static List<Script> filled(Script from) {
+        List<Script> out = new ArrayList<>();
+        if (indexOf(from) < 0) {
+            if (!Exporter.positions(from).isEmpty()) out.add(from);
+            return out;
+        }
+        for (int i = 0; i < TABS.size(); i++) {
+            Script s = script(i);
+            if (!Exporter.positions(s).isEmpty()) out.add(s);
+        }
+        return out;
+    }
+
+    public static boolean blank() {
+        for (int i = 0; i < all().size(); i++) if (!script(i).roots.isEmpty()) return false;
+        return true;
+    }
+
+    public static boolean blank(Script from) {
+        fresh();
+        if (!from.roots.isEmpty()) return false;
+        for (Script s : others(from)) if (!s.roots.isEmpty()) return false;
+        return true;
+    }
+
+    public static int codeHash(Script script, int own) {
+        int index = indexOf(script);
+        if (index < 0 || TABS.size() < 2) return own;
+        int h = index == 0 ? own : script(0).codeHash();
+        for (int i = 1; i < TABS.size(); i++) {
+            Script s = script(i);
+            if (!s.roots.isEmpty()) h = h * 31 + (i == index ? own : s.codeHash());
+        }
+        return h;
+    }
+
+    public static int lineBase(Script script) {
+        int index = indexOf(script), base = 0;
+        for (int i = 0; i < index; i++) base += Exporter.positions(script(i)).size();
+        return base;
+    }
+
+    public static void touch() { touched = true; }
+
+    public static boolean touched() { return touched; }
+
+    public static void sent() { touched = false; }
+
+    public static int twins(List<Script> scripts) {
+        Set<String> seen = new HashSet<>();
+        int twins = 0;
+        for (Script s : scripts) {
+            Set<String> own = new LinkedHashSet<>();
+            for (JsonElement e : Exporter.export(List.of(s)).json().getAsJsonArray("handlers"))
+                own.add(twinKey(e.getAsJsonObject()));
+            for (String key : own) if (!seen.add(key)) twins++;
+        }
+        return twins;
+    }
+
+    private static String twinKey(JsonObject handler) {
+        String type = Json.str(handler, "type");
+        if (!"event".equals(type)) return type + ":" + Json.str(handler, "name");
+        JsonObject bare = handler.deepCopy();
+        bare.remove("position");
+        return bare.toString();
+    }
+
+    public static JsonArray takeBack(Script into, JsonArray world) {
+        Map<String, ArrayDeque<Placed>> placed = new HashMap<>();
+        for (Script s : others(into)) {
+            JsonArray handlers = Exporter.export(List.of(s)).json().getAsJsonArray("handlers");
+            Exporter.positions(s).forEach((root, at) -> placed.computeIfAbsent(
+                    shape(handlers.get(at).getAsJsonObject()), k -> new ArrayDeque<>())
+                    .add(new Placed(s, root)));
+        }
+        if (placed.isEmpty()) return world;
+        JsonArray rest = new JsonArray();
+        Set<Script> changed = new LinkedHashSet<>();
+        for (JsonElement e : world) {
+            ArrayDeque<Placed> same = placed.get(shape(e.getAsJsonObject()));
+            if (same == null || same.isEmpty()) {
+                rest.add(e);
+                continue;
+            }
+            Placed line = same.poll();
+            if (refresh(line, e.getAsJsonObject())) changed.add(line.script());
+        }
+        for (Script s : changed) s.save();
+        return rest;
+    }
+
+    private static boolean refresh(Placed line, JsonObject handler) {
+        try {
+            List<Script.Node> chain = Importer.chainOf(handler.deepCopy(), new Importer.Result());
+            if (chain.isEmpty()) return false;
+            Script.Root old = line.root();
+            Script.Root fresh = new Script.Root(old.x, old.y);
+            fresh.folded = old.folded;
+            fresh.chain.addAll(chain);
+            line.script().roots.set(line.script().roots.indexOf(old), fresh);
+            return true;
+        } catch (RuntimeException e) {
+            XeroCode.LOG.warn("[xerocode] строка полотна не обновилась из мира", e);
+            return false;
+        }
+    }
+
+    private static String shape(JsonObject handler) {
+        StringBuilder out = new StringBuilder(Json.str(handler, "type")).append(':')
+                .append(Json.str(handler, "event")).append(Json.str(handler, "name"));
+        shape(Json.arr(handler, "operations"), out);
+        return out.toString();
+    }
+
+    private static void shape(JsonArray operations, StringBuilder out) {
+        if (operations == null) return;
+        out.append('[');
+        for (JsonElement e : operations) {
+            if (!e.isJsonObject()) continue;
+            JsonObject op = e.getAsJsonObject();
+            String action = Json.str(op, "action");
+            if (EMPTY_OP.equals(action)) continue;
+            out.append(action).append(',');
+            shape(Json.arr(op, "operations"), out);
+        }
+        out.append(']');
+    }
 
     public static Script add(String name) {
         fresh();
@@ -141,6 +289,7 @@ public final class Tabs {
         mainRef = main;
         TABS.clear();
         active = 0;
+        touched = false;
         String key = main.plot == null || main.plot.isEmpty() ? "canvas" : main.plot;
         folder = Script.dir().resolve("tabs").resolve(key);
         Tab first = new Tab(MAIN, mainName());

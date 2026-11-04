@@ -82,14 +82,15 @@ public final class Sync {
     public static State state(Script script, ClientLevel world, int code) {
         if (script == null) return State.UNKNOWN;
         Base base = read(script.plot);
-        boolean canvasFilled = !script.roots.isEmpty();
+        boolean canvasFilled = !Tabs.blank(script);
+        int whole = Tabs.codeHash(script, code);
         Stamp now = stamp(world);
 
         if (base == null) {
             if (!canvasFilled || now == null || now.lines() == 0) return State.UNKNOWN;
             return State.DIVERGED;
         }
-        boolean canvasChanged = code != base.canvas;
+        boolean canvasChanged = whole != base.canvas;
         if (now == null) return canvasChanged ? State.CANVAS_AHEAD : State.UNKNOWN;
         if (base.awaiting) return canvasChanged ? State.CANVAS_AHEAD : State.IN_SYNC;
 
@@ -108,15 +109,15 @@ public final class Sync {
         if (script == null) return;
         Base base = new Base();
         base.stamp = stamp(world);
-        base.canvas = script.codeHash();
+        base.canvas = Tabs.codeHash(script, script.codeHash());
         write(script.plot, base);
         sample = null;
     }
 
-    public static void published(Script script) {
+    public static void published(Script script, boolean whole) {
         if (script == null) return;
         Base base = new Base();
-        base.canvas = script.codeHash();
+        base.canvas = whole ? Tabs.codeHash(script, script.codeHash()) : script.codeHash();
         base.awaiting = true;
         write(script.plot, base);
         sample = null;
@@ -128,7 +129,7 @@ public final class Sync {
         Base base = read(script.plot);
         if (base == null) return;
         if (!base.awaiting && (base.stamp == null || base.stamp.full())) return;
-        if (script.codeHash() != base.canvas) return;
+        if (Tabs.codeHash(script, script.codeHash()) != base.canvas) return;
         Stamp now = stamp(world);
         if (now == null || !now.full()) return;
         if (!base.awaiting) {

@@ -169,7 +169,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private int savedStamp;
     private boolean stampTaken;
 
-    private boolean dirty() { return !script.scratch && stampTaken && codeHash() != savedStamp; }
+    private boolean dirty() {
+        return !script.scratch && stampTaken && (codeHash() != savedStamp || Tabs.touched());
+    }
 
     public void markPublished() {
         savedStamp = script.codeHash();
@@ -194,6 +196,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void openTab(Script next) {
         finishEditor();
         settleDrag();
+        if (dirty()) Tabs.touch();
         rememberView();
         saveScript();
         Tabs.shown(next);
@@ -204,6 +207,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void newTab() {
         if (Tabs.full()) { toast("вкладок не больше " + Tabs.MAX); return; }
         finishEditor();
+        if (dirty()) Tabs.touch();
         rememberView();
         saveScript();
         Script fresh = Tabs.add(null);
@@ -243,6 +247,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         items.add(new Menu.Item("Переименовать", false, Draw.NAME));
         items.add(new Menu.Item("Сохранить в файл  " + Settings.get().label(Settings.Hot.SAVE_TAB),
                 false, Draw.LOAD));
+        List<Script> filled = Tabs.filled(script);
+        boolean several = filled.size() > 1;
+        if (several) items.add(new Menu.Item("Все полотна в файл", false, Draw.LOAD));
         if (index > 0) items.add(new Menu.Item("Закрыть", true, Draw.CROSS));
         menu = Menu.picker(width, height, x, y, font, Tabs.all().get(index).name, items, -1, i -> {
             if (i == 0) {
@@ -251,7 +258,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             } else if (i == 1) {
                 if (index == Tabs.indexOf(script)) saveTabFile();
                 else saveTabFile(Tabs.script(index), Tabs.all().get(index).name);
-            } else if (i == 2) askCloseTab(index);
+            } else if (i == 2 && several) saveFile(Exporter.export(filled), "все полотна");
+            else if (i >= 2) askCloseTab(index);
         });
     }
 
@@ -262,7 +270,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private void saveTabFile(Script which, String name) {
         if (which.roots.isEmpty()) { toast("вкладка пустая — сохранять нечего"); return; }
-        Exporter.Result out = Exporter.export(which);
+        saveFile(Exporter.export(which), name);
+    }
+
+    private void saveFile(Exporter.Result out, String name) {
         String stem = (name == null || name.isBlank() ? "полотно" : name)
                 .replaceAll("[\\\\/:*?\"<>|]", "_").trim();
         byte[] bytes = out.json().toString().getBytes(StandardCharsets.UTF_8);
@@ -296,6 +307,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     @Override
     public boolean empty() { return script.roots.isEmpty(); }
+
+    @Override
+    public boolean nothingToSend() { return script.scratch ? script.roots.isEmpty() : Tabs.blank(script); }
 
     @Override
     public boolean finding() { return finder != null; }
@@ -1194,13 +1208,26 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         return false;
     }
 
+    private int renameElsewhere(Rename.Plan plan, Rename.Result r) {
+        if (!Rename.GAME.equals(plan.scope) && !Rename.SAVE.equals(plan.scope)) return 0;
+        int places = 0;
+        for (Script other : Tabs.others(script)) {
+            Rename.Result there = Rename.apply(Rename.plan(other, null, r.from(), plan.scope), r.to(), r.scope());
+            if (there == null || there.places() == 0) continue;
+            places += there.places();
+            other.save();
+        }
+        return places;
+    }
+
     private void renamedVariable(Rename.Plan plan, Value edited) {
         Rename.Result r = Rename.apply(plan, edited.name, edited.scope);
         if (r == null) { toast("имя переменной пустое — ничего не переименовано"); return; }
-        if (r.places() == 0 && r.from().equals(r.to()) && r.scope().equals(plan.scope)) return;
+        int elsewhere = renameElsewhere(plan, r);
+        if (r.places() + elsewhere == 0 && r.from().equals(r.to()) && r.scope().equals(plan.scope)) return;
         String scope = r.scope().equals(plan.scope) ? ""
                 : " · " + Values.scope(r.scope()).name().toLowerCase(java.util.Locale.ROOT);
-        toast("«" + r.from() + "» → «" + r.to() + "»" + scope + " · " + RENAME_PLACES + r.places()
+        toast("«" + r.from() + "» → «" + r.to() + "»" + scope + " · " + RENAME_PLACES + (r.places() + elsewhere)
                 + " · " + RENAME_LINES + r.lines()
                 + (r.clash() ? " · такая переменная уже есть" : "")
                 + (r.keptLine() ? " · параметр остаётся строчным" : ""));
@@ -1234,10 +1261,31 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     private boolean navigable(Script.Node n) {
+        if (n.invokes() && elsewhere(n)) return true;
         return (n.declares() || n.invokes()) && usagesOf(n).size() > 1;
     }
 
+    private boolean elsewhere(Script.Node call) {
+        Script.Node declaration = jumpTarget(call);
+        return declaration != null && boxOf(declaration) == null;
+    }
+
+    private boolean openDeclaration(Script.Node call) {
+        Script.Node declaration = jumpTarget(call);
+        for (Script other : Tabs.others(script)) {
+            for (Script.Root r : other.roots) {
+                if (r.chain.isEmpty() || r.chain.get(0) != declaration) continue;
+                other.viewX = 80 - r.x * other.viewZoom;
+                other.viewY = 60 - r.y * other.viewZoom;
+                openTab(other);
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void goTo(Script.Node from) {
+        if (from.invokes() && elsewhere(from) && openDeclaration(from)) return;
         List<Finder.Hit> uses = usagesOf(from);
         if (uses.size() < 2) {
             toast(from.declares() ? "её нигде не вызывают" : "на полотне нет такой функции");
@@ -2434,6 +2482,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private void publish(String exitCommand) {
         if (script.scratch) { lineAction(0); return; }
+        if (Env.browser() && nothingToSend()) { toast("полотна пустые — отправлять нечего"); return; }
         closeOverlays();
         rememberView();
         saveScript();
@@ -4185,10 +4234,11 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             return;
         }
         Map<Script.Root, Integer> at = Exporter.positions(script);
+        int base = Tabs.lineBase(script);
         List<Integer> positions = new ArrayList<>();
         for (Script.Root r : roots) {
             Integer p = at.get(r);
-            if (p != null) positions.add(p);
+            if (p != null) positions.add(base + p);
         }
         if (positions.isEmpty()) {
             toast("здесь нет строк, которые уходят на сервер");

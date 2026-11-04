@@ -753,7 +753,7 @@ public final class XeroCode implements ClientModInitializer {
         }
         List<BlockPos> lines = Codespace.lines(client.level);
         Settings look = Settings.get();
-        if (script().roots.isEmpty()) {
+        if (Tabs.blank(script())) {
             if (!look.autoOpen) return;
             if (lines.isEmpty()) { open(client); return; }
             ready();

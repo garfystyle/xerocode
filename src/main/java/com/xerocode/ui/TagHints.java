@@ -73,8 +73,6 @@ final class TagHints {
         tag("shadow", "<shadow:", "<shadow:…>", COLOR,
                 "Цвет тени букв: <shadow:red>, <shadow:#ff000080>; второе число — прозрачность от 0 до 1"
                         + " (обычно 0.25). <!shadow> убирает тень.");
-        tag("pride", "<pride:", "<pride:…>", COLOR,
-                "Цвета флага по буквам: <pride:trans>, <pride:bi>; просто <pride> — радужный флаг.");
         tag("click", "<click:", "<click:…>", ACTION,
                 "Действие по клику до </click>: открыть ссылку, выполнить или подставить команду,"
                         + " скопировать текст.");
@@ -135,9 +133,9 @@ final class TagHints {
             new Arg("show_text", "show_text:''>", 2, HOVER,
                     "Текст подсказки в кавычках, тоже с тегами: <hover:show_text:'<red>привет'>.", -1, ""),
             new Arg("show_item", "show_item:", 0, HOVER,
-                    "Подсказка предмета: <hover:show_item:minecraft:diamond:5>.", -1, ""),
+                    "Подсказка предмета: <hover:show_item:diamond:5>.", -1, ""),
             new Arg("show_entity", "show_entity:", 0, HOVER,
-                    "Подсказка сущности: <hover:show_entity:minecraft:pig:‹uuid›:имя>.", -1, ""));
+                    "Подсказка сущности: <hover:show_entity:pig:‹uuid›:имя>.", -1, ""));
 
     private static final List<Arg> FONTS = List.of(
             new Arg("minecraft:default", "minecraft:default>", 0, FONT, "Обычный шрифт игры.", -1, ""),
@@ -304,7 +302,7 @@ final class TagHints {
             i = gt + 1;
             if (inner.isEmpty() || inner.endsWith("/")) continue;
             if (inner.startsWith("/")) {
-                String name = canonical(inner.substring(1));
+                String name = written(inner.substring(1));
                 int at = stack.lastIndexOf(name);
                 if (at >= 0) stack.subList(at, stack.size()).clear();
                 continue;
@@ -312,7 +310,7 @@ final class TagHints {
             if (inner.startsWith("!")) continue;
             String name = canonical(inner);
             if (name.equals("reset")) { stack.clear(); continue; }
-            if (SCOPED.contains(name) || name.startsWith("#") || named(name)) stack.add(name);
+            if (SCOPED.contains(name) || name.startsWith("#") || named(name)) stack.add(written(inner));
         }
         LinkedHashSet<String> innerFirst = new LinkedHashSet<>();
         for (int k = stack.size() - 1; k >= 0; k--) innerFirst.add(stack.get(k));
@@ -337,9 +335,13 @@ final class TagHints {
         return -1;
     }
 
-    private static String canonical(String inner) {
+    private static String written(String inner) {
         int colon = inner.indexOf(':');
-        String head = (colon < 0 ? inner : inner.substring(0, colon)).toLowerCase(Locale.ROOT).trim();
+        return (colon < 0 ? inner : inner.substring(0, colon)).toLowerCase(Locale.ROOT).trim();
+    }
+
+    private static String canonical(String inner) {
+        String head = written(inner);
         return CANON.getOrDefault(head, head);
     }
 

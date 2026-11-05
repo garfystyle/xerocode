@@ -38,6 +38,7 @@ sourceSets {
             include 'META-INF/**'
             include 'xero/data/minecraft.json'
             include 'xero/data/jmcc.json'
+            include 'xero/data/extra.json'
         }
     }
     tools {

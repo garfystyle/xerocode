@@ -12,6 +12,7 @@ import java.util.Locale;
 import java.util.function.Function;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.Font;
+import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.network.chat.MutableComponent;
@@ -76,8 +77,8 @@ public final class McText {
         return MINI.equals(parsing) ? "<#" + h + ">" : "&#" + h;
     }
 
-    public static String hexClose(String parsing) {
-        return MINI.equals(parsing) ? "</color>" : "&r";
+    public static String hexClose(String parsing, int rgb) {
+        return MINI.equals(parsing) ? "</#" + String.format("%06x", rgb & 0xFFFFFF) + ">" : "&r";
     }
 
     public static String normaliseHex(String s) {
@@ -239,6 +240,17 @@ public final class McText {
                         continue;
                     }
                 }
+                if ((next == 'x' || next == 'X') && i + 14 <= s.length()) {
+                    StringBuilder hex = new StringBuilder();
+                    for (int k = i + 2; k < i + 14; k += 2) if (s.charAt(k) == c) hex.append(s.charAt(k + 1));
+                    String code = hex.length() == 6 ? normaliseHex(hex.toString()) : null;
+                    if (code != null) {
+                        push(out, buf, style);
+                        style = Style.EMPTY.withColor(TextColor.fromRgb(hexRgb(code)));
+                        i += 14;
+                        continue;
+                    }
+                }
                 ChatFormatting f = ChatFormatting.getByCode(next);
                 if (f != null) {
                     push(out, buf, style);
@@ -258,12 +270,18 @@ public final class McText {
         List<Run> out = new ArrayList<>();
         StringBuilder buf = new StringBuilder();
         Deque<Style> stack = new ArrayDeque<>();
+        Deque<String> names = new ArrayDeque<>();
         Style style = base;
         int i = 0;
         while (i < s.length()) {
             char c = s.charAt(i);
+            if (c == '\\' && i + 1 < s.length() && (s.charAt(i + 1) == '<' || s.charAt(i + 1) == '\\')) {
+                buf.append(s.charAt(i + 1));
+                i += 2;
+                continue;
+            }
             if (c != '<') { buf.append(c); i++; continue; }
-            int close = s.indexOf('>', i + 1);
+            int close = tagClose(s, i + 1);
             if (close < 0) { buf.append(c); i++; continue; }
 
             String tag = s.substring(i + 1, close).trim();
@@ -281,6 +299,13 @@ public final class McText {
                 continue;
             }
 
+            String put = closing ? null : inserted(name, tag);
+            if (put != null) {
+                buf.append(put);
+                i = close + 1;
+                continue;
+            }
+
             if (!closing && ("gradient".equals(name) || "rainbow".equals(name))) {
                 int end = matchingClose(s, close + 1, name);
                 String inner = s.substring(close + 1, end < 0 ? s.length() : end);
@@ -293,21 +318,57 @@ public final class McText {
 
             Style applied = tagStyle(style, body);
             if (closing) {
-                if (applied == null) { buf.append(s, i, close + 1); i = close + 1; continue; }
+                if (applied == null || !names.contains(name)) { buf.append(s, i, close + 1); i = close + 1; continue; }
                 push(out, buf, style);
-                style = stack.isEmpty() ? base : stack.pop();
+                while (!names.isEmpty()) {
+                    String open = names.pop();
+                    style = stack.pop();
+                    if (open.equals(name)) break;
+                }
                 i = close + 1;
                 continue;
             }
             if (applied == null) { buf.append(s, i, close + 1); i = close + 1; continue; }
             push(out, buf, style);
-            if ("reset".equals(name)) { stack.clear(); style = base; }
-            else if (!selfClosing) { stack.push(style); style = applied; }
+            if ("reset".equals(name)) { stack.clear(); names.clear(); style = base; }
+            else if (!selfClosing) { stack.push(style); names.push(name); style = applied; }
             else style = applied;
             i = close + 1;
         }
         push(out, buf, style);
         return out;
+    }
+
+    private static int tagClose(String s, int from) {
+        char quote = 0;
+        for (int k = from; k < s.length(); k++) {
+            char c = s.charAt(k);
+            if (quote != 0) {
+                if (c == '\\') k++;
+                else if (c == quote) quote = 0;
+            } else if (c == '\'' || c == '"') quote = c;
+            else if (c == '>') return k;
+        }
+        return s.indexOf('>', from);
+    }
+
+    private static String inserted(String name, String tag) {
+        return switch (name) {
+            case "newline", "br" -> "\n";
+            case "lang", "tr", "translate", "lang_or", "tr_or", "translate_or", "key", "selector", "sel", "score", "nbt", "data", "head" -> {
+                List<String> args = tagArgs(tag);
+                String first = args.size() > 1 ? args.get(1) : "";
+                yield switch (name) {
+                    case "lang", "tr", "translate" -> Language.getInstance().getOrDefault(first);
+                    case "lang_or", "tr_or", "translate_or" -> Language.getInstance().getOrDefault(first, args.size() > 2 ? args.get(2) : first);
+                    case "key" -> Component.keybind(first).getString();
+                    case "selector", "sel" -> first;
+                    case "head" -> "☺";
+                    default -> "";
+                };
+            }
+            default -> null;
+        };
     }
 
     private static Run sprite(String tag, String raw, Style style) {
@@ -367,33 +428,123 @@ public final class McText {
         return -1;
     }
 
+    private static List<String> tagParts(String body) {
+        List<String> args = new ArrayList<>();
+        int colon = body.indexOf(':');
+        if (colon >= 0) for (String a : body.substring(colon + 1).split(":")) args.add(a.trim());
+        return args;
+    }
+
+    private static int mix(float t, int a, int b) {
+        float k = Math.min(1f, Math.max(0f, t));
+        int r = Math.round(((a >> 16) & 0xFF) + k * (((b >> 16) & 0xFF) - ((a >> 16) & 0xFF)));
+        int g = Math.round(((a >> 8) & 0xFF) + k * (((b >> 8) & 0xFF) - ((a >> 8) & 0xFF)));
+        int bl = Math.round((a & 0xFF) + k * ((b & 0xFF) - (a & 0xFF)));
+        return (r << 16) | (g << 8) | bl;
+    }
+
+    private static int hue(float hue) {
+        float h = hue * 6;
+        int i = (int) Math.floor(h);
+        float f = h - i, q = 1 - f;
+        float r, g, b;
+        switch (i) {
+            case 0 -> { r = 1; g = f; b = 0; }
+            case 1 -> { r = q; g = 1; b = 0; }
+            case 2 -> { r = 0; g = 1; b = f; }
+            case 3 -> { r = 0; g = q; b = 1; }
+            case 4 -> { r = f; g = 0; b = 1; }
+            default -> { r = 1; g = 0; b = q; }
+        }
+        return ((int) (r * 255) << 16) | ((int) (g * 255) << 8) | (int) (b * 255);
+    }
+
+    private static float phaseOf(List<String> args) {
+        if (args.isEmpty()) return 0;
+        try {
+            float p = Float.parseFloat(args.get(args.size() - 1));
+            return p < -1 || p > 1 ? 0 : p;
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static List<Integer> coloursOf(List<String> args) {
+        List<Integer> out = new ArrayList<>();
+        for (String a : args) {
+            Integer rgb = colourOf(a);
+            if (rgb != null) out.add(rgb);
+        }
+        return out;
+    }
+
+    private static int transition(String body) {
+        List<String> args = tagParts(body);
+        List<Integer> colours = coloursOf(args);
+        if (colours.isEmpty()) return 0xFFFFFF;
+        float phase = phaseOf(args);
+        boolean negative = phase < 0;
+        if (negative) {
+            phase += 1;
+            java.util.Collections.reverse(colours);
+        }
+        float steps = 1f / Math.max(1, colours.size() - 1);
+        for (int n = 1; n < colours.size(); n++) {
+            float at = n * steps;
+            if (at < phase) continue;
+            float factor = 1 + (phase - at) * (colours.size() - 1);
+            return negative ? mix(1 - factor, colours.get(n), colours.get(n - 1)) : mix(factor, colours.get(n - 1), colours.get(n));
+        }
+        return colours.get(0);
+    }
+
+    private static Style shadowed(Style style, String body) {
+        List<String> args = tagParts(body);
+        if (args.isEmpty()) return style;
+        String first = args.get(0);
+        if (first.startsWith("#") && first.length() == 9) {
+            String hex = normaliseHex(first.substring(0, 7));
+            if (hex == null) return style;
+            return style.withShadowColor((Integer.parseInt(first.substring(7), 16) << 24) | hexRgb(hex));
+        }
+        Integer rgb = colourOf(first);
+        if (rgb == null) return style;
+        float alpha = args.size() > 1 ? phaseOf(args) : 0.25f;
+        return style.withShadowColor(((int) (Math.min(1f, Math.max(0f, alpha)) * 255) << 24) | rgb);
+    }
+
     private static List<Run> paint(List<Run> inner, String kind, String body) {
         int total = 0;
         for (Run r : inner) total += r.text().length();
         if (total == 0) return inner;
 
-        List<String> args = new ArrayList<>();
-        int colon = body.indexOf(':');
-        if (colon >= 0) for (String a : body.substring(colon + 1).split(":")) args.add(a.trim());
-
-        int[] stops;
-        double phase = 0;
-        if ("rainbow".equals(kind)) {
-            stops = null;
-            for (String a : args) {
-                String p = a.startsWith("!") ? a.substring(1) : a;
-                try { phase = Double.parseDouble(p); } catch (NumberFormatException ignored) { }
+        List<String> args = tagParts(body);
+        boolean rainbow = "rainbow".equals(kind), reversed = false;
+        double shift = 0;
+        float phase = 0;
+        int[] stops = null;
+        if (rainbow) {
+            String a = args.isEmpty() ? "" : args.get(0);
+            if (a.startsWith("!")) {
+                reversed = true;
+                a = a.substring(1);
+            }
+            try {
+                if (!a.isEmpty()) shift = Integer.parseInt(a) / 10d;
+            } catch (NumberFormatException ignored) {
             }
         } else {
-            List<Integer> cols = new ArrayList<>();
-            for (String a : args) {
-                Integer rgb = colourOf(a);
-                if (rgb != null) cols.add(rgb);
-                else {
-                    try { phase = Double.parseDouble(a); } catch (NumberFormatException ignored) { }
-                }
+            List<Integer> cols = coloursOf(args);
+            phase = phaseOf(args);
+            if (cols.size() < 2) {
+                cols.clear();
+                cols.add(0xFFFFFF);
+                cols.add(0x000000);
             }
-            if (cols.size() < 2) { cols.clear(); cols.add(0xFFFFFF); cols.add(0x000000); }
+            if (phase < 0) {
+                phase += 1;
+                java.util.Collections.reverse(cols);
+            }
             stops = new int[cols.size()];
             for (int i = 0; i < stops.length; i++) stops[i] = cols.get(i);
         }
@@ -402,11 +553,17 @@ public final class McText {
         int index = 0;
         for (Run r : inner) {
             for (int k = 0; k < r.text().length(); k++) {
-                double t = total == 1 ? 0 : index / (double) (total - 1);
-                int rgb = stops == null ? rainbowAt(index / (double) total, phase)
-                        : gradientAt(stops, Math.min(1, Math.max(0, t + phase)));
-                out.add(new Run(String.valueOf(r.text().charAt(k)),
-                        r.style().withColor(TextColor.fromRgb(rgb))));
+                int rgb;
+                if (rainbow) {
+                    float at = reversed ? total - 1 - index : index;
+                    rgb = hue((float) ((at / total + shift) % 1f));
+                } else {
+                    float step = total == 1 ? 0 : (float) (stops.length - 1) / (total - 1);
+                    float position = index * step + phase * (stops.length - 1);
+                    int low = (int) Math.floor(position);
+                    rgb = mix(position - low, stops[low % stops.length], stops[(int) Math.ceil(position) % stops.length]);
+                }
+                out.add(new Run(String.valueOf(r.text().charAt(k)), r.style().withColor(TextColor.fromRgb(rgb))));
                 index++;
             }
         }
@@ -418,7 +575,8 @@ public final class McText {
             String hex = normaliseHex(name);
             return hex == null ? null : hexRgb(hex);
         }
-        for (Colour c : COLOURS) if (c.name().equals(name)) return c.rgb();
+        String colour = name.replace("grey", "gray");
+        for (Colour c : COLOURS) if (c.name().equals(colour)) return c.rgb();
         return null;
     }
 
@@ -430,6 +588,9 @@ public final class McText {
         boolean off = name.startsWith("!");
         if (off) name = name.substring(1);
 
+        if ("click".equals(name) || "hover".equals(name) || "insert".equals(name) || "font".equals(name)) return style;
+        if ("shadow".equals(name)) return off ? style.withoutShadow() : shadowed(style, body);
+        if ("transition".equals(name)) return style.withColor(TextColor.fromRgb(transition(body)));
         if (name.startsWith("#")) {
             String hex = normaliseHex(name);
             return hex == null ? null : style.withColor(TextColor.fromRgb(hexRgb(hex)));
@@ -439,8 +600,9 @@ public final class McText {
             Integer rgb = colourOf(body.substring(body.indexOf(':') + 1));
             return rgb == null ? null : style.withColor(TextColor.fromRgb(rgb));
         }
+        String colour = name.replace("grey", "gray");
         for (Colour c : COLOURS)
-            if (c.name().equals(name)) return style.withColor(c.formatting());
+            if (c.name().equals(colour)) return style.withColor(c.formatting());
         Boolean on = off ? Boolean.FALSE : Boolean.TRUE;
         return switch (name) {
             case "bold", "b" -> style.withBold(on);

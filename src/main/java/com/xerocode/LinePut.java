@@ -1,6 +1,7 @@
 package com.xerocode;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -19,8 +20,10 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 public final class LinePut {
+    public static final int WIDEST = 43;
+
     private static final double NEAR = 6.0;
-    private static final int NEAR_TICKS = 80, HAND_TICKS = 4, WIPE_TICKS = 40, SETTLE_TICKS = 6;
+    private static final int NEAR_TICKS = 120, RESEND_TICKS = 30, HAND_TICKS = 4, WIPE_TICKS = 40, SETTLE_TICKS = 6;
     private static final int GIVE_TICKS = 4, BUILD_TICKS = 40, COOLDOWN_TICKS = 40, TRIES = 2;
     private static final String SAID_BROKEN = "Шаблон повреждён";
 
@@ -40,7 +43,7 @@ public final class LinePut {
     private Step step = Step.NEAR;
     private JsonObject placing;
     private int timer = NEAR_TICKS, steady, tries;
-    private boolean restoring, refused;
+    private boolean restoring, refused, wiped;
 
     private LinePut(Minecraft client, LineEdit.Where at, JsonObject fresh, JsonObject original,
                     String backup) {
@@ -69,11 +72,27 @@ public final class LinePut {
         if (!Codespace.inDev(client.level)) return "поставить строку можно только в /dev";
         if (at == null) return "неизвестно, откуда строка — возьми её в руку";
         if (fresh == null) return "строка начинается с события, функции или процесса";
+        if (tooWide(fresh)) return "строка шире " + WIDEST + " блоков, шаблоном её не поставить — место не тронуто";
+        if (original != null && tooWide(original)) return "прежняя строка шире " + WIDEST + " блоков, шаблоном её не вернуть — она не тронута";
         String backup = original == null ? "" : saveBackup(client.level, at, original);
         current = new LinePut(client, at, fresh, original, backup);
         current.teleport(client);
         LineEdit.say(client, "ставлю строку на место · " + at.said(), false);
         return null;
+    }
+
+    public static boolean tooWide(JsonObject handler) {
+        return width(handler.getAsJsonArray("operations")) > WIDEST;
+    }
+
+    private static int width(JsonArray operations) {
+        if (operations == null) return 0;
+        int width = 0;
+        for (JsonElement raw : operations) {
+            JsonObject operation = raw.getAsJsonObject();
+            width += operation.has("operations") ? 2 + width(operation.getAsJsonArray("operations")) : 1;
+        }
+        return width;
     }
 
     public static void serverSaid(String text) {
@@ -97,8 +116,11 @@ public final class LinePut {
         switch (step) {
             case NEAR -> {
                 double away = Math.sqrt(player.distanceToSqr(Vec3.atCenterOf(head)));
-                if (away > NEAR && --timer > 0) return;
-                if (away > NEAR) { finish(client, "не дошёл до строки — она не тронута", true, false); return; }
+                if (away > NEAR) {
+                    if (--timer <= 0) finish(client, "не дошёл до строки — она не тронута", true, false);
+                    else if (timer % RESEND_TICKS == 0) teleport(client);
+                    return;
+                }
                 hold(client, ItemStack.EMPTY);
                 step = Step.HAND;
                 timer = HAND_TICKS;
@@ -106,8 +128,10 @@ public final class LinePut {
             case HAND -> {
                 if (--timer > 0) return;
                 if (world.getBlockState(head).isAir()) { give(client, fresh); return; }
+                if (original == null) { finish(client, "на этом месте уже есть строка — она не тронута", true, false); return; }
                 look(client, head);
                 client.gameMode.startDestroyBlock(head, Direction.UP);
+                wiped = true;
                 step = Step.WIPE;
                 timer = WIPE_TICKS;
                 steady = 0;
@@ -148,7 +172,8 @@ public final class LinePut {
                     pause(original);
                     return;
                 }
-                finish(client, "строку стёр, а поставить не вышло" + backupSaid(), true, true);
+                if (wiped) finish(client, "строку стёр, а поставить не вышло" + backupSaid(), true, true);
+                else finish(client, "строка не встала", true, false);
             }
         }
     }

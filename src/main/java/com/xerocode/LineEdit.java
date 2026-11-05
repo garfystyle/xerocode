@@ -182,6 +182,7 @@ public final class LineEdit {
         if (player == null || client.gameMode == null) return "нужен мир";
         JsonObject handler = handlerOf(chain);
         if (handler == null) return "строка начинается с события, функции или процесса";
+        if (LinePut.tooWide(handler)) return "строка шире " + LinePut.WIDEST + " блоков, шаблоном её не поставить";
         String title = chain.get(0).declares() ? Functions.nameOf(chain.get(0)) : chain.get(0).action.name;
         ItemStack stack = stack(handler, title);
         int slot = player.getInventory().getSelectedSlot();

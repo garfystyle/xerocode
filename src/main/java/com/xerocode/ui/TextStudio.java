@@ -1036,7 +1036,9 @@ public final class TextStudio implements Overlay {
             boolean known = hexTag && McText.normaliseHex(tag) != null;
             for (McText.Colour c : McText.COLOURS) if (c.name().equals(tag)) known = true;
             if (!known) break;
-            String close = hexTag ? "</color>" : "</" + tag + ">";
+            String close = "</" + tag + ">";
+            if (hexTag && !sel.toLowerCase(java.util.Locale.ROOT).endsWith(close)
+                    && sel.toLowerCase(java.util.Locale.ROOT).endsWith("</color>")) close = "</color>";
             if (sel.length() >= end + 1 + close.length()
                     && sel.toLowerCase(java.util.Locale.ROOT).endsWith(close))
                 sel = sel.substring(end + 1, sel.length() - close.length());
@@ -1287,7 +1289,7 @@ public final class TextStudio implements Overlay {
     private void applyPicked() {
         if (!McText.formattable(parsing)) { toast("в этом режиме разметки нет"); return; }
         remember(hsv.rgb());
-        wrap(McText.hexTag(parsing, hsv.rgb()), McText.hexClose(parsing), true);
+        wrap(McText.hexTag(parsing, hsv.rgb()), McText.hexClose(parsing, hsv.rgb()), true);
     }
 
     private boolean searchClicked(int mx, int my, MouseButtonEvent click, boolean doubled) {

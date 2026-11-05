@@ -50,7 +50,7 @@ processResources {
         expand 'version': project.version
     }
     from(new File(xeroCore, 'resources/xero/data')) {
-        include 'minecraft.json', 'jmcc.json'
+        include 'minecraft.json', 'jmcc.json', 'extra.json'
         into 'xero/data'
     }
 }

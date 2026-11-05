@@ -83,6 +83,10 @@ public interface Component extends FormattedText {
         return MutableComponent.create(key);
     }
 
+    static MutableComponent keybind(String key) {
+        return MutableComponent.create(key);
+    }
+
     static MutableComponent translatable(String key, Object... args) {
         return MutableComponent.create(key);
     }

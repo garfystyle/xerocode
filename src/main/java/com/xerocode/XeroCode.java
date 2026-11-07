@@ -729,7 +729,7 @@ public final class XeroCode implements ClientModInitializer {
             return;
         }
         if (Settings.codeMode()) {
-            if (client.gui.screen() == null && holding == null) open(client);
+            if (Settings.get().autoOpen && client.gui.screen() == null && holding == null) open(client);
             return;
         }
         if (!Settings.canvasMode()) {

@@ -20,7 +20,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 public final class LinePut {
-    public static final int WIDEST = 43;
+    public static final int WIDEST = xero.compile.Wrap.WIDEST;
 
     private static final double NEAR = 6.0;
     private static final int NEAR_TICKS = 120, RESEND_TICKS = 30, HAND_TICKS = 4, WIPE_TICKS = 40, SETTLE_TICKS = 6;

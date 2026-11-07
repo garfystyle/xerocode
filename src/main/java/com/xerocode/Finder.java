@@ -350,7 +350,7 @@ public final class Finder {
     }
 
     private static String selector(Value v) {
-        return "default".equals(v.selection) ? "" : Values.selectorName(v.selection);
+        return v.targetless() || "default".equals(v.selection) ? "" : Values.selectorName(v.selection);
     }
 
     private static String plain(Value v, int depth) {

@@ -10,7 +10,7 @@ public final class ClientPacketListener {
     public PlayerInfo getPlayerInfo(String name) { return null; }
 
     public void sendCommand(String command) {
-        if (command == null || !command.startsWith("module loadUrl")) return;
+        if (command == null || !command.startsWith("module load-url")) return;
         Input.setClipboard("/" + command);
     }
 }

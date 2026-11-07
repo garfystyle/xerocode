@@ -50,7 +50,7 @@ public final class Link {
     private static final long LINE_GAP = 1_500;
     private static final long LINES_WAIT = 300_000;
     private static final long CONNECT_WAIT = 30;
-    private static final int LINES_PER_FLOOR = 23;
+    private static final int LINES_PER_FLOOR = (Codespace.LAST_Z - Codespace.FIRST_Z) / Codespace.LINE_STEP + 1;
 
     private static volatile ServerSocket socket;
     private static volatile String token;

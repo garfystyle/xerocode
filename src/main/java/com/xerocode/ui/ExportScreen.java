@@ -52,7 +52,7 @@ public final class ExportScreen extends DialogScreen {
         return Env.browser() && phase == Phase.DONE && !failed() && job != null && !job.url.isEmpty();
     }
 
-    private String command() { return (replacing ? "/module loadUrl force " : "/module loadUrl ") + job.url; }
+    private String command() { return (replacing ? "/module load-url force " : "/module load-url ") + job.url; }
 
     public ExportScreen(Script script, Screen parent, String exitTo) {
         super(344);
@@ -92,7 +92,7 @@ public final class ExportScreen extends DialogScreen {
         whole = sending.size() == filled.size();
         phase = Phase.RUNNING;
         try {
-            code = ready != null ? ready : sending.isEmpty() ? Exporter.export(script) : Exporter.export(sending);
+            code = ready != null ? ready : Exporter.forWorld(sending.isEmpty() ? List.of(script) : sending);
         } catch (Throwable e) {
             failure = e.getClass().getSimpleName();
             XeroCode.LOG.error("[xerocode] сборка кода не удалась", e);

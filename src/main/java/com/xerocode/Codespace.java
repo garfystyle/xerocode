@@ -36,7 +36,7 @@ public final class Codespace {
     public static final int FIRST_Y = 5;
     public static final int FLOOR_H = 7;
     public static final int FLOORS = 15;
-    public static final int FIRST_Z = 4, LAST_Z = 92, LINE_STEP = 4;
+    public static final int FIRST_Z = 4, LAST_Z = 140, LINE_STEP = 4;
 
     private static final int SLOT = 0;
     private static final int TP_TICKS = 10;

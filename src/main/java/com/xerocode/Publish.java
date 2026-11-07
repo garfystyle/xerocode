@@ -110,7 +110,7 @@ public final class Publish {
         private long notBefore;
 
         Job(JsonObject code, boolean replace, Path file) {
-            this.body = code.toString();
+            this.body = xero.compile.Wrap.fitted(code.toString(), xero.data.Data.load());
             this.replace = replace;
             this.file = file;
         }
@@ -158,7 +158,7 @@ public final class Publish {
                 state = State.FAILED;
                 return;
             }
-            String command = "module loadUrl " + (replace ? "force " : "") + url;
+            String command = "module load-url " + (replace ? "force " : "") + url;
             sentAt = System.currentTimeMillis();
             if (firstSentAt == 0) firstSentAt = sentAt;
             net.sendCommand(command);

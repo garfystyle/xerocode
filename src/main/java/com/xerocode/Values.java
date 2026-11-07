@@ -23,6 +23,12 @@ public final class Values {
 
         public net.minecraft.world.item.ItemStack icon() { return Catalog.stackOf(item, false, skin); }
 
+        private static final java.util.Set<String> TARGET_BY_SERVER_BUG = java.util.Set.of("spawn_location");
+
+        public boolean noTarget() { return sentWithoutTarget() || TARGET_BY_SERVER_BUG.contains(id); }
+
+        public boolean sentWithoutTarget() { return xero.compile.Wire.noTarget(category); }
+
         GameValue(String id, String name, String category, String item,
                   String description, String returns, String returnsNote) {
             this.id = id; this.name = name; this.category = category; this.item = item;

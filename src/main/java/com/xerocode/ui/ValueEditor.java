@@ -638,6 +638,7 @@ public final class ValueEditor implements Overlay {
                 part("card", cardH(gv == null ? "" : gv.name, gv == null ? "" : gv.description));
                 gap();
                 part("choose", btnH);
+                if (v.targetless()) break;
                 gap();
                 cap("ЦЕЛЬ");
                 if (compact) {
@@ -1635,7 +1636,7 @@ public final class ValueEditor implements Overlay {
                 Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, py("choose"), full, btnH,
                         Draw.SEARCH, Values.gameValue(v.gameValue) == null
                                 ? "Выбрать значение" : "Другое значение", Ui.GHOST, true);
-                if (compact) {
+                if (compact && has("target")) {
                     Ui.button(ctx, tr, mouseX, mouseY, x + PAD, py("target"), full, ctrlH,
                             Values.selectorName(v.selection), Ui.GHOST, true);
                     Draw.glyph(ctx, Draw.CARET_DOWN, x + PAD + full - 11, py("target") + 7,
@@ -2281,7 +2282,10 @@ public final class ValueEditor implements Overlay {
                             g.description, g.returns, g.returnsNote, g.icon()));
                 picker = new CatalogPicker(tr, screenW, screenH, "Игровое значение",
                         Values.color(Value.GAME_VALUE), items, null, v.gameValue, null,
-                        id -> v.gameValue = id);
+                        id -> {
+                            v.pickGameValue(id);
+                            rebuild = true;
+                        });
             }
             case Value.SOUND -> {
                 if (player == null) player = new SoundPlayer(tr, v, Values.color(Value.SOUND));

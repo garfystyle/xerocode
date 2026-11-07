@@ -315,7 +315,7 @@ public final class SettingsPanel implements Overlay {
         actRows.add(new Row(editor, "Шагов отмены", "",
                 Settings.UNDO_NAMES, () -> s.undoSteps, v -> s.undoSteps = v));
         if (!Env.browser()) {
-            actRows.add(new Row(game, "Заливать код на", "сайт для /module loadUrl",
+            actRows.add(new Row(game, "Заливать код на", "сайт для /module load-url",
                     Settings.UPLOAD_NAMES, () -> s.upload, v -> s.upload = v));
             actRows.add(Row.toggle(game, "Открывать при входе в /dev", "",
                     () -> s.autoOpen, v -> s.autoOpen = v));

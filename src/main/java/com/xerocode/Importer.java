@@ -23,7 +23,7 @@ public final class Importer {
         public int unknownCount;
     }
 
-    private static final int GAP = 40, COLUMN_MAX_H = 1600, COLUMN_GAP = 60;
+    private static final int GAP = 40, COLUMN_MAX_H = 1600, COLUMN_GAP = 60, BESIDE_SPOTS = 600;
 
     public static final String PRIVATE = "__";
     public static final String TRANSLATIONS = PRIVATE + "tr_";
@@ -35,6 +35,9 @@ public final class Importer {
         String field = Catalog.localizedField(arg);
         return field == null ? null : TRANSLATIONS + field;
     }
+
+    public static final String CUSTOM_DATA = "custom_data";
+    public static final String KEPT_LINE = PRIVATE + "line";
 
     private static final Set<String> OWN_FIELDS = Set.of("action", "type", "event", "name",
             "position", "values", "operations", "selection", "is_inverted");
@@ -84,7 +87,8 @@ public final class Importer {
 
     public static Result importInto(Script script, JsonArray handlers, Font tr, int startX) {
         Result result = new Result();
-        int x = startX, y = 40, columnW = 0;
+        boolean exact = script.roots.isEmpty();
+        int x = exact ? besideSpots(script, handlers, startX) : startX, y = 40, columnW = 0;
 
         int line = -1;
         for (JsonObject handler : byPosition(handlers)) {
@@ -93,6 +97,14 @@ public final class Importer {
             try {
                 List<Script.Node> chain = chainOf(handler, result, line);
                 if (chain.isEmpty()) continue;
+                Tabs.Spot spot = exact ? Tabs.spot(handler) : null;
+                if (spot != null && Tabs.owns(script, spot)) {
+                    Script.Root placed = new Script.Root(spot.x(), spot.y());
+                    placed.chain.addAll(chain);
+                    script.roots.add(placed);
+                    result.lines++;
+                    continue;
+                }
 
                 int[] size = Layout.size(chain, tr);
                 int w = size[0], h = size[1];
@@ -114,6 +126,15 @@ public final class Importer {
             }
         }
         return result;
+    }
+
+    private static int besideSpots(Script script, JsonArray handlers, int startX) {
+        int x = startX;
+        for (JsonElement e : handlers) {
+            Tabs.Spot spot = e.isJsonObject() ? Tabs.spot(e.getAsJsonObject()) : null;
+            if (spot != null && Tabs.owns(script, spot)) x = Math.max(x, spot.x() + BESIDE_SPOTS);
+        }
+        return x;
     }
 
     public static List<JsonObject> byPosition(JsonArray handlers) {
@@ -153,8 +174,14 @@ public final class Importer {
         } else if (!type.isEmpty()) {
             unknown(result, type);
         }
+        if (!chain.isEmpty()) keepPlace(handler, chain.get(0));
         readOperations(handler, chain, result);
         return chain;
+    }
+
+    private static void keepPlace(JsonObject handler, Script.Node head) {
+        if (handler.has(CUSTOM_DATA) && !Tabs.spotText(handler.get(CUSTOM_DATA))) raw(head).add(CUSTOM_DATA, handler.get(CUSTOM_DATA));
+        if (positionOf(handler) != Integer.MAX_VALUE) raw(head).addProperty(KEPT_LINE, positionOf(handler));
     }
 
     private static Script.Node declarationHat(JsonObject handler, Catalog.Action action,

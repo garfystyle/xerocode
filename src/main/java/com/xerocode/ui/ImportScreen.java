@@ -323,7 +323,7 @@ public final class ImportScreen extends DialogScreen {
                 startX = (int) Math.round(script.lastRootX()) + BESIDE_STEP;
             }
             JsonArray world = scan.handlers();
-            JsonArray mine = Tabs.takeBack(script, world);
+            JsonArray mine = Tabs.restore(script, Tabs.takeBack(script, world), font);
             kept = world.size() - mine.size();
             result = Importer.importInto(script, mine, font, startX);
             if (result.lines > 0) script.fitOnOpen = true;

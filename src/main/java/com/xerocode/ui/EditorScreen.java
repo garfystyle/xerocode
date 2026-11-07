@@ -2129,6 +2129,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             return;
         }
         fitView();
+        script.save();
         int tab = Tabs.indexOf(script);
         if (tab >= 0 && Tabs.autoName(tab)) {
             String stem = file.getFileName().toString().replaceFirst("(?i)\\.json$", "");

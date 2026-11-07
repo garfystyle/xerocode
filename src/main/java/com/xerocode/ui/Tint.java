@@ -13,6 +13,7 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.util.FormattedCharSequence;
+import xero.compile.Wire;
 
 public final class Tint {
     public static final int FUNCTION = 0x6FA8FF;
@@ -78,7 +79,9 @@ public final class Tint {
         return out;
     }
 
-    private record Frame(int open, int ink, int soft) {}
+    private static final String MATH = "math";
+
+    private record Frame(int open, int ink, int soft, boolean math, boolean counted) {}
 
     public static boolean[] placeholders(String s, int cursor, int[] ink) {
         int n = s.length();
@@ -97,7 +100,7 @@ public final class Tint {
                 if (!name.isEmpty() && end < n && s.charAt(end) == '(') {
                     int color = callInk(name);
                     for (int k = i; k <= end; k++) { ink[k] = color; claimed[k] = true; }
-                    open.push(new Frame(end, color, variable(name) ? soft(color) : -1));
+                    open.push(new Frame(end, color, variable(name) ? soft(color) : -1, name.equals(MATH), false));
                     i = end + 1;
                     continue;
                 }
@@ -109,11 +112,18 @@ public final class Tint {
                 i++;
                 continue;
             }
+            int call = inMath(open) ? mathCall(s, i) : -1;
+            if (call >= 0) {
+                for (int k = i; k <= call; k++) { ink[k] = FUNCTION; claimed[k] = true; }
+                open.push(new Frame(call, FUNCTION, -1, true, false));
+                i = call + 1;
+                continue;
+            }
             if (c == '(') {
                 int color = DEPTH[plain++ % DEPTH.length];
                 ink[i] = color;
                 claimed[i] = true;
-                open.push(new Frame(i, color, -1));
+                open.push(new Frame(i, color, -1, inMath(open), true));
             } else if (c == ')') {
                 claimed[i] = true;
                 if (open.isEmpty()) {
@@ -124,7 +134,7 @@ public final class Tint {
                     if (f.soft() >= 0)
                         for (int k = f.open() + 1; k < i; k++) if (!claimed[k]) { ink[k] = f.soft(); claimed[k] = true; }
                     pairs.add(new int[]{f.open(), i});
-                    if (f.soft() < 0 && plain > 0 && s.charAt(f.open()) == '(' && !callOpen(s, f.open())) plain--;
+                    if (f.counted() && plain > 0) plain--;
                 }
             }
             i++;
@@ -139,10 +149,15 @@ public final class Tint {
         return mark;
     }
 
-    private static boolean callOpen(String s, int paren) {
-        int k = paren - 1;
-        while (k >= 0 && word(s.charAt(k))) k--;
-        return k >= 0 && k < paren - 1 && s.charAt(k) == '%';
+    private static boolean inMath(Deque<Frame> open) {
+        return !open.isEmpty() && open.peek().math();
+    }
+
+    private static int mathCall(String s, int from) {
+        if (!word(s.charAt(from)) || from > 0 && word(s.charAt(from - 1))) return -1;
+        int end = from;
+        while (end < s.length() && word(s.charAt(end))) end++;
+        return end < s.length() && s.charAt(end) == '(' && Wire.mathFunction(s.substring(from, end)) ? end : -1;
     }
 
     private static boolean word(char c) { return c == '_' || Character.isLetterOrDigit(c); }

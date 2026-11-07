@@ -39,13 +39,21 @@ public final class Exporter {
     }
 
     public static Result export(List<Script> scripts) {
+        return export(scripts, false);
+    }
+
+    public static Result forWorld(List<Script> scripts) {
+        return export(scripts, true);
+    }
+
+    private static Result export(List<Script> scripts, boolean spots) {
         Report report = new Report();
         current = report;
         try {
             JsonArray handlers = new JsonArray();
             for (Script script : scripts) {
                 Functions.rebuild(script);
-                collect(script, handlers, report);
+                collect(script, handlers, report, spots);
             }
             JsonObject json = new JsonObject();
             json.add("handlers", handlers);
@@ -69,13 +77,13 @@ public final class Exporter {
 
     private static Result export(Script script, Report report) {
         JsonArray handlers = new JsonArray();
-        collect(script, handlers, report);
+        collect(script, handlers, report, false);
         JsonObject json = new JsonObject();
         json.add("handlers", handlers);
         return new Result(json, report);
     }
 
-    private static void collect(Script script, JsonArray handlers, Report report) {
+    private static void collect(Script script, JsonArray handlers, Report report, boolean spots) {
         List<Script.Root> roots = new ArrayList<>(script.roots);
         roots.sort(Comparator.<Script.Root>comparingDouble(r -> r.x).thenComparingDouble(r -> r.y));
 
@@ -83,11 +91,25 @@ public final class Exporter {
             if (root.chain.isEmpty()) continue;
             JsonObject handler = handler(root.chain.get(0), report);
             if (handler == null) continue;
-            handler.addProperty("position", handlers.size());
+            handler.addProperty("position", position(root.chain.get(0), handlers));
+            if (spots) Tabs.stamp(handler, script, root);
             handler.add("operations", operations(root.chain.subList(1, root.chain.size()), report));
             handlers.add(handler);
             report.lines++;
         }
+    }
+
+    private static int position(Script.Node head, JsonArray handlers) {
+        int next = handlers.isEmpty() ? 0
+                : handlers.get(handlers.size() - 1).getAsJsonObject().get("position").getAsInt() + 1;
+        JsonElement kept = head.raw == null ? null : head.raw.get(Importer.KEPT_LINE);
+        return kept == null ? next : Math.max(next, kept.getAsInt());
+    }
+
+    private static JsonObject customData(Script.Node head, JsonObject handler) {
+        if (head.raw != null && head.raw.has(Importer.CUSTOM_DATA))
+            handler.add(Importer.CUSTOM_DATA, head.raw.get(Importer.CUSTOM_DATA));
+        return handler;
     }
 
     private static JsonObject keptOp(Script.Node node) {
@@ -106,7 +128,7 @@ public final class Exporter {
             o.addProperty("name", Functions.nameOf(head));
             o.add("values", declarationValues(head));
             report.blocks++;
-            return o;
+            return customData(head, o);
         }
         if (!head.isHat()) {
             report.unmapped++;
@@ -122,7 +144,7 @@ public final class Exporter {
         o.addProperty("type", "event");
         o.addProperty("event", event);
         report.blocks++;
-        return o;
+        return customData(head, o);
     }
 
     private static JsonArray declarationValues(Script.Node head) {

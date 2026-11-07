@@ -15,7 +15,9 @@
     try {
       if (journaling) localStorage.setItem(j, val);
       else localStorage.removeItem(j);
-    } catch (e) { }
+    } catch (e) {
+      try { localStorage.removeItem(j); } catch (e2) { }
+    }
     if (!db) return;
     var t = db.transaction('files', 'readwrite'), f = t.objectStore('files');
     if (del) f.delete(p); else f.put(v, p);

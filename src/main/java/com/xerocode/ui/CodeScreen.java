@@ -68,6 +68,10 @@ public final class CodeScreen extends Screen {
     private ValueEditor valueEditor;
     private CodeFile valueFile;
     private int valueStart, valueEnd;
+    private static final String FILES_KEY = Env.browser() ? "Ctrl+P" : "Ctrl+E";
+    private static final String SIDE_KEY = Env.browser() ? "Ctrl+B" : "Ctrl+Shift+E";
+    private static final String COMMANDS_KEY = Env.browser() ? "Ctrl+Shift+P" : "F1";
+
     private boolean findOpen, sideOpen, bottomOpen;
     private int sideW, bottomH;
     private boolean draggingSide, draggingBottom;
@@ -87,8 +91,8 @@ public final class CodeScreen extends Screen {
     public CodeScreen() {
         super(Component.literal("XeroCode"));
         Settings s = Settings.get();
-        sideOpen = !Env.touch();
-        bottomOpen = !Env.touch();
+        sideOpen = !Env.touch() && s.codeSideOpen;
+        bottomOpen = !Env.touch() && s.codeBottomOpen;
         sideW = s.codeSideW;
         bottomH = s.codeBottomH;
         Dialects.all();
@@ -181,7 +185,7 @@ public final class CodeScreen extends Screen {
         List<Btn> out = new ArrayList<>();
         Doc d = area.doc();
         boolean open = d != null;
-        out.add(new Btn(SIDE, Draw.SIDEBAR, null, "Файлы  Ctrl+B", 1, sideOpen, true));
+        out.add(new Btn(SIDE, Draw.SIDEBAR, null, "Файлы  " + SIDE_KEY, 1, sideOpen, true));
         if (!Env.browser()) {
             out.add(new Btn(ORIGINAL, Draw.BRICKS, "3D", "3D-кодинг\nКод блоками в мире", 2, false, true));
         }
@@ -205,7 +209,7 @@ public final class CodeScreen extends Screen {
         List<Btn> out = new ArrayList<>();
         if (Env.touch()) out.add(new Btn(UPLOAD, Draw.UPLOAD, null, "В мир", 6, false, true));
         else out.add(new Btn(FIND, Draw.SEARCH, null, "Поиск  Ctrl+F", 6, findOpen, area.doc() != null));
-        out.add(new Btn(COMMANDS, Draw.KEYBOARD, null, "Все команды  Ctrl+Shift+P", 6, false, true));
+        out.add(new Btn(COMMANDS, Draw.KEYBOARD, null, "Все команды  " + COMMANDS_KEY, 6, false, true));
         out.add(new Btn(SETTINGS, Draw.GEAR, null, "Настройки", 7, false, true));
         return out;
     }
@@ -1100,7 +1104,7 @@ public final class CodeScreen extends Screen {
     private void quickCommands() {
         List<CodeQuick.Entry> out = new ArrayList<>();
         command(out, "Новый файл", "", () -> newFileMenu(width / 2, topH() + 20));
-        command(out, "Открыть файл", "Ctrl+P", this::quickFiles);
+        command(out, "Открыть файл", FILES_KEY, this::quickFiles);
         command(out, "Импортировать файл с диска", "", this::importFile);
         if (area.file() != null) command(out, "Сохранить файл на диск", "", () -> download(area.file()));
         command(out, "Каталог действий", "Ctrl+I", this::quickWords);
@@ -1132,7 +1136,7 @@ public final class CodeScreen extends Screen {
             Editing.trimTrailing(area.doc());
             area.edited();
         });
-        command(out, "Показать или скрыть файлы", "Ctrl+B", () -> sideOpen = !sideOpen);
+        command(out, "Показать или скрыть файлы", SIDE_KEY, () -> sideOpen = !sideOpen);
         command(out, "Показать или скрыть нижнюю панель", "Ctrl+J", () -> bottomOpen = !bottomOpen);
         command(out, "Шрифт кода", "", () -> fontMenu(width / 2, topH() + 20));
         command(out, "Авторы языков", "", this::quickAuthors);
@@ -1140,12 +1144,29 @@ public final class CodeScreen extends Screen {
         if (!Env.browser()) {
             command(out, "Игра", Settings.get().label(Settings.Hot.PLAY), () -> world("play"));
             command(out, "Строительство", Settings.get().label(Settings.Hot.BUILD), () -> world("build"));
-            command(out, "Перезапустить мир", Settings.get().label(Settings.Hot.RESTART), () -> {
-                saveNow();
-                XeroCode.restart();
-            });
+            command(out, "Перезапустить мир", Settings.get().label(Settings.Hot.RESTART), this::restartWorld);
         }
         openQuick(CodeQuick.list(font, "команда…", out));
+    }
+
+    private void restartWorld() {
+        saveNow();
+        XeroCode.restart();
+    }
+
+    private boolean worldKey(Settings.Hot hot, int key) {
+        if (hot == null || Env.browser()) return false;
+        if (key < GLFW.GLFW_KEY_ESCAPE && (Settings.get().mods(hot) & ~Settings.SHIFT) == 0) return false;
+        switch (hot) {
+            case PLAY -> world("play");
+            case BUILD -> world("build");
+            case RESTART -> restartWorld();
+            case MODE -> switchMode(Settings.Mode.ORIGINAL);
+            default -> {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void world(String command) {
@@ -1673,6 +1694,7 @@ public final class CodeScreen extends Screen {
             openSettings();
             return true;
         }
+        if (worldKey(Settings.get().match(key, m), key)) return true;
         if (global(key, ctrl, shift)) return true;
         if (area.keyPressed(e)) return true;
         if (key == GLFW.GLFW_KEY_ESCAPE && findOpen) {
@@ -1691,12 +1713,20 @@ public final class CodeScreen extends Screen {
             finder.step(shift ? -1 : 1);
             return true;
         }
+        if (key == GLFW.GLFW_KEY_F1) {
+            quickCommands();
+            return true;
+        }
         if (!ctrl) return false;
         switch (key) {
             case GLFW.GLFW_KEY_S -> buildFile();
             case GLFW.GLFW_KEY_B -> {
                 if (shift) build(null);
                 else sideOpen = !sideOpen;
+            }
+            case GLFW.GLFW_KEY_E -> {
+                if (shift) sideOpen = !sideOpen;
+                else quickFiles();
             }
             case GLFW.GLFW_KEY_J -> bottomOpen = !bottomOpen;
             case GLFW.GLFW_KEY_F -> {
@@ -1761,6 +1791,15 @@ public final class CodeScreen extends Screen {
     public void saveNow() {
         area.remember();
         project.saveAll();
+        rememberPanels();
+    }
+
+    private void rememberPanels() {
+        Settings s = Settings.get();
+        if (Env.touch() || s.codeSideOpen == sideOpen && s.codeBottomOpen == bottomOpen) return;
+        s.codeSideOpen = sideOpen;
+        s.codeBottomOpen = bottomOpen;
+        s.save();
     }
 
     @Override

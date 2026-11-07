@@ -357,11 +357,30 @@ public final class Value {
 
     private static final String BLOCK_NOTE = "Блок";
 
+    public boolean targetless() {
+        Values.GameValue known = Values.gameValue(gameValue);
+        return known != null && known.noTarget();
+    }
+
+    private String serverSelection() {
+        Values.GameValue known = Values.gameValue(gameValue);
+        if (known != null && known.sentWithoutTarget()) return "null";
+        if (targetless()) return "{\"type\":\"default\"}";
+        return selectionRaw.isEmpty() ? "{\"type\":\"" + selection + "\"}" : selectionRaw;
+    }
+
+    public void pickGameValue(String id) {
+        boolean had = !targetless();
+        gameValue = id;
+        selectionRaw = "";
+        if (!had || targetless()) selection = "default";
+    }
+
     public String note() {
         return switch (type) {
             case VARIABLE -> Values.scope(scope).name();
             case PARAMETER -> paramNote();
-            case GAME_VALUE -> "default".equals(selection) ? "" : Values.selectorName(selection);
+            case GAME_VALUE -> targetless() || "default".equals(selection) ? "" : Values.selectorName(selection);
             case TEXT -> "legacy".equals(parsing) ? "" : Values.parsingName(parsing);
             case SOUND -> num(volume) + "/" + num(pitch2);
             case PARTICLE -> count == 1 ? "" : "×" + count;
@@ -455,8 +474,7 @@ public final class Value {
             case VARIABLE -> { o.addProperty("variable", name); o.addProperty("scope", scope); }
             case GAME_VALUE -> {
                 o.addProperty("game_value", gameValue);
-                o.addProperty("selection", selectionRaw.isEmpty()
-                        ? "{\"type\":\"" + selection + "\"}" : selectionRaw);
+                o.addProperty("selection", serverSelection());
             }
             case PARAMETER -> {
                 o.addProperty("type_key", typeKey);

@@ -172,6 +172,8 @@ public final class Settings {
     public int codeSize;
     public int codeSideW = 150;
     public int codeBottomH = 90;
+    public boolean codeSideOpen = true;
+    public boolean codeBottomOpen = true;
 
     public int theme = THEME_DARK;
     public int buttons = BTN_SOFT;
@@ -679,6 +681,8 @@ public final class Settings {
         root.addProperty("codeSize", codeSize);
         root.addProperty("codeSideW", codeSideW);
         root.addProperty("codeBottomH", codeBottomH);
+        root.addProperty("codeSideOpen", codeSideOpen);
+        root.addProperty("codeBottomOpen", codeBottomOpen);
         root.add("look", look);
         root.add("act", actJson());
         root.add("gamma", gammaJson());
@@ -746,6 +750,8 @@ public final class Settings {
         if (root.has("codeFont")) s.codeFont = root.get("codeFont").getAsString();
         s.codeSideW = num(root, "codeSideW", s.codeSideW);
         s.codeBottomH = num(root, "codeBottomH", s.codeBottomH);
+        s.codeSideOpen = flag(root, "codeSideOpen", s.codeSideOpen);
+        s.codeBottomOpen = flag(root, "codeBottomOpen", s.codeBottomOpen);
         if (root.has("look")) {
             JsonObject look = root.getAsJsonObject("look");
             s.readLook(look);

@@ -10,10 +10,12 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.client.gui.Font;
 
 public final class Tabs {
     public static final int MAX = 10;
@@ -21,6 +23,7 @@ public final class Tabs {
     private static final String MAIN = "main";
     private static final String INDEX = "index.json";
     private static final String EMPTY_OP = "empty";
+    private static final String SPOT_MARK = "xc:";
 
     public static final class Tab {
         public final String id;
@@ -42,6 +45,72 @@ public final class Tabs {
     private static boolean touched;
 
     private record Placed(Script script, Script.Root root) {}
+
+    public record Spot(int x, int y, String name) {
+        boolean main() { return name.isEmpty(); }
+
+        String text() { return SPOT_MARK + x + ":" + y + ":" + name; }
+    }
+
+    static boolean spotText(JsonElement data) {
+        return data != null && data.isJsonPrimitive() && data.getAsString().startsWith(SPOT_MARK);
+    }
+
+    public static Spot spot(JsonObject handler) {
+        JsonElement data = handler.get(Importer.CUSTOM_DATA);
+        if (!spotText(data)) return null;
+        String[] parts = data.getAsString().split(":", 4);
+        if (parts.length < 4) return null;
+        try {
+            return new Spot(Integer.parseInt(parts[1]), Integer.parseInt(parts[2]), parts[3]);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    static void stamp(JsonObject handler, Script script, Script.Root root) {
+        int tab = indexOf(script);
+        JsonElement data = handler.get(Importer.CUSTOM_DATA);
+        if (tab < 0 || data != null && !spotText(data)) return;
+        String name = tab == 0 ? "" : TABS.get(tab).name;
+        handler.addProperty(Importer.CUSTOM_DATA, new Spot((int) Math.round(root.x), (int) Math.round(root.y), name).text());
+    }
+
+    static boolean owns(Script script, Spot spot) {
+        int tab = indexOf(script);
+        return tab >= 0 && named(tab, spot);
+    }
+
+    private static boolean named(int tab, Spot spot) {
+        return spot.main() ? tab == 0 : TABS.get(tab).name.equals(spot.name());
+    }
+
+    public static JsonArray restore(Script into, JsonArray lines, Font font) {
+        if (indexOf(into) < 0) return lines;
+        Map<Script, JsonArray> away = new LinkedHashMap<>();
+        JsonArray rest = new JsonArray();
+        for (JsonElement e : lines) {
+            Spot spot = spot(e.getAsJsonObject());
+            Script home = spot == null ? null : home(spot, into);
+            if (home == null) rest.add(e);
+            else away.computeIfAbsent(home, k -> new JsonArray()).add(e);
+        }
+        away.forEach((home, handlers) -> {
+            Importer.importInto(home, handlers, font);
+            home.save();
+        });
+        shown(into);
+        return rest;
+    }
+
+    private static Script home(Spot spot, Script into) {
+        for (int i = 0; i < all().size(); i++) {
+            if (!named(i, spot)) continue;
+            Script known = script(i);
+            return known == into || !known.roots.isEmpty() ? null : known;
+        }
+        return full() ? null : add(spot.name());
+    }
 
     public static List<Tab> all() {
         fresh();

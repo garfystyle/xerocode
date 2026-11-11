@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +37,8 @@ public final class CodeProject {
         public Map<String, Object> module;
         public final List<Problem> problems = new ArrayList<>();
         public int errors, warnings, lines;
+        public final Set<String> imports = new HashSet<>();
+        public final Map<Integer, List<Compiler.Origin>> origins = new HashMap<>();
         public boolean ok() { return module != null && errors == 0; }
     }
 
@@ -332,15 +335,19 @@ public final class CodeProject {
                 failed = true;
                 continue;
             }
-            for (Object h : Json.array(module.get("handlers"))) {
-                Map<String, Object> line = new LinkedHashMap<>(Json.object(h));
+            List<List<Compiler.Origin>> columns = e.getValue().columns();
+            List<Object> lines = Json.array(module.get("handlers"));
+            for (int i = 0; i < lines.size(); i++) {
+                Map<String, Object> line = new LinkedHashMap<>(Json.object(lines.get(i)));
                 int at = line.get("position") instanceof Json.Num n ? n.intValue() : next;
                 if (at < next) at = next;
                 line.put("position", new Json.Num(String.valueOf(at)));
                 next = at + 1;
                 handlers.add(line);
+                if (columns.size() == lines.size()) out.origins.put(at, columns.get(i));
             }
         }
+        out.imports.addAll(imported);
         if (!failed) {
             Map<String, Object> merged = new LinkedHashMap<>();
             merged.put("handlers", handlers);

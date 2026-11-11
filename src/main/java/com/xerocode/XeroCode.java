@@ -25,8 +25,10 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionResult;
 import org.lwjgl.glfw.GLFW;
@@ -63,7 +65,7 @@ public final class XeroCode implements ClientModInitializer {
     private int settling;
     private int waitingDev;
     private int holdScreen;
-    private EditorScreen holding;
+    private Screen holding;
     private boolean restoring;
     private int coverTicks;
     private CoverScreen cover;
@@ -86,6 +88,28 @@ public final class XeroCode implements ClientModInitializer {
 
     private static Path ownFile() {
         return Minecraft.getInstance().gameDirectory.toPath().resolve("xerocode/own-worlds.txt");
+    }
+
+    private static void heardFault(Component message, String text) {
+        try {
+            if (!text.contains("❌") && !text.contains("☠")) return;
+            String click = clickOf(message, 0);
+            if (click == null) return;
+            Minecraft mc = Minecraft.getInstance();
+            Faults.heard(text, click, mc.level == null ? "" : plotId(mc.level));
+        } catch (Throwable e) {
+            LOG.warn("[xerocode] сообщение об ошибке кода не разобралось", e);
+        }
+    }
+
+    private static String clickOf(Component part, int depth) {
+        if (part.getStyle().getClickEvent() instanceof ClickEvent.RunCommand run) return run.command();
+        if (depth > 6) return null;
+        for (Component sibling : part.getSiblings()) {
+            String found = clickOf(sibling, depth + 1);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     private static String plotId(ClientLevel world) {
@@ -245,6 +269,7 @@ public final class XeroCode implements ClientModInitializer {
             Codespace.serverSaid(text);
             LinePut.serverSaid(text);
             if (overlay) return;
+            heardFault(message, text);
             Publish.noteChat(text);
             restartHeard(text);
             if (text.contains("режиме строительства")) worldModeNow = "build";
@@ -669,7 +694,7 @@ public final class XeroCode implements ClientModInitializer {
         if (holding != null) return;
         waitingDev = 0;
         open(client);
-        holding = client.gui.screen() instanceof EditorScreen e ? e : null;
+        holding = editor(client.gui.screen()) ? client.gui.screen() : null;
         holdScreen = DEV_WAIT;
     }
 
@@ -706,13 +731,17 @@ public final class XeroCode implements ClientModInitializer {
         client.gui.setScreen(holding);
     }
 
+    private static boolean editor(Screen screen) {
+        return screen instanceof EditorScreen || screen instanceof CodeScreen;
+    }
+
     private static boolean picking() {
         return LocationPick.active();
     }
 
     private void notMyWorld(Minecraft client) {
         holdScreen = 0;
-        boolean hadCanvas = client.gui.screen() instanceof EditorScreen;
+        boolean hadCanvas = editor(client.gui.screen());
         holding = null;
         if (hadCanvas) client.gui.setScreen(null);
         client.gui.hud.setTimes(3, 60, 10);

@@ -84,13 +84,21 @@ public final class Release {
     }
 
     public static List<Entry> newer(JsonArray releases, String current) {
+        String mine = null;
+        for (JsonElement el : releases) {
+            if (!el.isJsonObject() || !published(el.getAsJsonObject())) continue;
+            JsonObject r = el.getAsJsonObject();
+            String version = number(Json.str(r, "tag_name")), date = Json.str(r, "published_at");
+            if (!version.isEmpty() && compare(version, current) == 0 && (mine == null || date.compareTo(mine) > 0)) mine = date;
+        }
         List<Entry> out = new ArrayList<>();
         for (JsonElement el : releases) {
-            if (!el.isJsonObject()) continue;
+            if (!el.isJsonObject() || !published(el.getAsJsonObject())) continue;
             JsonObject r = el.getAsJsonObject();
-            if (Json.flag(r, "draft") || Json.flag(r, "prerelease")) continue;
             String version = number(Json.str(r, "tag_name"));
-            if (version.isEmpty() || compare(version, current) <= 0) continue;
+            if (version.isEmpty() || compare(version, current) == 0) continue;
+            boolean later = mine != null ? Json.str(r, "published_at").compareTo(mine) > 0 : compare(version, current) > 0;
+            if (!later) continue;
             String jar = "";
             long size = 0;
             JsonArray assets = Json.arr(r, "assets");
@@ -105,8 +113,12 @@ public final class Release {
             out.add(new Entry(version, Json.str(r, "published_at"), Json.str(r, "body"),
                     Json.str(r, "html_url"), jar, size));
         }
-        out.sort(Comparator.comparing(Entry::version, Release::compare).reversed());
+        out.sort(Comparator.comparing(Entry::date).reversed());
         return out;
+    }
+
+    private static boolean published(JsonObject r) {
+        return !Json.flag(r, "draft") && !Json.flag(r, "prerelease");
     }
 
     public static String number(String tag) {

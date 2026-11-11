@@ -3,11 +3,15 @@ package com.xerocode.ui;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.xerocode.Catalog;
 import com.xerocode.Download;
 import com.xerocode.Env;
 import com.xerocode.Exporter;
+import com.xerocode.Faults;
 import com.xerocode.Importer;
+import com.xerocode.Mapping;
 import com.xerocode.Match;
+import com.xerocode.Mirror;
 import com.xerocode.Script;
 import com.xerocode.Settings;
 import com.xerocode.Tabs;
@@ -35,6 +39,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
+import xero.compile.Compiler;
 import xero.dialect.Dialect;
 import xero.dialect.Dialects;
 import xero.dialect.Ink;
@@ -44,10 +49,14 @@ import xero.lang.Diagnostic;
 
 public final class CodeScreen extends Screen {
     private static final int ORIGINAL = 1, CANVAS = 2, CODE = 3, SIDE = 4, UNDO = 5, REDO = 6, BUILD = 7, UPLOAD = 8,
-            LOAD = 9, TO_CANVAS = 10, FROM_CANVAS = 11, FIND = 12, COMMANDS = 13, SETTINGS = 14, VALUE = 15;
+            LOAD = 9, TO_CANVAS = 10, FROM_CANVAS = 11, FIND = 12, COMMANDS = 13, SETTINGS = 14, VALUE = 15,
+            PLAY = 16, CONSTRUCT = 17;
     private static final int GAP = 6, SIDE_MIN = 90, BOTTOM_MIN = 40, ANALYZE_AFTER_MS = 280, WORDS_MAX = 80;
 
     private static List<CodeProject.Problem> problems = List.of();
+    private static String sentFrom;
+    private static CodeProject.Problem faultProblem;
+    private int faultVersion = Integer.MIN_VALUE;
 
     static List<CodeProject.Problem> problems() { return problems; }
 
@@ -68,6 +77,7 @@ public final class CodeScreen extends Screen {
     private ValueEditor valueEditor;
     private CodeFile valueFile;
     private int valueStart, valueEnd;
+    private List<Script.Node> gridChain;
     private static final String FILES_KEY = Env.browser() ? "Ctrl+P" : "Ctrl+E";
     private static final String SIDE_KEY = Env.browser() ? "Ctrl+B" : "Ctrl+Shift+E";
     private static final String COMMANDS_KEY = Env.browser() ? "Ctrl+Shift+P" : "F1";
@@ -153,6 +163,8 @@ public final class CodeScreen extends Screen {
         layout();
         if (valueEditor != null) valueEditor.resize(width, height);
         if (area.focused()) area.focus(true);
+        List<String> notes = Mirror.takeNotes();
+        if (!notes.isEmpty()) say(String.join(" · ", notes));
     }
 
     @Override
@@ -191,7 +203,11 @@ public final class CodeScreen extends Screen {
         }
         out.add(new Btn(CANVAS, Draw.CANVAS, "2D", "2D-кодинг\nПолотно блоков", 2, false, true));
         out.add(new Btn(CODE, Draw.CODE, "Код", "Код буквами", 2, true, true));
-        out.add(new Btn(VALUE, Draw.PIN, null, "Значение: местоположение, предмет, звук…  Alt+Enter", 3, false, open));
+        if (!Env.browser()) {
+            out.add(new Btn(PLAY, Draw.PLAY, null, "Игра  " + Settings.get().labels(Settings.Hot.PLAY), 8, false, true));
+            out.add(new Btn(CONSTRUCT, Draw.BRICKS, null, "Строительство  " + Settings.get().labels(Settings.Hot.BUILD), 8, false, true));
+        }
+        out.add(new Btn(VALUE, Draw.PIN, null, "Значение: место, предмет, звук, сетка меню…  Alt+Enter", 3, false, open));
         out.add(new Btn(UNDO, Draw.UNDO, null, "Отменить  Ctrl+Z", 3, false, open && d.canUndo()));
         out.add(new Btn(REDO, Draw.REDO, null, "Вернуть  Ctrl+Y", 3, false, open && d.canRedo()));
         out.add(new Btn(BUILD, Draw.CHECK, width > 520 ? "Собрать" : null, "Проверить этот файл и его import  Ctrl+S", 4, false, true));
@@ -200,8 +216,8 @@ public final class CodeScreen extends Screen {
                 + (Env.browser() ? "Даст команду для чата JustMC" : "Заменит код мира"), 4, false, true));
         out.add(new Btn(LOAD, Draw.LOAD, null, Env.browser() ? "Открыть код из JSON или ссылки"
                 : "Код из мира\nФайлом на языке этого файла", 5, false, true));
-        out.add(new Btn(FROM_CANVAS, Draw.COPY, null, "С полотна\nПолотно 2D станет текстом", 5, false, true));
-        out.add(new Btn(TO_CANVAS, Draw.CANVAS, null, "На полотно\nФайл откроется блоками в новой вкладке", 5, false, true));
+        out.add(new Btn(FROM_CANVAS, Draw.COPY, null, "С полотна\nВкладка 2D заменит свой файл", 5, false, true));
+        out.add(new Btn(TO_CANVAS, Draw.CANVAS, null, "На полотно\nФайл заменит свою вкладку 2D", 5, false, true));
         return out;
     }
 
@@ -481,6 +497,7 @@ public final class CodeScreen extends Screen {
     @Override
     public void tick() {
         project.tick();
+        watchFault();
         if (download != null) {
             download.tick();
             if (download.state == Download.State.DONE) {
@@ -568,8 +585,7 @@ public final class CodeScreen extends Screen {
             int at = Math.min(d.start(), f.doc.text().length());
             out.add(new CodeProject.Problem(f, d, f.doc.lineAt(at), f.doc.colAt(at)));
         }
-        problems = out;
-        area.problems(out);
+        setProblems(out);
         overlay(f.doc, marks);
     }
 
@@ -797,7 +813,7 @@ public final class CodeScreen extends Screen {
         Doc.Caret c = d.primary();
         int[] range = area.valueRange(c.line, c.col);
         if (range == null) {
-            valueMenu(area.caretGuiX(), area.caretGuiY() + area.rowGuiH());
+            if (!gridHere()) valueMenu(area.caretGuiX(), area.caretGuiY() + area.rowGuiH());
             return;
         }
         String expression = d.slice(range[0], range[1], range[2], range[3]);
@@ -826,7 +842,84 @@ public final class CodeScreen extends Screen {
         });
     }
 
+    private boolean gridHere() {
+        if (!canEditValues()) return false;
+        Doc d = area.doc();
+        Doc.Caret c = d.primary();
+        Dialect dialect = area.file().dialect;
+        String text = d.text();
+        for (int[] call : Editing.callsAround(d, c.line, c.col)) {
+            Map<String, Object> op;
+            synchronized (dialect) {
+                op = dialect.operationOf(text.substring(call[0], call[1]));
+            }
+            if (op == null) continue;
+            List<Script.Node> chain = chainOf(op);
+            if (chain.size() < 2) continue;
+            Script.Node node = chain.get(1);
+            int arg = slottedArg(node);
+            if (arg < 0) continue;
+            valueFile = area.file();
+            valueStart = call[0];
+            valueEnd = call[1];
+            gridChain = chain;
+            area.focus(false);
+            valueEditor = new ValueEditor(node, arg, font, area.caretGuiX(), area.caretGuiY() + area.rowGuiH(),
+                    width, height, List.of(), List.of());
+            return true;
+        }
+        return false;
+    }
+
+    private static List<Script.Node> chainOf(Map<String, Object> op) {
+        Map<String, Object> handler = new LinkedHashMap<>();
+        handler.put("type", "event");
+        handler.put("event", "player_join");
+        handler.put("position", 0);
+        handler.put("operations", List.of(op));
+        JsonObject json = JsonParser.parseString(Json.write(handler)).getAsJsonObject();
+        return Importer.chainOf(json, new Importer.Result());
+    }
+
+    private static int slottedArg(Script.Node node) {
+        if (node.action == null) return -1;
+        for (int i = 0; i < node.action.args.size(); i++)
+            if (Catalog.slots(node.action, i) != null) return i;
+        return -1;
+    }
+
+    private void writeGrid(List<Script.Node> chain) {
+        CodeFile f = valueFile;
+        if (f == null) return;
+        Script script = new Script();
+        Script.Root root = new Script.Root(0, 0);
+        root.chain.addAll(chain);
+        script.roots.add(root);
+        JsonArray handlers = Exporter.export(script).json().getAsJsonArray("handlers");
+        if (handlers.isEmpty()) return;
+        JsonArray ops = handlers.get(0).getAsJsonObject().getAsJsonArray("operations");
+        if (ops == null || ops.isEmpty()) return;
+        Dialect dialect = f.dialect;
+        String text;
+        synchronized (dialect) {
+            text = dialect.operationText(Json.object(Json.parse(ops.get(0).toString())));
+        }
+        if (text == null) {
+            say("вызов не записался на " + dialect.title());
+            return;
+        }
+        Doc d = f.doc;
+        String line = d.line(d.lineAt(valueStart));
+        text = text.replace("\n", "\n" + line.substring(0, line.length() - line.stripLeading().length()));
+        d.replace(d.lineAt(valueStart), d.colAt(valueStart), d.lineAt(valueEnd), d.colAt(valueEnd), text);
+        valueEnd = valueStart + text.length();
+        d.single(d.lineAt(valueEnd), d.colAt(valueEnd));
+        if (f == area.file()) area.edited();
+        else project.touched();
+    }
+
     private void openValue(Value v, int start, int end) {
+        gridChain = null;
         valueFile = area.file();
         valueStart = start;
         valueEnd = end;
@@ -863,6 +956,14 @@ public final class CodeScreen extends Screen {
         if (open == null) return;
         valueEditor = null;
         if (!open.cancelled()) open.commit();
+        List<Script.Node> grid = gridChain;
+        gridChain = null;
+        if (grid != null) {
+            if (!open.cancelled() && open.changed()) writeGrid(grid);
+            open.dispose();
+            area.focus(true);
+            return;
+        }
         Value picked = open.edited();
         boolean toWorld = open.pickInWorld();
         open.dispose();
@@ -966,13 +1067,16 @@ public final class CodeScreen extends Screen {
 
     private void askRenameFile(CodeFile f) {
         openQuick(CodeQuick.ask(font, "Новое имя файла", "имя", f.path, wanted -> {
+            String was = f.path;
             if (!project.rename(f, wanted)) say("файл с таким именем нельзя");
+            else Tabs.relink(was, f.path);
         }));
     }
 
     private void askDelete(CodeFile f) {
         openQuick(CodeQuick.ask(font, "Удалить " + f.name() + "? Напиши да", "да", "", answer -> {
             if (!"да".equalsIgnoreCase(answer.strip())) return;
+            Tabs.relink(f.path, "");
             project.delete(f);
             area.open(project.active);
         }));
@@ -1235,13 +1339,94 @@ public final class CodeScreen extends Screen {
         area.focus(false);
     }
 
+    private void setProblems(List<CodeProject.Problem> list) {
+        List<CodeProject.Problem> out = new ArrayList<>(list.size() + 1);
+        for (CodeProject.Problem p : list) if (p != faultProblem) out.add(p);
+        if (faultProblem != null && project.files.contains(faultProblem.file())) out.add(faultProblem);
+        problems = out;
+        area.problems(out);
+    }
+
+    private void watchFault() {
+        int seen = Faults.version();
+        if (seen == faultVersion) return;
+        faultVersion = seen;
+        faultProblem = null;
+        Faults.Fault f = Faults.last();
+        if (f == null || !f.plot().equals(project.plot)) {
+            setProblems(problems);
+            return;
+        }
+        boolean fresh = Faults.fresh();
+        Faults.seen();
+        String head = (f.level() == Faults.Level.FATAL ? "код мира остановлен" : "строка остановлена")
+                + (f.action().isEmpty() ? "" : ": " + f.action());
+        CodeProject.Problem spot = faultSpot(f);
+        faultProblem = spot;
+        setProblems(problems);
+        if (!fresh) return;
+        if (spot == null) {
+            say(head + " — места в тексте нет");
+            return;
+        }
+        jump(spot.file(), spot.line(), spot.col());
+        say(head + (f.reason().isEmpty() ? "" : " — " + f.reason()));
+    }
+
+    private CodeProject.Problem faultSpot(Faults.Fault f) {
+        int position = Faults.position(f), column = Faults.column(f);
+        if (position < 0 || column < 0) return null;
+        CodeFile only = sentFrom == null ? area.file() : sentFrom.isEmpty() ? null : project.find(sentFrom);
+        if (sentFrom != null && !sentFrom.isEmpty() && only == null) return null;
+        CodeProject.Outcome out = project.build(only);
+        if (out.module == null) return null;
+        List<Compiler.Origin> columns = out.origins.get(position);
+        Compiler.Origin origin = columns == null || column >= columns.size() ? null : columns.get(column);
+        if (origin == null) return null;
+        String name = actionName(out.module, position, column);
+        if (!f.action().isEmpty() && name != null && !f.action().equals(name)) return null;
+        CodeFile file = origin.file() == null ? only : project.find(CodeProject.clean(origin.file()));
+        if (file == null) return null;
+        project.load(file);
+        int at = Math.min(origin.start(), file.doc.text().length());
+        Diagnostic said = Diagnostic.error("сервер остановил строку: " + f.reason(), at, Math.max(at + 1, origin.end())).in(file.path);
+        return new CodeProject.Problem(file, said, file.doc.lineAt(at), file.doc.colAt(at));
+    }
+
+    private static String actionName(Map<String, Object> module, int position, int column) {
+        for (Object raw : Json.array(module.get("handlers"))) {
+            Map<String, Object> handler = Json.object(raw);
+            if (!(handler.get("position") instanceof Json.Num n) || n.intValue() != position) continue;
+            Map<String, Object> op = handler.get("operations") instanceof List<?> ops ? opAt(Json.array(ops), column, new int[]{0}) : null;
+            if (op == null) return null;
+            Object id = op.get("conditional") instanceof Map<?, ?> c ? c.get("action") : op.get("action");
+            Catalog.Action action = id == null ? null : Mapping.catalogAction(Mapping.action(String.valueOf(id)));
+            return action == null ? null : action.name;
+        }
+        return null;
+    }
+
+    private static Map<String, Object> opAt(List<Object> ops, int column, int[] cursor) {
+        for (Object raw : ops) {
+            Map<String, Object> op = Json.object(raw);
+            if (cursor[0] == column) return op;
+            cursor[0]++;
+            if (op.get("operations") instanceof List<?> body) {
+                Map<String, Object> inside = opAt(Json.array(body), column, cursor);
+                if (inside != null) return inside;
+                cursor[0]++;
+            }
+            if (cursor[0] > column) return null;
+        }
+        return null;
+    }
+
     private void buildFile() { build(area.file()); }
 
     private CodeProject.Outcome build(CodeFile only) {
         project.saveAll();
         CodeProject.Outcome out = project.build(only);
-        problems = out.problems;
-        area.problems(out.problems);
+        setProblems(out.problems);
         String said = out.ok()
                 ? "собрано: " + Ui.plural(out.lines, "строка", "строки", "строк")
                 + (out.warnings > 0 ? " · предупреждений " + out.warnings : "")
@@ -1255,6 +1440,7 @@ public final class CodeScreen extends Screen {
     }
 
     private void upload(CodeFile only, boolean replace) {
+        sentFrom = only == null ? "" : only.path;
         CodeProject.Outcome out = build(only);
         if (!out.ok()) return;
         JsonObject json = JsonParser.parseString(Json.write(out.module)).getAsJsonObject();
@@ -1319,11 +1505,12 @@ public final class CodeScreen extends Screen {
     }
 
     private void fromCanvas() {
+        Script active = Tabs.activeScript();
         try {
-            Script active = Tabs.activeScript();
-            List<Script> filled = Tabs.filled(active);
-            Exporter.Result r = filled.isEmpty() ? Exporter.export(active) : Exporter.export(filled);
-            takeHandlers(r.json().getAsJsonArray("handlers"), "полотно");
+            Mirror.Text got = Mirror.toText(active, project, target());
+            for (String note : got.notes()) bottom.say(note);
+            showFile(got.file());
+            say("«" + Tabs.name(active) + "» → " + got.file().name());
         } catch (RuntimeException e) {
             XeroCode.LOG.error("[xerocode] полотно не перевелось", e);
             say("полотно не перевелось");
@@ -1331,24 +1518,22 @@ public final class CodeScreen extends Screen {
     }
 
     private void toCanvas() {
-        CodeProject.Outcome out = build(area.file());
-        if (!out.ok()) return;
-        if (Tabs.full()) {
-            say("вкладок полотна слишком много");
-            return;
-        }
         CodeFile f = area.file();
-        Script script = Tabs.add(f == null ? "код" : f.name());
-        if (script == null) return;
-        JsonObject json = JsonParser.parseString(Json.write(out.module)).getAsJsonObject();
+        if (f == null) return;
+        CodeProject.Outcome out = build(f);
+        if (!out.ok()) return;
+        Script script;
         try {
-            Importer.importInto(script, json.getAsJsonArray("handlers"), font);
+            script = Mirror.toCanvas(f, out, font);
         } catch (RuntimeException e) {
             XeroCode.LOG.error("[xerocode] код не лёг на полотно", e);
             say("код не лёг на полотно");
             return;
         }
-        script.fitOnOpen = true;
+        if (script == null) {
+            say("вкладок полотна слишком много");
+            return;
+        }
         Tabs.shown(script);
         switchMode(Settings.Mode.CANVAS);
     }
@@ -1402,6 +1587,15 @@ public final class CodeScreen extends Screen {
         s.save();
         Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         if (mode == Settings.Mode.CANVAS) {
+            try {
+                Mirror.beforeCanvas(project, font);
+            } catch (RuntimeException e) {
+                XeroCode.LOG.error("[xerocode] сверка файлов с полотном упала", e);
+            }
+            CodeFile f = area.file();
+            Script linked = f == null ? null : Tabs.linkedTo(f.path);
+            if (linked != null) Tabs.shown(linked);
+            XeroCode.canvasClosed();
             mc.gui.setScreen(new EditorScreen(Tabs.activeScript()));
             return;
         }
@@ -1416,6 +1610,8 @@ public final class CodeScreen extends Screen {
         switch (id) {
             case ORIGINAL -> switchMode(Settings.Mode.ORIGINAL);
             case CANVAS -> switchMode(Settings.Mode.CANVAS);
+            case PLAY -> world("play");
+            case CONSTRUCT -> world("build");
             case SIDE -> sideOpen = !sideOpen;
             case UNDO -> area.undo();
             case REDO -> area.redo();
@@ -1430,7 +1626,9 @@ public final class CodeScreen extends Screen {
             }
             case COMMANDS -> quickCommands();
             case SETTINGS -> openSettings();
-            case VALUE -> valueMenu(area.caretGuiX(), area.caretGuiY() + area.rowGuiH());
+            case VALUE -> {
+                if (!gridHere()) valueMenu(area.caretGuiX(), area.caretGuiY() + area.rowGuiH());
+            }
             default -> { }
         }
     }

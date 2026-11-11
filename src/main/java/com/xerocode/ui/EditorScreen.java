@@ -3,7 +3,11 @@ package com.xerocode.ui;
 import java.util.LinkedHashSet;
 import com.xerocode.Sync;
 import com.xerocode.Exporter;
+import com.xerocode.Faults;
+import com.xerocode.Mirror;
 import com.xerocode.Tabs;
+import com.xerocode.code.CodeFile;
+import com.xerocode.code.CodeProject;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -51,6 +55,8 @@ import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.FormattedText;
+import net.minecraft.network.chat.Style;
 import net.minecraft.world.item.ItemStack;
 
 public final class EditorScreen extends Screen implements TopBar.Host {
@@ -109,6 +115,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private final List<Layout.Box> found = new ArrayList<>();
     private int foundStamp = Integer.MIN_VALUE;
     private Script.Node focusNode;
+    private Faults.Fault fault;
+    private Script.Node faultNode;
+    private int faultVersion = Integer.MIN_VALUE;
     private Script.Node lastPlaced;
     private long focusAt;
     private boolean mapDragging;
@@ -997,6 +1006,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         List<String> said = new ArrayList<>();
         String updated = XeroCode.updateNote();
         if (!updated.isEmpty()) said.add(updated);
+        said.addAll(Mirror.takeNotes());
         String aside = Script.takeSetAside();
         if (!aside.isEmpty()) said.add("полотно не прочиталось — файл отложен: " + aside);
         List<String> lost = Script.lostOnLoad();
@@ -1005,6 +1015,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             said.add("при загрузке полотна потеряно: " + String.join(", ", lost));
         }
         if (!said.isEmpty()) toast(String.join(" · ", said));
+        watchFault();
         if (editor != null) editor.resize(width, height);
         if (finder != null) finder.resize(width, canvasBottom());
         if (settings != null) settings.resize(width, height);
@@ -1023,6 +1034,54 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     @Override
     public void tick() {
         if (!overlayOpen() && !busy()) XeroCode.offerUpdate(this);
+        watchFault();
+    }
+
+    private void watchFault() {
+        int seen = Faults.version();
+        if (seen == faultVersion) return;
+        faultVersion = seen;
+        fault = null;
+        faultNode = null;
+        Faults.Fault f = Faults.last();
+        if (f == null || script.scratch || !f.plot().equals(script.plot)) return;
+        boolean fresh = Faults.fresh();
+        Faults.seen();
+        String head = (f.level() == Faults.Level.FATAL ? "код мира остановлен" : "строка остановлена")
+                + (f.action().isEmpty() ? "" : ": " + f.action());
+        Faults.Spot spot = Faults.locate(f, script);
+        if (spot == null) {
+            if (fresh) toast(head + " — блока нет на полотне");
+            return;
+        }
+        if (spot.script() != script) {
+            if (fresh) toast(head + " — во вкладке «" + Tabs.name(spot.script()) + "»");
+            return;
+        }
+        fault = f;
+        faultNode = spot.node();
+        if (!fresh) return;
+        reveal(faultNode);
+        toast(head + (f.reason().isEmpty() ? "" : " — " + f.reason()));
+    }
+
+    private void drawFault(GuiGraphicsExtractor ctx, double vx0, double vy0, double vx1, double vy1) {
+        if (faultNode == null) return;
+        Layout.Box box = boxOf(faultNode);
+        if (box == null || !visible(box, vx0, vy0, vx1, vy1)) return;
+        ScreenRectangle area = canvasArea();
+        Draw.batch(Batch.open(ctx, area, area, 64));
+        Draw.roundOutline(ctx, box.x - 2, box.y - 2, box.w + 4, box.totalH + 4, 5, Draw.argb(0xE6, Theme.DANGER));
+        Draw.roundOutline(ctx, box.x - 3, box.y - 3, box.w + 6, box.totalH + 6, 6, Draw.argb(0x55, Theme.DANGER));
+        Draw.batch(null);
+    }
+
+    private List<Component> faultLines() {
+        List<Component> lines = new ArrayList<>();
+        lines.add(Component.literal("§c" + (fault.level() == Faults.Level.FATAL ? "Здесь остановился код мира" : "Здесь остановилась строка")));
+        for (FormattedText part : font.getSplitter().splitLines(fault.reason(), Math.max(120, width / 3), Style.EMPTY))
+            lines.add(Component.literal("§7" + part.getString()));
+        return lines;
     }
 
     @Override
@@ -1752,6 +1811,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         drawChunks(ctx, view, area, taping, flags, vx0, vy0, vx1, vy1);
 
         drawFound(ctx, vx0, vy0, vx1, vy1);
+        drawFault(ctx, vx0, vy0, vx1, vy1);
         drawMoving(ctx, area, vx0, vy0, vx1, vy1);
 
         if (snap != null || drag != null || held != null) {
@@ -2377,7 +2437,17 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         closeOverlays();
         rememberView();
         saveScript();
+        if (!script.scratch) Tabs.saveAll();
+        try {
+            CodeProject project = CodeProject.of(script.plot);
+            Mirror.beforeCode(project);
+            CodeFile linked = Mirror.fileOf(script, project);
+            if (linked != null) project.show(linked);
+        } catch (RuntimeException e) {
+            XeroCode.LOG.error("[xerocode] сверка полотна с файлами упала", e);
+        }
         Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
+        XeroCode.canvasClosed();
         mc.gui.setScreen(new CodeScreen());
     }
 
@@ -2526,6 +2596,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             if (stuckHover.cut())
                 ctx.setComponentTooltipForNextFrame(font, List.of(Component.literal(stuckHover.text())),
                         mouseX, mouseY);
+            return;
+        }
+        if (fault != null && hoverChip == null && hoverBox != null && hoverBox.node == faultNode) {
+            ctx.setComponentTooltipForNextFrame(font, faultLines(), mouseX, mouseY);
             return;
         }
         if (!hints) return;

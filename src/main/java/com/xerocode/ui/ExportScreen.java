@@ -70,6 +70,7 @@ public final class ExportScreen extends DialogScreen {
         this.exitTo = null;
         Exporter.Report report = new Exporter.Report();
         report.lines = lines;
+        report.blocks = Exporter.blocks(json);
         this.ready = new Exporter.Result(json, report);
         this.replacing = replace;
     }
@@ -239,7 +240,7 @@ public final class ExportScreen extends DialogScreen {
         String note = code == null ? ""
                 : code.report().lines == 0 ? "полотно пусто — код мира будет очищен"
                 : Ui.plural(code.report().lines, "строка", "строки", "строк")
-                        + " · " + code.report().blocks + " блоков";
+                        + " · " + Ui.plural(code.report().blocks, "блок", "блока", "блоков");
         if (job != null && code != null && code.report().lines > 0)
             note += "   ·   " + job.bytes() / 1024 + " КБ";
         Draw.textFit(ctx, font, note, x, by + BAR_H + 6, w, Theme.TEXT_FAINT, false);

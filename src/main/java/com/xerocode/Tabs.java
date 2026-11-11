@@ -29,6 +29,8 @@ public final class Tabs {
         public final String id;
         public String name;
         Script script;
+        String file = "";
+        int canvasMark, textMark;
 
         Tab(String id, String name) {
             this.id = id;
@@ -378,10 +380,13 @@ public final class Tabs {
                 if (id.isEmpty()) continue;
                 if (id.equals(MAIN)) {
                     if (!name.isBlank()) first.name = clean(name);
+                    linkFrom(first, o);
                     continue;
                 }
                 if (TABS.size() >= MAX || !id.matches("[0-9a-f]{12}")) continue;
-                TABS.add(new Tab(id, name.isBlank() ? freeName() : clean(name)));
+                Tab tab = new Tab(id, name.isBlank() ? freeName() : clean(name));
+                linkFrom(tab, o);
+                TABS.add(tab);
             }
             for (int i = 0; i < TABS.size(); i++) if (TABS.get(i).id.equals(chosen)) active = i;
         } catch (Exception e) {
@@ -396,6 +401,11 @@ public final class Tabs {
             JsonObject o = new JsonObject();
             o.addProperty("id", tab.id);
             o.addProperty("name", tab.name);
+            if (!tab.file.isEmpty()) {
+                o.addProperty(LINK_FILE, tab.file);
+                o.addProperty(LINK_CANVAS, tab.canvasMark);
+                o.addProperty(LINK_TEXT, tab.textMark);
+            }
             list.add(o);
         }
         JsonObject root = new JsonObject();
@@ -409,6 +419,68 @@ public final class Tabs {
     }
 
     private static Path fileOf(Tab tab) { return folder.resolve(tab.id + ".json"); }
+
+    private static final String LINK_FILE = "file", LINK_CANVAS = "canvasMark", LINK_TEXT = "textMark";
+
+    private static void linkFrom(Tab tab, JsonObject o) {
+        tab.file = Json.str(o, LINK_FILE);
+        tab.canvasMark = Json.num(o, LINK_CANVAS);
+        tab.textMark = Json.num(o, LINK_TEXT);
+    }
+
+    private static Tab tabOf(Script script) {
+        int i = indexOf(script);
+        return i < 0 ? null : TABS.get(i);
+    }
+
+    public static String linkedFile(Script script) {
+        Tab tab = tabOf(script);
+        return tab == null ? "" : tab.file;
+    }
+
+    public static int canvasMark(Script script) {
+        Tab tab = tabOf(script);
+        return tab == null ? 0 : tab.canvasMark;
+    }
+
+    public static int textMark(Script script) {
+        Tab tab = tabOf(script);
+        return tab == null ? 0 : tab.textMark;
+    }
+
+    public static Script linkedTo(String file) {
+        fresh();
+        for (int i = 0; i < TABS.size(); i++) if (TABS.get(i).file.equals(file)) return script(i);
+        return null;
+    }
+
+    public static List<Script> linked() {
+        fresh();
+        List<Script> out = new ArrayList<>();
+        for (int i = 0; i < TABS.size(); i++) if (!TABS.get(i).file.isEmpty()) out.add(script(i));
+        return out;
+    }
+
+    public static void link(Script script, String file, int canvasMark, int textMark) {
+        Tab tab = tabOf(script);
+        if (tab == null) return;
+        for (Tab other : TABS) if (other != tab && other.file.equals(file)) other.file = "";
+        tab.file = file == null ? "" : file;
+        tab.canvasMark = canvasMark;
+        tab.textMark = textMark;
+        saveIndex();
+    }
+
+    public static void relink(String from, String to) {
+        fresh();
+        boolean changed = false;
+        for (Tab tab : TABS) {
+            if (!tab.file.equals(from)) continue;
+            tab.file = to == null ? "" : to;
+            changed = true;
+        }
+        if (changed) saveIndex();
+    }
 
     private static String mainName() {
         return mainRef != null && mainRef.plot != null && !mainRef.plot.isEmpty() ? "Мир" : "Полотно 1";

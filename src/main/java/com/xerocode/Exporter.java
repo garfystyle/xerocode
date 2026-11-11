@@ -63,6 +63,42 @@ public final class Exporter {
         }
     }
 
+    public record Placed(Script script, Script.Root root) {}
+
+    public static Placed lineAt(List<Script> scripts, int position) {
+        Report report = new Report();
+        int next = 0;
+        for (Script script : scripts) {
+            List<Script.Root> roots = new ArrayList<>(script.roots);
+            roots.sort(Comparator.<Script.Root>comparingDouble(r -> r.x).thenComparingDouble(r -> r.y));
+            for (Script.Root root : roots) {
+                if (root.chain.isEmpty() || handler(root.chain.get(0), report) == null) continue;
+                JsonElement kept = root.chain.get(0).raw == null ? null : root.chain.get(0).raw.get(Importer.KEPT_LINE);
+                int at = kept == null ? next : Math.max(next, kept.getAsInt());
+                if (at == position) return new Placed(script, root);
+                next = at + 1;
+            }
+        }
+        return null;
+    }
+
+    public static int blocks(JsonObject json) {
+        JsonElement handlers = json == null ? null : json.get("handlers");
+        if (handlers == null || !handlers.isJsonArray()) return 0;
+        int n = 0;
+        for (JsonElement h : handlers.getAsJsonArray()) n += 1 + nested(h);
+        return n;
+    }
+
+    private static int nested(JsonElement holder) {
+        if (!holder.isJsonObject()) return 0;
+        JsonElement ops = holder.getAsJsonObject().get("operations");
+        if (ops == null || !ops.isJsonArray()) return 0;
+        int n = 0;
+        for (JsonElement op : ops.getAsJsonArray()) n += 1 + nested(op);
+        return n;
+    }
+
     public static Map<Script.Root, Integer> positions(Script script) {
         Report report = new Report();
         List<Script.Root> roots = new ArrayList<>(script.roots);
@@ -283,11 +319,12 @@ public final class Exporter {
     }
 
     private static void blockFields(Script.Node node, JsonObject op, Report report) {
-        String target = node.settingOf(Catalog.TARGET);
+        Script.Node aim = Importer.aimOf(node);
+        String target = aim.settingOf(Catalog.TARGET);
         if (target != null && !Catalog.TARGET_DEFAULT.equals(target)) {
-            String id = Mapping.targetId(node.action, target);
+            String id = Mapping.targetId(aim.action, target);
             if (id == null) {
-                report.problem("цель «" + target + "» у «" + node.action.name + "»");
+                report.problem("цель «" + target + "» у «" + aim.action.name + "»");
             } else {
                 JsonObject selection = new JsonObject();
                 selection.addProperty("type", id);
@@ -301,7 +338,7 @@ public final class Exporter {
 
     private static JsonArray values(Script.Node node, Mapping.Act act, Report report) {
         JsonArray out = new JsonArray();
-        for (Map.Entry<Integer, List<Value>> e : node.values.entrySet()) {
+        for (Map.Entry<Integer, List<Value>> e : withSlots(node).entrySet()) {
             List<Value> list = e.getValue();
             if (list == null || list.isEmpty()) continue;
             String name = act.argNames.get(e.getKey());
@@ -329,6 +366,21 @@ public final class Exporter {
     }
 
     private static final String EMPTY_STACK = "AAAAAAAAAAA=";
+    private static final String WHOLE_GRID = "player_expand_inventory_menu";
+
+    private static Map<Integer, List<Value>> withSlots(Script.Node node) {
+        if (!WHOLE_GRID.equals(Mapping.actionId(node.action))) return node.values;
+        Map<Integer, List<Value>> out = new java.util.LinkedHashMap<>(node.values);
+        for (int i = 0; i < node.action.args.size(); i++) {
+            Catalog.Slots slots = Catalog.slots(node.action, i);
+            if (slots == null) continue;
+            List<Value> had = out.get(i);
+            List<Value> cells = had == null ? new ArrayList<>() : new ArrayList<>(had);
+            while (cells.size() < slots.size()) cells.add(null);
+            out.put(i, cells);
+        }
+        return out;
+    }
 
     private static JsonElement slot(List<Value> list, boolean plural, boolean slotted) {
         if (!plural) return value(list.get(0));

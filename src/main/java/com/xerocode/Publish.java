@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
@@ -42,6 +43,8 @@ public final class Publish {
             "відповів помилкою", "Не хватает места", "not enough space", "приватн", "is private", "є приватним",
             "не может быть размером", "cannot be larger", "Подождите перед установкой", "wait before reinstalling",
             "Зачекайте перед"};
+    private static final String TOO_WIDE = "Не отправлено: строка шире " + xero.compile.Wrap.WIDEST + " блоков";
+    private static final String NOT_SPLIT = "не разбить на функции: ";
     private static final String RESCUING = "JustMC не успел скачать код из хранилища — заливаю на m.justmc.ru";
     private static final String RESCUED = "JustMC не успел скачать код из хранилища — повторил через m.justmc.ru";
 
@@ -118,6 +121,17 @@ public final class Publish {
         public int bytes() { return body.getBytes(StandardCharsets.UTF_8).length; }
 
         void start() {
+            Map<String, Integer> wide = xero.compile.Wrap.tooWide(body);
+            if (!wide.isEmpty()) {
+                List<String> named = new ArrayList<>();
+                wide.forEach((name, width) -> named.add("«" + name + "» (" + width + ")"));
+                synchronized (this) {
+                    note = TOO_WIDE;
+                    error = NOT_SPLIT + String.join(", ", named);
+                    state = State.FAILED;
+                }
+                return;
+            }
             worker = new Thread(() -> {
                 try {
                     String link = Settings.uploadToJustmc() ? viaJustmc() : upload(body);
@@ -349,6 +363,7 @@ public final class Publish {
     private static volatile Job current, lastSent;
 
     public static Job start(JsonObject code, String worldId, boolean replace) {
+        Faults.clear();
         Job job = new Job(code, replace, write(code, worldId));
         current = job;
         job.start();

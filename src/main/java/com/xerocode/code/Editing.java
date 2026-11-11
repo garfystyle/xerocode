@@ -533,4 +533,103 @@ public final class Editing {
         }
         d.end();
     }
+
+    private static final int CALLS_MAX = 6, LOOK_BACK = 20000;
+
+    public static List<int[]> callsAround(Doc d, int line, int col) {
+        String text = d.text();
+        boolean[] skip = skipped(d, text.length());
+        List<int[]> out = new ArrayList<>();
+        int at = d.offset(line, col);
+        int from = at, to = at;
+        while (from > 0 && head(text.charAt(from - 1)) && !skip[from - 1]) from--;
+        while (to < text.length() && head(text.charAt(to)) && !skip[to]) to++;
+        int open = to > from ? openAfter(text, skip, to) : -1;
+        if (open >= 0) call(out, text, skip, headStart(text, skip, open), open);
+        int depth = 0;
+        for (int i = Math.min(at, text.length()) - 1; i >= Math.max(0, at - LOOK_BACK) && out.size() < CALLS_MAX; i--) {
+            if (skip[i]) continue;
+            char c = text.charAt(i);
+            if (CLOSE.indexOf(c) >= 0) depth++;
+            else if (OPEN.indexOf(c) >= 0) {
+                if (depth > 0) depth--;
+                else if (c == '(' && i != open) call(out, text, skip, headStart(text, skip, i), i);
+            }
+        }
+        return out;
+    }
+
+    private static boolean[] skipped(Doc d, int length) {
+        boolean[] out = new boolean[length];
+        int at = 0;
+        for (int l = 0; l < d.lines(); l++) {
+            byte[] ink = d.ink(l);
+            int n = d.line(l).length();
+            for (int c = 0; c < n && at + c < length; c++) {
+                byte k = c < ink.length ? ink[c] : Ink.PLAIN;
+                out[at + c] = k == Ink.STRING || k == Ink.ESCAPE || k == Ink.PLACEHOLDER || k == Ink.COMMENT;
+            }
+            at += n + 1;
+        }
+        return out;
+    }
+
+    private static boolean head(char c) { return word(c) || c == ':' || c == '.'; }
+
+    private static int openAfter(String text, boolean[] skip, int from) {
+        int i = from;
+        while (i < text.length() && text.charAt(i) == ' ') i++;
+        if (i < text.length() && text.charAt(i) == '<') {
+            int angle = 0;
+            for (; i < text.length(); i++) {
+                if (skip[i]) continue;
+                char c = text.charAt(i);
+                if (c == '<') angle++;
+                else if (c == '>' && --angle == 0) break;
+                else if (c == '\n') return -1;
+            }
+            i++;
+            while (i < text.length() && text.charAt(i) == ' ') i++;
+        }
+        return i < text.length() && text.charAt(i) == '(' && !skip[i] ? i : -1;
+    }
+
+    private static int headStart(String text, boolean[] skip, int open) {
+        int j = open;
+        while (j > 0 && text.charAt(j - 1) == ' ') j--;
+        if (j > 0 && text.charAt(j - 1) == '>') {
+            int angle = 0;
+            for (j--; j >= 0; j--) {
+                if (skip[j]) continue;
+                char c = text.charAt(j);
+                if (c == '>') angle++;
+                else if (c == '<' && --angle == 0) break;
+                else if (c == '\n') return -1;
+            }
+            if (j < 0) return -1;
+            while (j > 0 && text.charAt(j - 1) == ' ') j--;
+        }
+        int end = j;
+        while (j > 0 && head(text.charAt(j - 1)) && !skip[j - 1]) j--;
+        if (j == end) return -1;
+        int k = j;
+        while (k > 0 && text.charAt(k - 1) == ' ') k--;
+        int target = k;
+        while (target > 0 && word(text.charAt(target - 1))) target--;
+        return target < k && target > 0 && text.charAt(target - 1) == '@' ? target - 1 : j;
+    }
+
+    private static void call(List<int[]> out, String text, boolean[] skip, int start, int open) {
+        if (start < 0) return;
+        int depth = 0;
+        for (int i = open; i < text.length(); i++) {
+            if (skip[i]) continue;
+            char c = text.charAt(i);
+            if (OPEN.indexOf(c) >= 0) depth++;
+            else if (CLOSE.indexOf(c) >= 0 && --depth == 0) {
+                out.add(new int[]{start, i + 1});
+                return;
+            }
+        }
+    }
 }

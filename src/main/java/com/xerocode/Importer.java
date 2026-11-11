@@ -42,6 +42,12 @@ public final class Importer {
     private static final Set<String> OWN_FIELDS = Set.of("action", "type", "event", "name",
             "position", "values", "operations", "selection", "is_inverted");
 
+    private static final String CONDITIONAL_LOOP = "repeat_while";
+
+    static Script.Node aimOf(Script.Node node) {
+        return node.cond != null && CONDITIONAL_LOOP.equals(Mapping.actionId(node.action)) ? node.cond : node;
+    }
+
     private static void readBlockFields(JsonObject op, Script.Node node, Result result) {
         if (op.has("is_inverted") && op.get("is_inverted").isJsonPrimitive()
                 && op.get("is_inverted").getAsBoolean()) {
@@ -52,13 +58,14 @@ public final class Importer {
             }
         }
         if (!op.has("selection") || !op.get("selection").isJsonObject()) return;
+        Script.Node aim = aimOf(node);
         String id = str(op.getAsJsonObject("selection"), "type");
-        String name = id.isEmpty() ? null : Mapping.targetName(node.action, id);
+        String name = id.isEmpty() ? null : Mapping.targetName(aim.action, id);
         if (name == null) {
             unknown(result, "цель " + id);
             raw(node).add("selection", op.get("selection"));
         } else {
-            node.setSetting(Catalog.TARGET, name);
+            aim.setSetting(Catalog.TARGET, name);
         }
     }
 
@@ -398,7 +405,6 @@ public final class Importer {
             Script.Node node = new Script.Node(action);
             keepFields(op, node);
             if (!id.equals(Mapping.actionId(action))) raw(node).addProperty(KEPT_ID, id);
-            readBlockFields(op, node, result);
             Script.Node holder = node;
             Mapping.Act valueAct = act;
             Catalog.Action valueAction = action;
@@ -415,6 +421,7 @@ public final class Importer {
                     valueAction = cond.action();
                 }
             }
+            readBlockFields(op, node, result);
             readValues(op, holder, valueAct, valueAction);
             readOperations(op, node.body, result);
             into.add(node);

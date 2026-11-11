@@ -669,7 +669,9 @@ public final class Script {
             new Moved(VARIABLE + "Объединить словари (старое)", null,
                     o -> o.has("v") && o.getAsJsonObject("v").has("2")),
             VARIABLE + "Очистить переменные",
-            new Moved(VARIABLE + "Очистить переменные (по именам)", null, o -> o.has("m")));
+            new Moved(VARIABLE + "Очистить переменные (по именам)", null, o -> o.has("m")),
+            VARIABLE + "Получить значение словаря (старое)",
+            new Moved(VARIABLE + "Получить значения словаря", null, o -> true));
 
     private static Moved moved(JsonObject o, String key) {
         if (o.has("sid")) return null;
@@ -680,7 +682,7 @@ public final class Script {
     private static Catalog.Action retiredBySid(Catalog.Action a, String sid) {
         if (a.deprecated) return a;
         Catalog.Action bySid = Mapping.catalogAction(Mapping.action(sid));
-        return bySid != null && bySid != a && bySid.deprecated ? bySid : a;
+        return bySid != null && bySid != a && !Catalog.namesakes(a).contains(bySid) ? bySid : a;
     }
 
     private static Catalog.Action byServerId(String sid, boolean branch) {

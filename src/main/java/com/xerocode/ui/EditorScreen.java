@@ -3334,8 +3334,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             m.row(Draw.LOAD, "Шаблон строки в руку", null, () -> handToWorld(chainOf(box, true)));
 
         m.gap();
-        if (Tabs.indexOf(script) >= 0 && (Tabs.all().size() > 1 || !Tabs.full()))
-            m.row(Draw.CANVAS, "Отправить на полотно…", null, () -> chooseTab(box, mx, my)).caret();
+        boolean sendable = Tabs.indexOf(script) >= 0 && (Tabs.all().size() > 1 || !Tabs.full());
+        if (sendable && !picked.covered().contains(box.node))
+            m.row(Draw.CANVAS, tail ? "Отправить стопку на полотно…" : "Отправить на полотно…", null,
+                    () -> chooseTab(mx, my, i -> sendToTab(box, i))).caret();
         m.row(Draw.PACK, tail ? "Стопку в рюкзак" : "В рюкзак",
                 Settings.Hot.STASH, () -> stashBlock(box, true));
         if (tail) m.row(Draw.PACK, "Блок в рюкзак", null, () -> stashBlock(box, false));
@@ -3348,6 +3350,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             m.row(Draw.COPY, "Копировать выделенное" + said, Settings.Hot.COPY, this::copyPicked);
             m.row(Draw.CUT, "Вырезать выделенное" + said, Settings.Hot.CUT, this::cutPicked);
             m.row(Draw.PACK, "Выделенное в рюкзак" + said, null, this::stashPicked);
+            if (sendable)
+                m.row(Draw.CANVAS, "Отправить выделенное на полотно…" + said, null,
+                        () -> chooseTab(mx, my, this::sendPicked)).caret();
             m.row(Draw.CROSS, "Снять выделение", null, this::clearPicked);
         }
 
@@ -3629,7 +3634,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         copyBox(hoverBox, wholeStack);
     }
 
-    private void chooseTab(Layout.Box box, int mx, int my) {
+    private void chooseTab(int mx, int my, java.util.function.IntConsumer send) {
         int own = Tabs.indexOf(script);
         List<Integer> where = new ArrayList<>();
         List<String> names = new ArrayList<>();
@@ -3643,36 +3648,40 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             names.add("Новое полотно");
         }
         menu = Menu.options(width, height, mx, my, font, "Отправить на полотно", names, -1,
-                i -> sendToTab(box, where.get(i)));
+                i -> send.accept(where.get(i)));
+    }
+
+    private Script tabFor(int index) {
+        if (index >= 0) {
+            Script target = Tabs.script(index);
+            return target == script ? null : target;
+        }
+        Script target = Tabs.add(null);
+        Tabs.shown(script);
+        if (target == null) toast("полотен уже " + Tabs.MAX);
+        return target;
+    }
+
+    private double[] freeSpot(Script target) {
+        Layout there = Layout.of(target, font);
+        if (there.chunks.isEmpty())
+            return new double[]{Math.round((TIDY_GAP_X - target.viewX) / target.viewZoom),
+                    Math.round((TIDY_GAP_Y + TAG_H - target.viewY) / target.viewZoom)};
+        double x = Integer.MAX_VALUE, y = Integer.MIN_VALUE;
+        for (Layout.Chunk c : there.chunks) {
+            x = Math.min(x, c.x0);
+            y = Math.max(y, c.y1);
+        }
+        return new double[]{x, y + TIDY_GAP_Y + TAG_H};
     }
 
     private void sendToTab(Layout.Box box, int index) {
-        Script target;
-        if (index < 0) {
-            target = Tabs.add(null);
-            Tabs.shown(script);
-            if (target == null) { toast("полотен уже " + Tabs.MAX); return; }
-        } else {
-            target = Tabs.script(index);
-        }
-        if (target == script) return;
+        Script target = tabFor(index);
+        if (target == null) return;
         List<Script.Node> chain = chainOf(box, true);
-        Layout there = Layout.of(target, font);
-        double x, y;
-        if (there.chunks.isEmpty()) {
-            x = Math.round((TIDY_GAP_X - target.viewX) / target.viewZoom);
-            y = Math.round((TIDY_GAP_Y + TAG_H - target.viewY) / target.viewZoom);
-        } else {
-            x = Integer.MAX_VALUE;
-            y = Integer.MIN_VALUE;
-            for (Layout.Chunk c : there.chunks) {
-                x = Math.min(x, c.x0);
-                y = Math.max(y, c.y1);
-            }
-            y += TIDY_GAP_Y + TAG_H;
-        }
+        double[] spot = freeSpot(target);
         History.pushFor(target, History.snapshot(target));
-        Script.Root root = new Script.Root(x, y);
+        Script.Root root = new Script.Root(spot[0], spot[1]);
         root.chain.addAll(chain);
         target.roots.add(root);
         target.save();
@@ -3681,6 +3690,33 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         dropEmpty(box.root);
         Tabs.touch();
         toast("на «" + Tabs.name(target) + "» · " + blocksText(chain));
+    }
+
+    private void sendPicked(int index) {
+        List<Script.Root> roots = pickedAsRoots();
+        if (roots.isEmpty()) { toast("ничего не выделено"); return; }
+        Script target = tabFor(index);
+        if (target == null) return;
+        String said = pickedSaid();
+        double[] spot = freeSpot(target);
+        double x0 = Double.MAX_VALUE, y0 = Double.MAX_VALUE;
+        for (Script.Root r : roots) {
+            x0 = Math.min(x0, r.x);
+            y0 = Math.min(y0, r.y);
+        }
+        History.pushFor(target, History.snapshot(target));
+        for (Script.Root r : roots) {
+            r.x += spot[0] - x0;
+            r.y += spot[1] - y0;
+            target.roots.add(r);
+        }
+        target.save();
+        pushUndo();
+        picked.cutOut(script);
+        clearPicked();
+        hoverBox = null;
+        Tabs.touch();
+        toast("на «" + Tabs.name(target) + "» · " + said);
     }
 
     private void cutOne(Layout.Box box) {

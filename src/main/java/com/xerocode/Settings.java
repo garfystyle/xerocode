@@ -222,6 +222,7 @@ public final class Settings {
     public String collabName = "";
     public String collabCode = "";
     public boolean collabCursors = true;
+    public boolean mcpAgent = true;
 
     public final Map<String, Integer> colors = new LinkedHashMap<>();
     public final List<String> symbols = new ArrayList<>();
@@ -697,6 +698,9 @@ public final class Settings {
         root.add("symbols", strings(symbols));
         root.add("collapsed", strings(collapsed));
         root.add("collab", collab);
+        JsonObject mcp = new JsonObject();
+        mcp.addProperty("agent", mcpAgent);
+        root.add("mcp", mcp);
         JsonObject sized = new JsonObject();
         sizes.forEach((key, wh) -> {
             JsonArray pair = new JsonArray();
@@ -806,6 +810,7 @@ public final class Settings {
             if (collab.has("code")) s.collabCode = collab.get("code").getAsString();
             s.collabCursors = flag(collab, "cursors", s.collabCursors);
         }
+        if (root.has("mcp")) s.mcpAgent = flag(root.getAsJsonObject("mcp"), "agent", s.mcpAgent);
         return s;
     }
 

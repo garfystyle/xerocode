@@ -12,6 +12,7 @@ import com.xerocode.Localized;
 import com.xerocode.Pickers;
 import com.xerocode.Script;
 import com.xerocode.Stacks;
+import com.xerocode.Storages;
 import com.xerocode.Ticks;
 import com.xerocode.Value;
 import com.xerocode.Values;
@@ -106,7 +107,11 @@ public final class ValueEditor implements Overlay {
     private int sel;
 
     private final List<EditBox> fields = new ArrayList<>();
-    private Ui.Chips paramChips, targetChips, scopeChips, modeChips, sourceChips;
+    private Ui.Chips paramChips, targetChips, scopeChips, modeChips, sourceChips, storageChips;
+    private record Shelf(String path, String id) {}
+    private final List<Shelf> shelves = new ArrayList<>();
+    private int storagesSeen = -1;
+    private boolean storageBlocked;
     private Ui.Chips kindChips;
     private int newElemAt = -1;
     private final Ui.Bar bodyBar = new Ui.Bar(), listBar = new Ui.Bar(), cellBar = new Ui.Bar();
@@ -455,6 +460,7 @@ public final class ValueEditor implements Overlay {
         newElemAt = -1;
         targetChips = null;
         scopeChips = null;
+        storageChips = null;
         modeChips = null;
         sourceChips = null;
         player = null;
@@ -499,6 +505,29 @@ public final class ValueEditor implements Overlay {
                 for (Values.Scope s : Values.SCOPES) scopes.add(s.name());
                 scopeChips = new Ui.Chips(tr, scopes, inner(), ctrlH - 2, 3);
                 part("scope", scopeChips.height());
+            }
+            case Value.CELL -> {
+                Storages.ask();
+                storagesSeen = Storages.version();
+                Map<String, String> known = Values.storages();
+                if (v.global && v.storage.isEmpty() && known.containsKey(v.storagePath))
+                    v.storage = known.get(v.storagePath);
+                nameField(v, "имя ячейки", "ИМЯ ЯЧЕЙКИ");
+                cap("ХРАНИЛИЩЕ");
+                boolean checked = Storages.accessKnown() || Storages.asking();
+                java.util.LinkedHashSet<String> paths = new java.util.LinkedHashSet<>(
+                        checked ? Storages.access() : known.keySet());
+                if (v.global && !v.storagePath.isEmpty()) paths.add(v.storagePath);
+                storageBlocked = Storages.accessKnown() && v.global && !Storages.access().contains(v.storagePath);
+                shelves.clear();
+                shelves.add(new Shelf("", ""));
+                for (String path : paths)
+                    shelves.add(new Shelf(path, known.getOrDefault(path, path.equals(v.storagePath) ? v.storage : "")));
+                List<String> shown = new ArrayList<>();
+                for (Shelf s : shelves) shown.add(s.path().isEmpty() ? WORLD_STORAGE : s.path());
+                storageChips = new Ui.Chips(tr, shown, inner(), ctrlH - 2, 3);
+                part("storage", storageChips.height());
+                if (storageBlocked || v.global && v.storage.isEmpty()) part("storenote", 22);
             }
             case Value.PARAMETER -> {
                 nameField(v, "имя параметра", "ИМЯ ПАРАМЕТРА");
@@ -1271,6 +1300,7 @@ public final class ValueEditor implements Overlay {
         }
 
         Value v = current();
+        if (Value.CELL.equals(v.type)) storagesArrived();
         int accent = v.color();
         if (!Value.SOUND.equals(v.type)) Audio.want("");
 
@@ -1506,6 +1536,18 @@ public final class ValueEditor implements Overlay {
                     scopeChips.render(ctx, tr, mouseX, mouseY, x + PAD, py("scope"), cur,
                             Values.SCOPES.isEmpty() ? Theme.ACCENT
                                     : Values.SCOPES.get(Math.max(0, cur)).color());
+            }
+            case Value.CELL -> {
+                drawInput(ctx, mouseX, mouseY, delta, 0);
+                if (storageChips != null)
+                    storageChips.render(ctx, tr, mouseX, mouseY, x + PAD, py("storage"), storageIndex(v),
+                            Values.color(Value.CELL));
+                if (has("storenote")) {
+                    Draw.textFit(ctx, tr, storageBlocked ? NO_ACCESS : NO_STORAGE_ID, x + PAD + 2, py("storenote") + 2,
+                            full - 4, Theme.DANGER, false);
+                    Draw.textFit(ctx, tr, storageBlocked ? ACCESS_HOW : STORAGE_HOW, x + PAD + 2, py("storenote") + 12,
+                            full - 4, Theme.TEXT_DIM, false);
+                }
             }
             case Value.PARAMETER -> {
                 drawInput(ctx, mouseX, mouseY, delta, 0);
@@ -2108,6 +2150,31 @@ public final class ValueEditor implements Overlay {
 
     private static boolean hand() { return !Env.browser(); }
 
+    private static final String WORLD_STORAGE = "Мир", WORLD_CELL = "в мире",
+            NO_STORAGE_ID = "Сервер не найдёт это хранилище: его uuid неизвестен",
+            STORAGE_HOW = "Выбери его один раз на ячейке в игре (Shift+ПКМ) — мод запомнит",
+            NO_ACCESS = "У этого мира нет доступа к этому хранилищу",
+            ACCESS_HOW = "Выдай его: /storage share <имя> <номер мира>";
+
+    private int storageIndex(Value v) {
+        if (!v.global) return 0;
+        for (int i = 1; i < shelves.size(); i++)
+            if (shelves.get(i).path().equals(v.storagePath)) return i;
+        return -1;
+    }
+
+    private void storagesArrived() {
+        if (storagesSeen == Storages.version() || fields.isEmpty()) return;
+        readForm();
+        EditBox was = fields.get(0);
+        int cursor = was.getCursorPosition();
+        boolean typing = was.isFocused();
+        buildForm();
+        fields.get(0).moveCursorTo(Math.min(cursor, fields.get(0).getValue().length()), false);
+        if (typing) focus(0, false);
+        syncComplete();
+    }
+
     private static ItemStack held() {
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) return null;
@@ -2576,6 +2643,21 @@ public final class ValueEditor implements Overlay {
                     focus(0);
                     fields.get(0).moveCursorToEnd(false);
                     syncComplete();
+                    return true;
+                }
+            }
+            case Value.CELL -> {
+                if (clickField(click, doubled, mx, my, 0)) return true;
+                int si = chip(storageChips, mx, my, "storage");
+                if (si >= 0 && si < shelves.size()) {
+                    Shelf s = shelves.get(si);
+                    readForm();
+                    v.global = !s.path().isEmpty();
+                    v.storage = s.id();
+                    v.storagePath = s.path();
+                    buildForm();
+                    fields.get(0).moveCursorToEnd(false);
+                    focus(0, false);
                     return true;
                 }
             }
@@ -3087,6 +3169,10 @@ public final class ValueEditor implements Overlay {
     private List<NamePick.Known> namePool() {
         if (Value.VARIABLE.equals(current().type)) return knownVars;
         List<NamePick.Known> out = new ArrayList<>();
+        if (Value.CELL.equals(current().type)) {
+            if (!current().global) for (String c : Storages.cells()) out.add(new NamePick.Known(c, WORLD_CELL, false, 0));
+            return out;
+        }
         for (String p : knownParams) out.add(new NamePick.Known(p, "", false, 0));
         return out;
     }
@@ -3102,7 +3188,7 @@ public final class ValueEditor implements Overlay {
         Value v = current();
         complete.update(completable() ? fields.get(focus) : null, tr, screenW, screenH,
                 Value.NUMBER.equals(v.type), Value.TEXT.equals(v.type) && McText.MINI.equals(v.parsing));
-        boolean named = Value.VARIABLE.equals(v.type) || Value.PARAMETER.equals(v.type);
+        boolean named = Value.VARIABLE.equals(v.type) || Value.PARAMETER.equals(v.type) || Value.CELL.equals(v.type);
         names.update(named && !fields.isEmpty() && focus == 0 ? fields.get(0) : null, namePool(), v.scope,
                 Value.VARIABLE.equals(v.type), tr, screenW, screenH, x, w);
     }
@@ -3127,7 +3213,7 @@ public final class ValueEditor implements Overlay {
                 if (formula(typed)) v.numberText = typed.trim();
                 else { v.number = numberIn(0); v.numberText = ""; }
             }
-            case Value.VARIABLE -> v.name = fields.get(0).getValue().trim();
+            case Value.VARIABLE, Value.CELL -> v.name = fields.get(0).getValue().trim();
             case Value.PARAMETER -> {
                 v.name = fields.get(0).getValue().trim();
                 Form.Row d = rowOf("pdesc");

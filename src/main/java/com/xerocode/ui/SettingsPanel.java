@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.xerocode.Catalog;
 import com.xerocode.Collab;
 import com.xerocode.Env;
+import com.xerocode.Mcp;
 import com.xerocode.Search;
 import com.xerocode.Settings;
 import com.xerocode.Settings.Hot;
@@ -62,13 +63,20 @@ public final class SettingsPanel implements Overlay {
     private static final String PRESET = "Классическая палитра";
     private static final String GAMMA = "ГАММА", BLOCKS = "БЛОКИ";
 
-    private static final List<String> TABS = List.of("Клавиши", "Внешний вид", "Цвета", "Поведение", "Вместе");
-    private static final List<String> STRIP = List.of("Клавиши", "Вид", "Цвета", "Поведение", "Вместе");
-    private static final int TAB_KEYS = 0, TAB_LOOK = 1, TAB_COLORS = 2, TAB_ACT = 3, TAB_COLLAB = 4;
+    private static final String MCP_TAB = "MCP & Skills";
+    private static final List<String> TABS = tabs("Клавиши", "Внешний вид", "Цвета", "Поведение", "Вместе");
+    private static final List<String> STRIP = tabs("Клавиши", "Вид", "Цвета", "Поведение", "Вместе");
+    private static final int TAB_KEYS = 0, TAB_LOOK = 1, TAB_COLORS = 2, TAB_ACT = 3, TAB_COLLAB = 4, TAB_MCP = 5;
     private static final String[] RESET_LABELS = {"Сбросить клавиши", "Сбросить вид", "Сбросить цвета",
             "Сбросить поведение"};
     private static final int OWN_TONES = 2;
     private static final int PLAIN = 0, PREVIEW = 1, CARDS = 2, PALETTE = 3, TONE = 4;
+
+    private static List<String> tabs(String... names) {
+        List<String> out = new ArrayList<>(List.of(names));
+        if (!Env.browser()) out.add(MCP_TAB);
+        return List.copyOf(out);
+    }
 
     private record KeyGroup(String caption, List<Hot> keys) {}
 
@@ -195,6 +203,7 @@ public final class SettingsPanel implements Overlay {
     private int confirmTab = -1;
     private long confirmAt;
     private long copied;
+    private long mcpConfirmAt;
     private EditBox dragField;
     private final Ui.Bar bar = new Ui.Bar();
 
@@ -439,7 +448,7 @@ public final class SettingsPanel implements Overlay {
         Arrays.fill(scroll, 0);
         binding = null;
         if (openColor >= 0 && !visibleColors().contains(openColor)) closeColor();
-        if (query().isEmpty() || tab == TAB_COLLAB || matchCount(tab) > 0) return;
+        if (query().isEmpty() || tab >= TAB_COLLAB || matchCount(tab) > 0) return;
         for (int t = 0; t < TAB_COLLAB; t++)
             if (matchCount(t) > 0) { switchTab(t); return; }
     }
@@ -595,7 +604,8 @@ public final class SettingsPanel implements Overlay {
             case TAB_LOOK -> Math.max(end(lookItems()), 20) + 4;
             case TAB_ACT -> Math.max(end(actItems()), 20) + 4;
             case TAB_COLORS -> Math.max(end(colorItems()), 20) + 4;
-            default -> collab(null, 0, 0, 0, null, false, 0, 0);
+            case TAB_COLLAB -> collab(null, 0, 0, 0, null, false, 0, 0);
+            default -> mcp(null, 0, 0, 0, null, 0, 0);
         };
     }
 
@@ -630,13 +640,14 @@ public final class SettingsPanel implements Overlay {
             case TAB_LOOK -> drawRows(ctx, mouseX, mouseY, top, lookItems());
             case TAB_ACT -> drawRows(ctx, mouseX, mouseY, top, actItems());
             case TAB_COLORS -> drawColors(ctx, mouseX, mouseY, delta, top);
-            default -> collab(ctx, mouseX, mouseY, top, null, false, 0, 0);
+            case TAB_COLLAB -> collab(ctx, mouseX, mouseY, top, null, false, 0, 0);
+            default -> mcp(ctx, mouseX, mouseY, top, null, 0, 0);
         }
         ctx.disableScissor();
         bar.draw(ctx, x + W - 5, cy, ch, contentNeed(), ch, scroll(), mouseX, mouseY);
 
         Ui.hairline(ctx, x + side + 1, footerY() - 12, W - side - 2);
-        if (tab != TAB_COLLAB) {
+        if (tab < RESET_LABELS.length) {
             boolean armed = confirmTab == tab;
             String label = armed ? CONFIRM : RESET_LABELS[tab];
             Ui.button(ctx, tr, mouseX, mouseY, cx(), footerY(), resetW(), BTN_H, label,
@@ -692,7 +703,7 @@ public final class SettingsPanel implements Overlay {
             int ny = navY(i), nx = x + 6, nw = side - 12;
             boolean active = i == tab;
             boolean hov = !active && Ui.hit(mouseX, mouseY, nx, ny, nw, NAV_H);
-            boolean empty = searching && i != TAB_COLLAB && matchCount(i) == 0;
+            boolean empty = searching && i < TAB_COLLAB && matchCount(i) == 0;
             if (active) {
                 Draw.round(ctx, nx, ny, nw, NAV_H, Settings.radius(NAV_H),
                         Draw.opaque(Draw.mix(Ui.BTN_ON, Theme.ACCENT, 0.25f)));
@@ -722,7 +733,8 @@ public final class SettingsPanel implements Overlay {
             case TAB_KEYS -> Draw.KEYBOARD;
             case TAB_LOOK -> Draw.IMAGE;
             case TAB_ACT -> Draw.CURSOR;
-            default -> Draw.USERS;
+            case TAB_COLLAB -> Draw.USERS;
+            default -> Draw.PLUG;
         };
         Draw.glyph(ctx, g, left + (9 - Draw.glyphW(g)) / 2, midY - Draw.glyphH(g) / 2, ink);
     }
@@ -731,13 +743,16 @@ public final class SettingsPanel implements Overlay {
         String text = "";
         int fill = Ui.BTN, ink = Theme.TEXT_DIM;
         if (searching) {
-            if (i != TAB_COLLAB) text = String.valueOf(matchCount(i));
+            if (i < TAB_COLLAB) text = String.valueOf(matchCount(i));
         } else if (i == TAB_KEYS && s.clashCount() > 0) {
             text = String.valueOf(s.clashCount());
             fill = Ui.DANGER_BG;
             ink = Theme.DANGER;
         } else if (i == TAB_COLORS && !s.colors.isEmpty()) {
             text = String.valueOf(s.colors.size());
+        } else if (i == TAB_MCP && Mcp.agentLive()) {
+            Draw.dot(ctx, right - 5, by + 4, Draw.opaque(Theme.OK));
+            return 8;
         } else if (i == TAB_COLLAB && Collab.on()) {
             int lamp = switch (Collab.stage()) {
                 case LIVE -> Collab.paused() ? Theme.TEXT_FAINT : Theme.OK;
@@ -1108,6 +1123,168 @@ public final class SettingsPanel implements Overlay {
         return at + 6;
     }
 
+    private int mcp(GuiGraphicsExtractor ctx, int mouseX, int mouseY, int top, MouseButtonEvent click,
+                    double cx, double cy) {
+        boolean act = click != null;
+        int inner = cw();
+        int lx = cx();
+        int at = 0;
+        if (ctx != null) Mcp.look();
+        Mcp.State st = Mcp.state();
+        String node = Mcp.node();
+        Mcp.Job job = Mcp.job();
+        boolean working = Mcp.busy() && job != Mcp.Job.CHECK;
+        boolean noNode = node != null && node.isEmpty();
+        boolean live = Mcp.agentLive();
+
+        String head;
+        int lamp;
+        List<String> said = new ArrayList<>();
+        if (working) {
+            head = switch (job) {
+                case INSTALL -> "Устанавливаю MCP…";
+                case CONNECT -> "Подключаю к программам…";
+                case REMOVE -> "Убираю отовсюду…";
+                default -> "Качаю модули JustMC…";
+            };
+            lamp = Theme.ACCENT;
+            said.addAll(Mcp.tail());
+        } else if (!Mcp.failure().isEmpty()) {
+            head = "Не получилось";
+            lamp = Theme.DANGER;
+            said.add(Mcp.failure());
+        } else if (node == null) {
+            head = "Проверяю…";
+            lamp = Theme.TEXT_FAINT;
+        } else if (noNode) {
+            head = "Нет Node.js";
+            lamp = Theme.DANGER;
+            said.add("нужен Node.js 22.13 или новее");
+        } else if (st == null) {
+            head = "MCP не установлен";
+            lamp = Theme.TEXT_FAINT;
+            said.add("Node.js " + node);
+        } else {
+            head = live ? "Нейросеть в игре" : "MCP установлен";
+            lamp = live ? Theme.OK : Theme.ACCENT;
+            said.add("MCP " + st.version() + " · Node.js " + node);
+        }
+        List<String> lines = new ArrayList<>();
+        for (String text : said) lines.addAll(Ui.wrap(tr, text, inner - 27, 2));
+        if (!working && st != null && Mcp.failure().isEmpty()) lines.addAll(pathLines(st.root(), inner - 27, 2));
+        int statusH = 25 + Math.max(1, lines.size()) * 10 + 9;
+        if (ctx != null) {
+            Ui.well(ctx, lx, top + at, inner, statusH);
+            Draw.dot(ctx, lx + 9, top + at + 12, Draw.opaque(lamp));
+            Draw.textFit(ctx, tr, head, lx + 18, top + at + 10, inner - 26, Theme.TEXT, false);
+            for (int i = 0; i < lines.size(); i++)
+                Draw.textFit(ctx, tr, lines.get(i), lx + 18, top + at + 25 + i * 10, inner - 27,
+                        Theme.TEXT_FAINT, false);
+        }
+        at += statusH + GAP;
+
+        if (ctx != null)
+            Ui.toggle(ctx, tr, mouseX, mouseY, lx, top + at, inner, BTN_H,
+                    "Нейросеть может управлять игрой", s.mcpAgent);
+        else if (act && Ui.hit(cx, cy, lx, top + at, inner, BTN_H))
+            s.mcpAgent = !s.mcpAgent;
+        at += BTN_H + GAP;
+
+        String main = noNode ? "Скачать Node.js" : st == null ? "Установить MCP" : "Обновить MCP";
+        boolean mainOn = noNode || (node != null && !Mcp.busy());
+        if (ctx != null)
+            Ui.button(ctx, tr, mouseX, mouseY, lx, top + at, inner, BTN_H, main, Ui.ACCENT, mainOn);
+        else if (act && mainOn && Ui.hit(cx, cy, lx, top + at, inner, BTN_H)) {
+            if (noNode) Mcp.openNodePage();
+            else Mcp.install();
+        }
+        at += BTN_H + GAP;
+        if (st == null) return at + 6;
+
+        List<Mcp.Tool> found = st.tools().stream().filter(Mcp.Tool::found).toList();
+        if (ctx != null) {
+            Ui.caption(ctx, tr, "ПРОГРАММЫ", lx, top + at, inner);
+            int my = top + at + CAP_H + 2;
+            if (found.isEmpty())
+                Draw.textFit(ctx, tr, "ни одной не нашлось", lx, my, inner, Theme.TEXT_FAINT, false);
+            for (Mcp.Tool tool : found) {
+                boolean broken = !tool.error().isEmpty();
+                String mark = broken ? "ошибка" : tool.connected() ? "подключён" : "не подключён";
+                int ink = broken ? Theme.DANGER : tool.connected() ? Theme.OK : Theme.TEXT_FAINT;
+                int markW = tr.width(mark);
+                Draw.dot(ctx, lx + 2, my + 3, Draw.opaque(ink));
+                Draw.textFit(ctx, tr, tool.title(), lx + 11, my, inner - 11 - markW - 8, Theme.TEXT_DIM, false);
+                Draw.textRight(ctx, tr, mark, lx + inner, my, Theme.TEXT_FAINT, false);
+                my += MEMBER_H;
+            }
+        }
+        at += CAP_H + 2 + MEMBER_H * Math.max(1, found.size()) + 4;
+
+        boolean armed = System.currentTimeMillis() - mcpConfirmAt < CONFIRM_MS;
+        int half = (inner - 6) / 2;
+        boolean free = !Mcp.busy();
+        boolean missing = found.stream().anyMatch(tool -> !tool.connected());
+        if (ctx != null) {
+            Ui.button(ctx, tr, mouseX, mouseY, lx, top + at, half, BTN_H, "Подключить ко всем",
+                    missing ? Ui.ACCENT : Ui.GHOST, free);
+            Ui.button(ctx, tr, mouseX, mouseY, lx + half + 6, top + at, inner - half - 6, BTN_H,
+                    armed ? "Точно убрать?" : "Убрать отовсюду", armed ? Ui.DANGER : Ui.GHOST, free);
+        } else if (act && free) {
+            if (Ui.hit(cx, cy, lx, top + at, half, BTN_H)) {
+                Mcp.connect();
+            } else if (Ui.hit(cx, cy, lx + half + 6, top + at, inner - half - 6, BTN_H)) {
+                if (armed) {
+                    mcpConfirmAt = 0;
+                    Mcp.remove();
+                } else {
+                    mcpConfirmAt = System.currentTimeMillis();
+                }
+            }
+        }
+        at += BTN_H + GAP;
+
+        if (!st.modules()) {
+            if (ctx != null)
+                Ui.button(ctx, tr, mouseX, mouseY, lx, top + at, inner, BTN_H,
+                        "Скачать модули JustMC · около 50 минут", Ui.GHOST, free);
+            else if (act && free && Ui.hit(cx, cy, lx, top + at, inner, BTN_H))
+                Mcp.modules();
+            at += BTN_H + GAP;
+        }
+
+        List<String> skillLines = new ArrayList<>();
+        for (String dir : st.skills()) skillLines.addAll(pathLines(dir, inner, 2));
+        if (skillLines.isEmpty()) skillLines.add("не установлен");
+        if (ctx != null) {
+            Ui.caption(ctx, tr, "СКИЛЛ JUSTMC", lx, top + at, inner);
+            int my = top + at + CAP_H + 2;
+            for (String line : skillLines) {
+                Draw.textFit(ctx, tr, line, lx, my, inner, Theme.TEXT_DIM, false);
+                my += 10;
+            }
+        }
+        at += CAP_H + 2 + skillLines.size() * 10;
+        return at + 6;
+    }
+
+    private List<String> pathLines(String path, int width, int max) {
+        List<String> out = new ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        int used = 0;
+        for (String part : path.split("(?<=[\\\\/])")) {
+            if (!line.isEmpty() && tr.width(line + part) > width) {
+                if (out.size() == max - 1) break;
+                out.add(line.toString());
+                used += line.length();
+                line.setLength(0);
+            }
+            line.append(part);
+        }
+        String rest = path.substring(used);
+        if (!rest.isEmpty()) out.add(Draw.fit(tr, rest, width));
+        return out;
+    }
+
     private void grab(EditBox field, MouseButtonEvent click, boolean doubled) {
         if (field == null) return;
         field.setFocused(true);
@@ -1288,7 +1465,7 @@ public final class SettingsPanel implements Overlay {
         int seg = navAt(mx, my);
         if (seg >= 0) { switchTab(seg); return true; }
 
-        if (tab != TAB_COLLAB && Ui.hit(mx, my, cx(), footerY(), resetW(), BTN_H)) {
+        if (tab < RESET_LABELS.length && Ui.hit(mx, my, cx(), footerY(), resetW(), BTN_H)) {
             if (confirmTab == tab) {
                 confirmTab = -1;
                 resetTab();
@@ -1310,12 +1487,13 @@ public final class SettingsPanel implements Overlay {
             case TAB_LOOK -> rowsClicked(lookItems(), mx, dy);
             case TAB_ACT -> rowsClicked(actItems(), mx, dy);
             case TAB_COLORS -> colorsClicked(mx, dy, button);
-            default -> {
+            case TAB_COLLAB -> {
                 if (nameField != null) nameField.setFocused(false);
                 if (codeField != null) codeField.setFocused(false);
                 dragField = null;
                 collab(null, 0, 0, 0, click, doubled, mx, dy);
             }
+            default -> mcp(null, 0, 0, 0, click, mx, dy);
         }
         return true;
     }

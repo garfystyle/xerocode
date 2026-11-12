@@ -499,7 +499,8 @@ public final class Layout {
         if (outer.declares()) {
             paramChips(outer, chips, tr);
         } else {
-            for (int i = 0; i < n.args().size(); i++) {
+            for (int place = 0; place < n.args().size(); place++) {
+                int i = n.shownArg(place);
                 if (box.card != null && i == Catalog.CALL_NAME) continue;
                 Value cv = chipValue(n, i);
                 boolean withItem = cv != null && cv.hasIcon();

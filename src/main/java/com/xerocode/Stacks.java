@@ -33,6 +33,7 @@ import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.component.CustomModelData;
 import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.item.component.TooltipDisplay;
@@ -589,6 +590,19 @@ public final class Stacks {
         for (String key : MODELLED) nbt.remove(key);
         return nbt.size();
     }
+
+    public static Value valueIn(ItemStack stack, String type) {
+        if (stack == null || stack.isEmpty()) return null;
+        CustomData data = stack.get(DataComponents.CUSTOM_DATA);
+        if (data == null) return null;
+        CompoundTag value = data.copyTag().getCompoundOrEmpty(SERVER_DATA).getCompoundOrEmpty(SERVER_VALUE);
+        if (!type.equals(value.getStringOr("type", ""))) return null;
+        com.google.gson.JsonObject o = new com.google.gson.JsonObject();
+        for (String key : value.keySet()) value.getString(key).ifPresent(s -> o.addProperty(key, s));
+        return Value.fromJson(o);
+    }
+
+    private static final String SERVER_DATA = "creative_plus", SERVER_VALUE = "value";
 
     public static ItemStack preview(Value v) {
         if (Value.BLOCK.equals(v.type)) return Blocks.stack(v.block);

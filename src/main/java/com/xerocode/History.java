@@ -54,6 +54,14 @@ public final class History {
         now.redo.clear();
     }
 
+    public static void pushFor(Script script, State state) {
+        if (script == null || state == null) return;
+        Stacks s = BY_SCRIPT.computeIfAbsent(script, k -> new Stacks());
+        s.undo.push(state);
+        while (s.undo.size() > max) s.undo.removeLast();
+        s.redo.clear();
+    }
+
     public static void clear() {
         now.undo.clear();
         now.redo.clear();

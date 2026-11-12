@@ -13,7 +13,7 @@ public final class Value {
     public static final String TEXT = "text", NUMBER = "number", LOCATION = "location",
             VECTOR = "vector", SOUND = "sound", PARTICLE = "particle", POTION = "potion",
             GAME_VALUE = "game_value", VARIABLE = "variable", PARAMETER = "parameter",
-            ARRAY = "array", MAP = "map", ITEM = "item", BLOCK = "block";
+            ARRAY = "array", MAP = "map", ITEM = "item", BLOCK = "block", CELL = "cell";
 
     public static final String SINGULAR = "singular", PLURAL = "plural", ENUM = "enum";
 
@@ -92,6 +92,9 @@ public final class Value {
 
     public String block = "";
 
+    public String storage = "", storagePath = "";
+    public boolean global;
+
     public JsonObject unknownRaw;
 
     public static final class Ench {
@@ -147,6 +150,7 @@ public final class Value {
         v.components = components;
         v.itemRaw = itemRaw; v.itemRawHash = itemRawHash;
         v.block = block;
+        v.storage = storage; v.storagePath = storagePath; v.global = global;
         if (unknownRaw != null) v.unknownRaw = unknownRaw.deepCopy();
         v.lore.addAll(lore);
         v.hidden.addAll(hidden);
@@ -219,6 +223,7 @@ public final class Value {
         h = h * 31 + hidden.hashCode();
         h = h * 31 + components.hashCode();
         h = h * 31 + block.hashCode();
+        if (CELL.equals(type)) h = (h * 31 + storage.hashCode()) * 31 + storagePath.hashCode() + (global ? 1 : 0);
         for (Value it : items) h = h * 31 + it.hash();
         for (Value k : keys) h = h * 31 + k.hash();
         return h;
@@ -266,6 +271,8 @@ public final class Value {
                 h = ((h * 31 + components.hashCode()) * 31 + itemRaw.hashCode()) * 31 + itemRawHash;
             }
             case BLOCK -> h = h * 31 + block.hashCode();
+            case CELL -> h = ((h * 31 + name.hashCode()) * 31 + storage.hashCode()) * 31
+                    + storagePath.hashCode() + (global ? 1 : 0);
             case ARRAY, MAP -> {
                 h = h * 31 + (present ? 1 : 0);
                 for (int i = 0, n = items.size(); i < n; i++) h = h * 31 + items.get(i).print();
@@ -279,7 +286,7 @@ public final class Value {
     public boolean isBlank() {
         return switch (type) {
             case TEXT -> text.isEmpty() && !present;
-            case VARIABLE, PARAMETER -> name.isBlank();
+            case VARIABLE, PARAMETER, CELL -> name.isBlank();
             case GAME_VALUE -> gameValue.isEmpty();
             case SOUND -> sound.isEmpty();
             case PARTICLE -> particle.isEmpty();
@@ -349,13 +356,14 @@ public final class Value {
             case POTION -> potion.isEmpty() ? "эффект не выбран" : Pickers.potionName(potion);
             case ITEM -> itemId.isEmpty() ? "предмет не выбран" : Stacks.plainName(this);
             case BLOCK -> block.isEmpty() ? "блок не выбран" : Blocks.name(block);
+            case CELL -> name.isBlank() ? "без имени" : name;
             case ARRAY -> filled() == 0 ? "пустой список" : "список";
             case MAP -> filled() == 0 && keys.stream().allMatch(Value::isBlank) ? "пустой словарь" : "словарь";
             default -> Values.kindName(type);
         };
     }
 
-    private static final String BLOCK_NOTE = "Блок";
+    private static final String BLOCK_NOTE = "Блок", WORLD_NOTE = "Мир";
 
     public boolean targetless() {
         Values.GameValue known = Values.gameValue(gameValue);
@@ -388,6 +396,7 @@ public final class Value {
                     + (duration >= 0 ? (amplifier > 0 ? " · " : "") + duration + "т" : "");
             case ITEM -> itemCount > 1 ? "×" + itemCount : "";
             case BLOCK -> block.isEmpty() ? "" : BLOCK_NOTE;
+            case CELL -> global ? storagePath : WORLD_NOTE;
             case ARRAY -> items.isEmpty() ? "" : "×" + filled();
             case MAP -> keys.isEmpty() ? "" : "×" + keys.size();
             default -> "";
@@ -576,6 +585,14 @@ public final class Value {
                 if (!components.isEmpty()) o.addProperty("components", components);
             }
             case BLOCK -> { if (!block.isEmpty()) o.addProperty("block", block); }
+            case CELL -> {
+                if (!name.isEmpty()) o.addProperty("cell", name);
+                if (global) {
+                    o.addProperty("global", "true");
+                    if (!storage.isEmpty()) o.addProperty("storage", storage);
+                    if (!storagePath.isEmpty()) o.addProperty("storage_path", storagePath);
+                }
+            }
             case ARRAY -> {
                 JsonArray arr = new JsonArray();
                 int last = -1;
@@ -604,7 +621,7 @@ public final class Value {
     }
 
     private static final List<String> KINDS = List.of(TEXT, NUMBER, LOCATION, VECTOR, SOUND,
-            PARTICLE, POTION, GAME_VALUE, VARIABLE, PARAMETER, ARRAY, MAP, ITEM, BLOCK);
+            PARTICLE, POTION, GAME_VALUE, VARIABLE, PARAMETER, ARRAY, MAP, ITEM, BLOCK, CELL);
 
     public static Value fromJson(JsonObject o) {
         Value v = new Value(o.has("type") ? o.get("type").getAsString() : TEXT);
@@ -691,6 +708,7 @@ public final class Value {
         if (o.has("item_raw_hash")) v.itemRawHash = o.get("item_raw_hash").getAsInt();
         if (o.has("block") && o.get("block").isJsonPrimitive())
             v.block = o.get("block").getAsString();
+        if (CELL.equals(v.type)) v.readCell(o);
         if (o.has("pitch")) {
             if (SOUND.equals(v.type)) v.pitch2 = o.get("pitch").getAsDouble();
             else v.pitch = o.get("pitch").getAsDouble();
@@ -715,6 +733,19 @@ public final class Value {
             }
         }
         return v;
+    }
+
+    private void readCell(JsonObject o) {
+        name = plain(o, "cell");
+        global = "true".equalsIgnoreCase(plain(o, "global"));
+        storage = plain(o, "storage");
+        storagePath = plain(o, "storage_path");
+        if (global) Values.rememberStorage(storagePath, storage);
+    }
+
+    private static String plain(JsonObject o, String key) {
+        JsonElement e = o.get(key);
+        return e != null && e.isJsonPrimitive() ? e.getAsString() : "";
     }
 
     private static int indexOf(String field) {

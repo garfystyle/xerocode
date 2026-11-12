@@ -50,6 +50,7 @@ public final class Link {
     private static final long LINE_GAP = 1_500;
     private static final long LINES_WAIT = 300_000;
     private static final long CONNECT_WAIT = 30;
+    private static final long AGENT_WAIT = 20;
     private static final int LINES_PER_FLOOR = (Codespace.LAST_Z - Codespace.FIRST_Z) / Codespace.LINE_STEP + 1;
 
     private static volatile ServerSocket socket;
@@ -253,11 +254,16 @@ public final class Link {
             case "POST /lines" -> lines(r);
             case "POST /connect" -> connect(r);
             case "GET /log" -> log(r);
+            case "POST /agent" -> agent(r);
             default -> throw new Refused(404, "нет такого запроса: " + key);
         };
     }
 
     private static <T> T onClient(Supplier<T> work) throws Exception {
+        return onClient(work, 5);
+    }
+
+    private static <T> T onClient(Supplier<T> work, long seconds) throws Exception {
         CompletableFuture<T> out = new CompletableFuture<>();
         Minecraft.getInstance().execute(() -> {
             try {
@@ -267,11 +273,29 @@ public final class Link {
             }
         });
         try {
-            return out.get(5, TimeUnit.SECONDS);
+            return out.get(seconds, TimeUnit.SECONDS);
         } catch (java.util.concurrent.ExecutionException e) {
             if (e.getCause() instanceof Refused refused) throw refused;
             throw e;
         }
+    }
+
+    private static JsonObject agent(Request r) throws Exception {
+        if (!Settings.get().mcpAgent) throw new Refused(403, "в настройках XeroCode нейросети запрещено управлять игрой");
+        JsonObject ask = JsonParser.parseString(new String(r.body(), StandardCharsets.UTF_8)).getAsJsonObject();
+        String jar = Json.str(ask, "jar"), work = Json.str(ask, "work"), key = Json.str(ask, "token");
+        if (jar.isEmpty() || !Files.isRegularFile(Path.of(jar))) throw new Refused(400, "нет файла агента: " + jar);
+        if (work.isEmpty() || key.isEmpty()) throw new Refused(400, "нет папки или ключа агента");
+        String started = onClient(() -> {
+            try {
+                return Mcp.startAgent(Path.of(jar), work, key);
+            } catch (Exception e) {
+                throw new Refused(500, "агент не запустился: " + e.getMessage());
+            }
+        }, AGENT_WAIT);
+        JsonObject o = JsonParser.parseString(started).getAsJsonObject();
+        o.addProperty("ok", true);
+        return o;
     }
 
     private static JsonObject status() throws Exception {

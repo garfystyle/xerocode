@@ -61,6 +61,36 @@ public final class TextStudio implements Overlay {
             Map.entry("green", "зелёный"), Map.entry("aqua", "бирюзовый"),
             Map.entry("red", "красный"), Map.entry("light_purple", "розовый"),
             Map.entry("yellow", "жёлтый"), Map.entry("white", "белый"));
+    private static final String[] BOLD = {
+            "## ## ##",
+            " # ## # ",
+            "  ####  ",
+            " # ## # ",
+            "## ## ##",
+            "## ## ##",
+            "## ## ##"};
+    private static final String[] ITALIC = {
+            "  #  # ",
+            "  # #  ",
+            " ###   ",
+            " #  #  ",
+            " #   # ",
+            "#    # ",
+            "#    # "};
+    private static final String[] STRUCK = {
+            " ###  #####",
+            "#   # #    ",
+            "##### #### ",
+            "#   # #   #",
+            "#   # #   #",
+            "#   # #   #",
+            "#   # #### "};
+    private static final String[] STRIKE = {
+            "             ",
+            "             ",
+            "             ",
+            "             ",
+            "#############"};
     private static final String[] NOISE = {
             "# # # ",
             " # # #",
@@ -553,11 +583,15 @@ public final class TextStudio implements Overlay {
             McText.Deco d = McText.DECOS.get(i);
             int cx = dx + i * TOOL_W;
             int ink = on ? (i == hot ? Theme.TEXT : Theme.TEXT_DIM) : Theme.TEXT_FAINT;
+            int letterTop = dy + (TOOL_H - Ui.TEXT_H) / 2;
             if (d.code() == 'm') {
-                int gx = cx + (TOOL_W - Draw.glyphW(Draw.STRIKE_TEXT)) / 2;
-                int gy = dy + (TOOL_H - Draw.glyphH(Draw.STRIKE_TEXT)) / 2;
-                Draw.glyph(ctx, Draw.STRIKE_TEXT, gx, gy, Draw.mix(ink, Ui.BTN, 0.45f));
-                Draw.glyph(ctx, Draw.STRIKE_LINE, gx, gy, ink);
+                Draw.glyph(ctx, STRUCK, cx + (TOOL_W - Draw.glyphW(STRUCK)) / 2, letterTop, Draw.mix(ink, Ui.BTN, 0.45f));
+                Draw.glyph(ctx, STRIKE, cx + (TOOL_W - Draw.glyphW(STRIKE)) / 2, letterTop, ink);
+                continue;
+            }
+            if (d.code() == 'l' || d.code() == 'o') {
+                String[] mark = d.code() == 'l' ? BOLD : ITALIC;
+                Draw.glyph(ctx, mark, cx + (TOOL_W - Draw.glyphW(mark)) / 2, letterTop, ink);
                 continue;
             }
             if (d.code() == 'k' && i != hot) {

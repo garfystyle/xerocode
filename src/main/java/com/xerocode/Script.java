@@ -47,6 +47,8 @@ public final class Script {
 
         public List<Catalog.Arg> args() { return dynArgs == null ? action.args : dynArgs; }
 
+        public int shownArg(int place) { return dynArgs == null ? action.shownArg(place) : place; }
+
         public List<Catalog.Setting> settings() {
             List<Catalog.Setting> base = dynSettings == null ? action.settings : dynSettings;
             List<Catalog.Setting> extra = Catalog.extraSettings(action);

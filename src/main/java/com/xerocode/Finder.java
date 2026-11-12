@@ -345,6 +345,7 @@ public final class Finder {
             case Value.POTION -> v.potion;
             case Value.ITEM -> v.itemId + " " + McText.plain(v.itemName, v.itemParsing);
             case Value.BLOCK -> v.block;
+            case Value.CELL -> v.storagePath;
             default -> "";
         };
     }

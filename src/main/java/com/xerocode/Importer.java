@@ -598,7 +598,7 @@ public final class Importer {
     private static final Set<String> KNOWN = Set.of(
             Value.TEXT, Value.NUMBER, Value.LOCATION, Value.VECTOR, Value.SOUND, Value.PARTICLE,
             Value.POTION, Value.GAME_VALUE, Value.VARIABLE, Value.PARAMETER,
-            Value.ARRAY, Value.MAP, Value.BLOCK);
+            Value.ARRAY, Value.MAP, Value.BLOCK, Value.CELL);
 
     private static List<JsonObject> cells(JsonObject array) {
         List<JsonObject> out = new ArrayList<>();

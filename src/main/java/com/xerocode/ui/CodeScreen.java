@@ -800,7 +800,8 @@ public final class CodeScreen extends Screen {
 
     private static final String[][] VALUE_KINDS = {
             {Value.LOCATION, "Местоположение"}, {Value.VECTOR, "Вектор"}, {Value.ITEM, "Предмет"}, {Value.BLOCK, "Блок"},
-            {Value.SOUND, "Звук"}, {Value.PARTICLE, "Эффект частиц"}, {Value.POTION, "Зелье"}, {Value.TEXT, "Текст"}};
+            {Value.SOUND, "Звук"}, {Value.PARTICLE, "Эффект частиц"}, {Value.POTION, "Зелье"}, {Value.CELL, "Ячейка"},
+            {Value.TEXT, "Текст"}};
 
     private boolean canEditValues() {
         CodeFile f = area.file();

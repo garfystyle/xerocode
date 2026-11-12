@@ -1,8 +1,10 @@
 package com.xerocode.ui;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.xerocode.Codespace;
+import com.xerocode.Download;
 import com.xerocode.Env;
 import com.xerocode.Fetch;
 import com.xerocode.Net;
@@ -35,7 +37,11 @@ final class LoadScreen extends DialogScreen {
     private static final String OR = "или";
     private static final String CANCEL = "Отмена";
     private static final String FILE = "Выбрать .json с компьютера";
+    private static final String WORLD = "Скачать код этого мира";
+    private static final String READING = "читаю код мира…";
+    private static final String NO_DOWNLOAD = "сервер не даёт /editor download: зайди в /dev своего мира, нужен ранг Meteor+";
     private static final String NAME = "justmc.json";
+    private static final String WORLD_NAME = "мир.json";
     private static final Path SITE_SAVED = Path.of("/upload", NAME);
     private static final Net.Who VIA_STORE = new Net.Who("нет сети", "сервер не отвечает", "сервер не ответил вовремя");
     private static final Net.Who DIRECT = new Net.Who("адрес не найден", "сайт по ссылке не отвечает",
@@ -46,6 +52,7 @@ final class LoadScreen extends DialogScreen {
     private static final Pattern TAIL = Pattern.compile("[.,;!?»\"')\\]]+$");
     private static final String HEX = "0123456789ABCDEF";
     private static final int FIELD_H = 20;
+    private static final int STACK = 6;
 
     private final Screen parent;
     private final Consumer<Path> done;
@@ -55,6 +62,7 @@ final class LoadScreen extends DialogScreen {
     private boolean failed;
     private volatile boolean busy;
     private boolean choosing;
+    private Download download;
 
     LoadScreen(Screen parent, Consumer<Path> done) {
         super(360);
@@ -92,11 +100,16 @@ final class LoadScreen extends DialogScreen {
 
     private int orY() { return noteY() + ROW + 2; }
 
-    private int fileY() { return orY() + ROW + 2; }
+    private boolean worldShown() { return !Env.browser(); }
+
+    private int worldY() { return orY() + ROW + 2; }
+
+    private int fileY() { return worldY() + (worldShown() ? BTN_H + STACK : 0); }
 
     @Override
     protected int bodyH() {
-        return howRows() * ROW + GAP + FIELD_H + 5 + ROW + 2 + ROW + 2 + BTN_H + GAP + BTN_H;
+        return howRows() * ROW + GAP + FIELD_H + 5 + ROW + 2 + ROW + 2 + (worldShown() ? BTN_H + STACK : 0)
+                + BTN_H + GAP + BTN_H;
     }
 
     @Override
@@ -115,6 +128,9 @@ final class LoadScreen extends DialogScreen {
         if (!note.isEmpty())
             Draw.textFit(ctx, font, note, x, noteY(), w, failed ? Theme.DANGER : Theme.TEXT_FAINT, false);
         Draw.textCenter(ctx, font, OR, x, orY(), w, w, Theme.TEXT_FAINT, false);
+        if (worldShown())
+            Ui.button(ctx, font, mouseX, mouseY, x, worldY(), w, BTN_H, download != null ? READING : WORLD, Ui.GHOST,
+                    download == null && !busy);
         Ui.button(ctx, font, mouseX, mouseY, x, fileY(), w, BTN_H, FILE, Ui.GHOST);
         buttons(ctx, mouseX, mouseY, x, w, null, CANCEL);
     }
@@ -125,6 +141,7 @@ final class LoadScreen extends DialogScreen {
         if (Ui.hit(mx, my, x, fy, fieldW(), FIELD_H)) return false;
         if (Ui.hit(mx, my, pasteX(), fy, pasteW(), FIELD_H)) { paste(); return true; }
         if (Ui.hit(mx, my, x + w - loadW(), fy, loadW(), FIELD_H)) { fetch(); return true; }
+        if (worldShown() && Ui.hit(mx, my, x, worldY(), w, BTN_H)) { fromWorld(); return true; }
         if (Ui.hit(mx, my, x, fileY(), w, BTN_H)) { pickFile(); return true; }
         if (hitGhost(mx, my, null, CANCEL)) { onClose(); return true; }
         return true;
@@ -157,6 +174,37 @@ final class LoadScreen extends DialogScreen {
     protected boolean onEnter() {
         fetch();
         return true;
+    }
+
+    private void fromWorld() {
+        if (busy || download != null) return;
+        download = Download.start(minecraft == null ? Minecraft.getInstance() : minecraft);
+        if (download == null) say(NO_DOWNLOAD, true);
+        else say(READING, false);
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        Download asked = download;
+        if (asked == null) return;
+        asked.tick();
+        if (asked.state == Download.State.FAILED) {
+            download = null;
+            say("мир не прочитан: " + asked.error, true);
+        } else if (asked.state == Download.State.DONE) {
+            download = null;
+            JsonObject root = new JsonObject();
+            root.add("handlers", asked.handlers);
+            try {
+                Path file = Codespace.savedDir().resolve(WORLD_NAME);
+                Files.createDirectories(file.getParent());
+                Files.writeString(file, root.toString(), StandardCharsets.UTF_8);
+                finish(file);
+            } catch (Exception e) {
+                say("код мира не сохранился: " + e.getMessage(), true);
+            }
+        }
     }
 
     private void pickFile() {
@@ -309,6 +357,8 @@ final class LoadScreen extends DialogScreen {
 
     @Override
     public void onClose() {
+        if (download != null) download.cancel();
+        download = null;
         Minecraft mc = minecraft == null ? Minecraft.getInstance() : minecraft;
         mc.gui.setScreen(parent);
     }

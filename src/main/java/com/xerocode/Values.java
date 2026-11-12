@@ -50,7 +50,7 @@ public final class Values {
             Value.TEXT, Value.NUMBER, Value.VARIABLE, Value.GAME_VALUE,
             Value.LOCATION, Value.VECTOR, Value.PARAMETER,
             Value.SOUND, Value.PARTICLE, Value.POTION,
-            Value.ARRAY, Value.MAP, Value.ITEM, Value.BLOCK);
+            Value.ARRAY, Value.MAP, Value.ITEM, Value.BLOCK, Value.CELL);
 
     private static final Kind ITEM_KIND = new Kind(Value.ITEM, "Предмет", "minecraft:item_frame");
     private static final Kind BLOCK_KIND = new Kind(Value.BLOCK, "Блок", "minecraft:grass_block");
@@ -69,7 +69,32 @@ public final class Values {
             Map.entry(Value.ARRAY,      0xE8D33A),
             Map.entry(Value.MAP,        0x8B5A2B),
             Map.entry(Value.ITEM,       0xE08A1E),
-            Map.entry(Value.BLOCK,      0x6F7F96));
+            Map.entry(Value.BLOCK,      0x6F7F96),
+            Map.entry(Value.CELL,       0xA090F0));
+
+    private static final Map<String, String> STORAGES = new java.util.LinkedHashMap<>();
+    private static int storageEpoch;
+
+    public static void rememberStorage(String path, String id) {
+        if (path == null || path.isBlank() || id == null || id.isBlank()) return;
+        synchronized (STORAGES) {
+            if (id.equals(STORAGES.get(path))) return;
+            STORAGES.put(path, id);
+            storageEpoch++;
+        }
+    }
+
+    public static int storageEpoch() {
+        synchronized (STORAGES) {
+            return storageEpoch;
+        }
+    }
+
+    public static Map<String, String> storages() {
+        synchronized (STORAGES) {
+            return new java.util.LinkedHashMap<>(STORAGES);
+        }
+    }
 
     public static int color(String kindId) { return KIND_COLORS.getOrDefault(kindId, 0xAAAAAA); }
 
@@ -194,6 +219,7 @@ public final class Values {
             case "Параметр" -> Value.PARAMETER;
             case "Предмет" -> Value.ITEM;
             case "Блок" -> Value.BLOCK;
+            case "Ячейка" -> Value.CELL;
             default -> Value.TEXT;
         };
     }

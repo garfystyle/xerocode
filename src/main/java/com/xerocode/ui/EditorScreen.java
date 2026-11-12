@@ -3334,6 +3334,8 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             m.row(Draw.LOAD, "Шаблон строки в руку", null, () -> handToWorld(chainOf(box, true)));
 
         m.gap();
+        if (Tabs.indexOf(script) >= 0 && (Tabs.all().size() > 1 || !Tabs.full()))
+            m.row(Draw.CANVAS, "Отправить на полотно…", null, () -> chooseTab(box, mx, my)).caret();
         m.row(Draw.PACK, tail ? "Стопку в рюкзак" : "В рюкзак",
                 Settings.Hot.STASH, () -> stashBlock(box, true));
         if (tail) m.row(Draw.PACK, "Блок в рюкзак", null, () -> stashBlock(box, false));
@@ -3417,7 +3419,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                     Layout.descAll(s.declaration())));
         }
         items.add(new Menu.Item(call.isStart() ? "Ввести имя процесса…" : "Ввести имя функции…",
-                false, Draw.STRIKE_TEXT));
+                false, Draw.NAME));
         int current = names.indexOf(chosen);
         String title = (call.isStart() ? "ПРОЦЕССЫ ПОЛОТНА" : "ФУНКЦИИ ПОЛОТНА")
                 + (skipped == 0 ? "" : "  ·  СКРЫТО " + skipped);
@@ -3625,6 +3627,60 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (drag != null || carry != null) return;
         if (hoverBox == null) { toast("наведись на блок — скопирую его"); return; }
         copyBox(hoverBox, wholeStack);
+    }
+
+    private void chooseTab(Layout.Box box, int mx, int my) {
+        int own = Tabs.indexOf(script);
+        List<Integer> where = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < Tabs.all().size(); i++) {
+            if (i == own) continue;
+            where.add(i);
+            names.add(Tabs.all().get(i).name);
+        }
+        if (!Tabs.full()) {
+            where.add(-1);
+            names.add("Новое полотно");
+        }
+        menu = Menu.options(width, height, mx, my, font, "Отправить на полотно", names, -1,
+                i -> sendToTab(box, where.get(i)));
+    }
+
+    private void sendToTab(Layout.Box box, int index) {
+        Script target;
+        if (index < 0) {
+            target = Tabs.add(null);
+            Tabs.shown(script);
+            if (target == null) { toast("полотен уже " + Tabs.MAX); return; }
+        } else {
+            target = Tabs.script(index);
+        }
+        if (target == script) return;
+        List<Script.Node> chain = chainOf(box, true);
+        Layout there = Layout.of(target, font);
+        double x, y;
+        if (there.chunks.isEmpty()) {
+            x = Math.round((TIDY_GAP_X - target.viewX) / target.viewZoom);
+            y = Math.round((TIDY_GAP_Y + TAG_H - target.viewY) / target.viewZoom);
+        } else {
+            x = Integer.MAX_VALUE;
+            y = Integer.MIN_VALUE;
+            for (Layout.Chunk c : there.chunks) {
+                x = Math.min(x, c.x0);
+                y = Math.max(y, c.y1);
+            }
+            y += TIDY_GAP_Y + TAG_H;
+        }
+        History.pushFor(target, History.snapshot(target));
+        Script.Root root = new Script.Root(x, y);
+        root.chain.addAll(chain);
+        target.roots.add(root);
+        target.save();
+        pushUndo();
+        box.owner.subList(box.index, box.owner.size()).clear();
+        dropEmpty(box.root);
+        Tabs.touch();
+        toast("на «" + Tabs.name(target) + "» · " + blocksText(chain));
     }
 
     private void cutOne(Layout.Box box) {

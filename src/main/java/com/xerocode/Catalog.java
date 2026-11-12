@@ -60,6 +60,7 @@ public final class Catalog {
         public final boolean glint;
         public String sign = "";
         public String skin = "";
+        int[] shown;
         public Category category;
         public String subcategory;
         String key, serverId;
@@ -74,6 +75,8 @@ public final class Catalog {
             this.deprecated = deprecated; this.glint = glint;
         }
         public ItemStack icon() { return stackOf(item, glint, skin); }
+
+        public int shownArg(int place) { return shown == null ? place : shown[place]; }
     }
 
     public static final class Category {
@@ -451,6 +454,19 @@ public final class Catalog {
         return action != ELSE && Mapping.invertible(action);
     }
 
+    private static int[] order(JsonArray raw, int size) {
+        if (raw.size() != size) return null;
+        int[] out = new int[size];
+        boolean[] seen = new boolean[size];
+        for (int i = 0; i < size; i++) {
+            int at = raw.get(i).getAsInt();
+            if (at < 0 || at >= size || seen[at]) return null;
+            seen[at] = true;
+            out[i] = at;
+        }
+        return out;
+    }
+
     private static Action parseAction(int id, JsonObject o) {
         List<Arg> args = new ArrayList<>();
         if (o.has("a")) {
@@ -483,6 +499,7 @@ public final class Catalog {
                 o.has("h"), o.has("g"));
         if (o.has("w")) action.sign = o.get("w").getAsString();
         if (o.has("t")) action.skin = o.get("t").getAsString();
+        if (o.has("v")) action.shown = order(o.getAsJsonArray("v"), args.size());
         return action;
     }
 

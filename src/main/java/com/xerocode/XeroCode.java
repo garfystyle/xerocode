@@ -248,6 +248,7 @@ public final class XeroCode implements ClientModInitializer {
         ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) -> {
             if (retired) return true;
             if (!overlay && Download.heard(message)) return false;
+            if (!overlay && Storages.heard(message)) return false;
             if (waitingDev <= 0 || overlay) return true;
             String text = message.getString();
             if (text.contains(ENTERED)) {
@@ -341,6 +342,7 @@ public final class XeroCode implements ClientModInitializer {
             Publish.tick();
             Link.tick();
             ServerAsk.tick(client);
+            Storages.tick(client);
             ModuleActions.tick(client);
             ModulePublish.tick(client);
             Veil.tick(client);

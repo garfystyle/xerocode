@@ -578,18 +578,6 @@ public final class Draw {
             "# ##### #",
             "#       #",
             "+#######+"};
-    public static final String[] STRIKE_TEXT = {
-            "### #### ",
-            "         ",
-            "         ",
-            "         ",
-            "#### ### "};
-    public static final String[] STRIKE_LINE = {
-            "         ",
-            "         ",
-            "#########",
-            "         ",
-            "         "};
     public static final String[] RESET = {
             "  +###+ #",
             " #+   +##",
@@ -620,6 +608,16 @@ public final class Draw {
             "#  # #  #",
             "#  # #  #",
             "+##+ +##+"};
+    public static final String[] PLUG = {
+            "  #   #  ",
+            "  #   #  ",
+            " ####### ",
+            " #     # ",
+            " #     # ",
+            " +#   #+ ",
+            "  +###+  ",
+            "    #    ",
+            "    #    "};
     public static final String[] USERS = {
             " +#+     ",
             " ### +#+ ",

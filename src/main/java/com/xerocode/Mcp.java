@@ -30,6 +30,7 @@ public final class Mcp {
 
     private static final String RAW = "https://raw.githubusercontent.com/garfystyle/justmc-mcp/main/";
     private static final String NODE_PAGE = "https://nodejs.org";
+    private static final String STALE = "Установлен старый MCP: нажми «Установить MCP», чтобы обновить";
     private static final String AGENT = "justmc.agent.Agent";
     private static final String LIVE = "justmc.agent.live";
     private static final int KEEP = 4;
@@ -139,9 +140,11 @@ public final class Mcp {
         }
         StringBuilder out = new StringBuilder();
         run(List.of(nodeCommand(), setup.toString(), "--dry", "--json"), CHECK_WAIT, out);
-        String text = out.toString().trim();
-        int open = text.lastIndexOf("\n{");
-        JsonObject root = JsonParser.parseString(open < 0 ? text : text.substring(open + 1)).getAsJsonObject();
+        JsonObject root = report(out.toString());
+        if (root == null) {
+            state = null;
+            throw new IOException(STALE);
+        }
         List<Tool> tools = new ArrayList<>();
         JsonArray list = Json.arr(root, "tools");
         if (list != null) for (JsonElement el : list) {
@@ -154,6 +157,20 @@ public final class Mcp {
         if (dirs != null) for (JsonElement el : dirs) skills.add(el.getAsString());
         state = new State(Json.str(root, "version"), Json.str(root, "root"), List.copyOf(tools), List.copyOf(skills),
                 Json.flag(root, "modules"));
+    }
+
+    private static JsonObject report(String text) {
+        String[] lines = text.split("\\R");
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = COLORS.matcher(lines[i]).replaceAll("").strip();
+            if (!line.startsWith("{") || !line.endsWith("}")) continue;
+            try {
+                JsonElement got = JsonParser.parseString(line);
+                if (got.isJsonObject() && got.getAsJsonObject().has("tools")) return got.getAsJsonObject();
+            } catch (RuntimeException ignored) {
+            }
+        }
+        return null;
     }
 
     private static String last(String fallback) {

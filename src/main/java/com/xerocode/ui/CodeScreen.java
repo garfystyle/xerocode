@@ -434,17 +434,19 @@ public final class CodeScreen extends Screen {
         area.frame();
         if (findOpen) finder.frame();
         analyzeWhenIdle();
-        if (area.doc() != null) area.draw(ctx, mouseX, mouseY);
-        else drawWelcome(ctx, mouseX, mouseY);
+        boolean covered = valueEditor != null || settings != null || menu != null || quick != null;
+        int ux = covered ? AWAY : mouseX, uy = covered ? AWAY : mouseY;
+        if (area.doc() != null) area.draw(ctx, ux, uy);
+        else drawWelcome(ctx, ux, uy);
         ctx.nextStratum();
-        if (sideOpen) side.draw(ctx, mouseX, mouseY);
-        drawTabs(ctx, mouseX, mouseY);
-        if (bottomOpen) bottom.draw(ctx, mouseX, mouseY);
-        drawBar(ctx, mouseX, mouseY);
-        drawStatus(ctx, mouseX, mouseY);
+        if (sideOpen) side.draw(ctx, ux, uy);
+        drawTabs(ctx, ux, uy);
+        if (bottomOpen) bottom.draw(ctx, ux, uy);
+        drawBar(ctx, ux, uy);
+        drawStatus(ctx, ux, uy);
         ctx.nextStratum();
-        if (findOpen) finder.draw(ctx, mouseX, mouseY, delta, width, topH() + tabsH());
-        if (area.doc() != null) area.hints.draw(ctx, mouseX, mouseY, width, height);
+        if (findOpen) finder.draw(ctx, ux, uy, delta, width, topH() + tabsH());
+        if (area.doc() != null) area.hints.draw(ctx, ux, uy, width, height);
         ctx.nextStratum();
         if (Env.touch() && area.focused() && area.doc() != null) drawKeys(ctx);
         if (quick != null) {
@@ -461,9 +463,10 @@ public final class CodeScreen extends Screen {
             settings.resize(width, height);
             settings.render(ctx, mouseX, mouseY, delta);
         }
-        barTip(ctx, mouseX, mouseY);
+        barTip(ctx, ux, uy);
     }
 
+    private static final int AWAY = -100_000;
     private static final String TAB_KEY = "Tab";
     private static final String[] KEYS = {"{", "}", "(", ")", "[", "]", "\"", ";", "=", ".", ",", TAB_KEY, "←", "→"};
 

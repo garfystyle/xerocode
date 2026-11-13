@@ -126,6 +126,10 @@ public final class ValueEditor implements Overlay {
     private double cellX0, cellY0;
     private boolean cellMoved;
     private long cellEdgeAt;
+    private int listDrag = -1, listGrabY;
+    private double listX0, listY0;
+    private boolean listMoved;
+    private long listEdgeAt;
     private final Langs langs;
     private SoundPlayer player;
     private ParticleStage stage;
@@ -1416,38 +1420,113 @@ public final class ValueEditor implements Overlay {
         if (grid != null) { drawSlots(ctx, grid, mouseX, mouseY); return; }
         Ui.caption(ctx, tr, "ЗНАЧЕНИЯ", x + PAD, listY(), inner(),
                 values.size() + "/" + arg.capacity);
+        int top = listY() + CAP, rw = rowW();
+        boolean carrying = listCarrying();
+        if (carrying) {
+            listFollowEdge(top);
+            mouseX = mouseY = Integer.MIN_VALUE;
+        }
+        int target = carrying ? listTarget(top) : -1;
         for (int r = 0; r < listRows(); r++) {
             int i = listScroll + r;
             if (i >= values.size()) break;
-            Value v = values.get(i);
-            int ry = listY() + CAP + r * (rowH + 2);
-            int rw = rowW();
-            boolean active = i == sel;
-            boolean hov = Ui.hit(mouseX, mouseY, x + PAD, ry, rw, rowH);
-            Draw.round(ctx, x + PAD, ry, rw, rowH, Ui.R_SM,
-                    Draw.opaque(active ? Ui.ROW_ON : (hov ? Ui.ROW_HOVER : Ui.WELL)));
-            if (active) Draw.rect(ctx, x + PAD, ry + 2, 2, rowH - 4, Draw.opaque(Theme.ACCENT));
-            Draw.textRight(ctx, tr, String.valueOf(i + 1), x + PAD + 16, ry + 5,
-                    active ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
-            Draw.dot(ctx, x + PAD + 21, ry + 6, Draw.opaque(v.color()));
-            String note = v.note();
-            int noteW = note.isEmpty() ? 0 : tr.width(note) + 8;
-            Draw.textFit(ctx, tr, Layout.display(v), x + PAD + 29, ry + 5, rw - 35 - noteW,
-                    v.isBlank() ? Theme.TEXT_FAINT : Theme.TEXT, false);
-            if (!note.isEmpty())
-                Draw.textRight(ctx, tr, note, x + PAD + rw - 6, ry + 5, Theme.TEXT_FAINT, false);
+            int ry = top + r * (rowH + 2);
+            if (i == target) {
+                Draw.round(ctx, x + PAD, ry, rw, rowH, Ui.R_SM, Draw.opaque(Draw.shade(Ui.WELL, -0.35f)));
+                Draw.roundOutline(ctx, x + PAD, ry, rw, rowH, Ui.R_SM,
+                        Draw.opaque(Draw.shade(Theme.ACCENT, -0.55f)));
+                continue;
+            }
+            drawListRow(ctx, carrying ? sourceAt(i, listDrag, target) : i, i + 1, ry, mouseX, mouseY, false);
             Ui.iconButton(ctx, mouseX, mouseY, x + PAD + inner() - rowH, ry, rowH,
                     Draw.CROSS, Ui.DANGER, true);
+            Ui.dragZone(x + PAD, ry, 16, rowH);
         }
         if (maxListScroll() > 0)
-            listBar.draw(ctx, x + PAD + rowW() + 1, listY() + CAP, listRows() * (rowH + 2),
+            listBar.draw(ctx, x + PAD + rw + 1, top, listRows() * (rowH + 2),
                     values.size() * (rowH + 2), listRows() * (rowH + 2),
                     listScroll * (rowH + 2), mouseX, mouseY);
         if (canAdd()) {
-            int ay = listY() + CAP + listRows() * (rowH + 2);
+            int ay = top + listRows() * (rowH + 2);
             Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, ay, inner(), addH,
                     Draw.PLUS, "добавить значение", Ui.GHOST, true);
         }
+        if (!carrying) return;
+        ctx.nextStratum();
+        int fy = carriedY(top, listRows(), listGrabY);
+        Draw.shadow(ctx, x + PAD, fy, rw, rowH, Ui.R_SM);
+        drawListRow(ctx, listDrag, target + 1, fy, Integer.MIN_VALUE, Integer.MIN_VALUE, true);
+        Draw.roundOutline(ctx, x + PAD, fy, rw, rowH, Ui.R_SM, Draw.opaque(Theme.ACCENT));
+        ctx.requestCursor(CursorTypes.RESIZE_NS);
+    }
+
+    private void drawListRow(GuiGraphicsExtractor ctx, int i, int shown, int ry, int mouseX, int mouseY,
+                             boolean lifted) {
+        Value v = values.get(i);
+        int rw = rowW();
+        boolean active = i == sel;
+        boolean hov = !lifted && Ui.hit(mouseX, mouseY, x + PAD, ry, rw, rowH);
+        Draw.round(ctx, x + PAD, ry, rw, rowH, Ui.R_SM,
+                Draw.opaque(active ? Ui.ROW_ON : (hov || lifted ? Ui.ROW_HOVER : Ui.WELL)));
+        if (active) Draw.rect(ctx, x + PAD, ry + 2, 2, rowH - 4, Draw.opaque(Theme.ACCENT));
+        Draw.textRight(ctx, tr, String.valueOf(shown), x + PAD + 16, ry + 5,
+                active ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
+        Draw.dot(ctx, x + PAD + 21, ry + 6, Draw.opaque(v.color()));
+        String note = v.note();
+        int noteW = note.isEmpty() ? 0 : tr.width(note) + 8;
+        Draw.textFit(ctx, tr, Layout.display(v), x + PAD + 29, ry + 5, rw - 35 - noteW,
+                v.isBlank() ? Theme.TEXT_FAINT : Theme.TEXT, false);
+        if (!note.isEmpty())
+            Draw.textRight(ctx, tr, note, x + PAD + rw - 6, ry + 5, Theme.TEXT_FAINT, false);
+    }
+
+    private boolean listCarrying() {
+        return listDrag >= 0 && listMoved && listDrag < values.size() && list() && slots() == null;
+    }
+
+    private int listTarget(int top) {
+        int center = carriedY(top, listRows(), listGrabY) + rowH / 2;
+        int r = Math.floorDiv(center - top + 1, rowH + 2);
+        int visible = Math.min(listRows(), values.size() - listScroll);
+        return listScroll + Math.max(0, Math.min(visible - 1, r));
+    }
+
+    private void listFollowEdge(int top) {
+        long now = System.currentTimeMillis();
+        if (now - listEdgeAt < EDGE_SCROLL_MS) return;
+        int step = lastMy < top + 4 ? -1 : lastMy > top + listRows() * (rowH + 2) - 6 ? 1 : 0;
+        int next = Math.max(0, Math.min(maxListScroll(), listScroll + step));
+        if (next == listScroll) return;
+        listScroll = next;
+        listEdgeAt = now;
+    }
+
+    private void listDropped() {
+        if (listDrag < 0) return;
+        int from = listDrag;
+        boolean moved = listCarrying();
+        listDrag = -1;
+        listMoved = false;
+        if (!moved) return;
+        int to = listTarget(listY() + CAP);
+        if (to == from) return;
+        readForm();
+        values.add(to, values.remove(from));
+        Map<Integer, Map<String, Value>> kept = new HashMap<>();
+        for (Map.Entry<Integer, Map<String, Value>> e : remembered.entrySet())
+            kept.put(movedIndex(e.getKey(), from, to), e.getValue());
+        remembered.clear();
+        remembered.putAll(kept);
+        sel = movedIndex(sel, from, to);
+        clampListScroll();
+        buildForm();
+    }
+
+    private static int movedIndex(int at, int from, int to) {
+        if (at == from) return to;
+        if (from < to && at > from && at <= to) return at - 1;
+        if (from > to && at >= to && at < from) return at + 1;
+        return at;
     }
 
     private void drawRail(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
@@ -1455,11 +1534,11 @@ public final class ValueEditor implements Overlay {
         if (localizedField() != null) { drawLangs(ctx, mouseX, mouseY); return; }
         Ui.caption(ctx, tr, "ТИП ЗНАЧЕНИЯ", x + PAD, railY() - CAP, inner());
         Ui.Grid g = grid();
-        int cw = g.cellW(), chh = g.cellH();
+        int chh = g.cellH(), n = kinds().size();
         String cur = current().type;
-        for (int i = 0; i < kinds().size(); i++) {
+        for (int i = 0; i < n; i++) {
             Values.Kind k = kinds().get(i);
-            int cx = g.cellX(i), cy = g.cellY(i);
+            int cx = g.cellX(i, n), cy = g.cellY(i), cw = g.cellW(i, n);
             boolean on = k.id().equals(cur);
             boolean ok = usable(k.id());
             boolean hov = Ui.hit(mouseX, mouseY, cx, cy, cw, chh);
@@ -1752,7 +1831,7 @@ public final class ValueEditor implements Overlay {
                     Ui.GHOST, true);
         if (!carrying) return;
         ctx.nextStratum();
-        int fy = carriedY(top, rows);
+        int fy = carriedY(top, rows, cellGrabY);
         Draw.shadow(ctx, x + PAD, fy, rw, rowH, Ui.R_SM);
         drawCellRow(ctx, v, cellDrag, target + 1, fy, rw, Integer.MIN_VALUE, Integer.MIN_VALUE, true);
         Draw.roundOutline(ctx, x + PAD, fy, rw, rowH, Ui.R_SM, Draw.opaque(Theme.ACCENT));
@@ -1793,13 +1872,13 @@ public final class ValueEditor implements Overlay {
         return cellDrag >= 0 && cellMoved && cellDrag < cellCount(v);
     }
 
-    private int carriedY(int top, int rows) {
-        int fy = lastMy - cellGrabY;
+    private int carriedY(int top, int rows, int grabY) {
+        int fy = lastMy - grabY;
         return Math.max(top, Math.min(top + (rows - 1) * (rowH + 2), fy));
     }
 
     private int cellTarget(Value v, int top, int rows) {
-        int center = carriedY(top, rows) + rowH / 2;
+        int center = carriedY(top, rows, cellGrabY) + rowH / 2;
         int r = Math.floorDiv(center - top + 1, rowH + 2);
         int visible = Math.min(rows, cellCount(v) - cellScroll);
         return cellScroll + Math.max(0, Math.min(visible - 1, r));
@@ -2547,6 +2626,13 @@ public final class ValueEditor implements Overlay {
                 readForm();
                 sel = i;
                 buildForm();
+                if (button == 0) {
+                    listDrag = i;
+                    listMoved = false;
+                    listX0 = mx;
+                    listY0 = my;
+                    listGrabY = my - ry;
+                }
                 return true;
             }
         }
@@ -2861,6 +2947,15 @@ public final class ValueEditor implements Overlay {
             }
             return true;
         }
+        if (listDrag >= 0) {
+            if (!listMoved && Math.abs(click.x() - listX0) + Math.abs(click.y() - listY0) >= CELL_MOVE_PX)
+                listMoved = true;
+            if (listMoved) {
+                lastMx = (int) click.x();
+                lastMy = (int) click.y();
+            }
+            return true;
+        }
         if (bodyBar.dragged(click.y(), 1, pane.max(), v -> pane.scroll = v)) return true;
         if (listBar.dragged(click.y(), rowH + 2, maxListScroll(), v -> listScroll = v)) return true;
         if (cellBar.dragged(click.y(), rowH + 2, maxCellScroll(current()), v -> cellScroll = v))
@@ -2896,6 +2991,7 @@ public final class ValueEditor implements Overlay {
         sizer.release();
         slotDropped();
         cellDropped();
+        listDropped();
         dragging = false;
         bodyBar.release();
         listBar.release();

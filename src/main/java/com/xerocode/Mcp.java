@@ -31,9 +31,12 @@ public final class Mcp {
     private static final String RAW = "https://raw.githubusercontent.com/garfystyle/justmc-mcp/main/";
     private static final String NODE_PAGE = "https://nodejs.org";
     private static final String STALE = "Установлен старый MCP: нажми «Установить MCP», чтобы обновить";
+    private static final String BROKEN = "MCP установлен не до конца: нажми «Установить MCP» ещё раз";
+    private static final String GAVE_UP = "justmc-mcp не установлен";
+    private static final String BANNER = "JustMCP ";
     private static final String AGENT = "justmc.agent.Agent";
     private static final String LIVE = "justmc.agent.live";
-    private static final int KEEP = 4;
+    private static final int KEEP = 4, HISTORY = 40;
     private static final long FRESH = 60_000;
     private static final long CHECK_WAIT = 120, INSTALL_WAIT = 900, SETUP_WAIT = 300, MODULES_WAIT = 7200;
     private static final Pattern COLORS = Pattern.compile("\u001B\\[[0-9;?]*[A-Za-z]");
@@ -44,6 +47,7 @@ public final class Mcp {
     private static volatile Job job = Job.NONE;
     private static volatile long checkedAt;
     private static volatile String failure = "";
+    private static volatile String trouble = "";
     private static final ArrayDeque<String> tail = new ArrayDeque<>();
 
     private Mcp() {}
@@ -58,13 +62,14 @@ public final class Mcp {
 
     public static boolean busy() { return job != Job.NONE; }
 
-    public static String failure() { return failure; }
+    public static String failure() { return failure.isEmpty() ? trouble : failure; }
 
     public static boolean agentLive() { return System.getProperties().get(LIVE) != null; }
 
     public static List<String> tail() {
         synchronized (tail) {
-            return List.copyOf(tail);
+            List<String> all = List.copyOf(tail);
+            return all.subList(Math.max(0, all.size() - KEEP), all.size());
         }
     }
 
@@ -118,7 +123,7 @@ public final class Mcp {
 
     private static void work(Job what) throws Exception {
         if (what == Job.INSTALL) {
-            if (run(installer(), INSTALL_WAIT, null) != 0) failure = last("установка не прошла");
+            if (run(installer(), INSTALL_WAIT, null) != 0) failure = reason("установка не прошла");
         } else if (what != Job.CHECK) {
             Path setup = setup();
             if (setup == null) throw new IOException("MCP не установлен");
@@ -136,6 +141,7 @@ public final class Mcp {
         Path setup = setup();
         if (setup == null || node.isEmpty()) {
             state = null;
+            trouble = "";
             return;
         }
         StringBuilder out = new StringBuilder();
@@ -143,8 +149,10 @@ public final class Mcp {
         JsonObject root = report(out.toString());
         if (root == null) {
             state = null;
-            throw new IOException(STALE);
+            trouble = out.toString().lines().anyMatch(line -> line.strip().startsWith(BANNER)) ? STALE : BROKEN;
+            return;
         }
+        trouble = "";
         List<Tool> tools = new ArrayList<>();
         JsonArray list = Json.arr(root, "tools");
         if (list != null) for (JsonElement el : list) {
@@ -176,6 +184,15 @@ public final class Mcp {
     private static String last(String fallback) {
         synchronized (tail) {
             return tail.isEmpty() ? fallback : tail.peekLast();
+        }
+    }
+
+    private static String reason(String fallback) {
+        synchronized (tail) {
+            List<String> lines = List.copyOf(tail);
+            int end = lines.lastIndexOf(GAVE_UP);
+            if (end > 0) return lines.get(end - 1);
+            return lines.isEmpty() || end == 0 ? fallback : lines.getLast();
         }
     }
 
@@ -234,7 +251,7 @@ public final class Mcp {
                     else if (!clean.isEmpty()) {
                         synchronized (tail) {
                             tail.addLast(clean);
-                            while (tail.size() > KEEP) tail.removeFirst();
+                            while (tail.size() > HISTORY) tail.removeFirst();
                         }
                     }
                 }

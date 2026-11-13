@@ -726,11 +726,28 @@ public final class Ui {
         public int cellY(int i) { return y + (i / cols) * (cellH + gap); }
         public int rows(int count) { return (count + cols - 1) / cols; }
         public int height(int count) { return rows(count) * (cellH + gap) - gap; }
+        public int cellX(int i, int count) {
+            int k = lastRow(count);
+            if (k == cols || i < count - k) return cellX(i);
+            int j = i - (count - k), w = stretched(k);
+            int spare = rowW() - k * w - (k - 1) * gap;
+            return x + j * (w + gap) + (k > 1 ? spare * j / (k - 1) : 0);
+        }
+        public int cellW(int i, int count) {
+            int k = lastRow(count);
+            return k == cols || i < count - k ? cellW : stretched(k);
+        }
         public int indexAt(double mx, double my, int count) {
             for (int i = 0; i < count; i++)
-                if (hit(mx, my, cellX(i), cellY(i), cellW, cellH)) return i;
+                if (hit(mx, my, cellX(i, count), cellY(i), cellW(i, count), cellH)) return i;
             return -1;
         }
+        private int lastRow(int count) {
+            int k = count % cols;
+            return k == 0 ? cols : k;
+        }
+        private int rowW() { return cols * cellW + (cols - 1) * gap; }
+        private int stretched(int k) { return ((rowW() - (k - 1) * gap) / k) & ~1; }
     }
 
     public static final class Cluster {

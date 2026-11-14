@@ -11,7 +11,7 @@
 
 ## Браузерная версия
 
-https://2-27-249-33.sslip.io/
+https://xerocode.mooo.com/
 
 ## Клавиши
 

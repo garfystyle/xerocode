@@ -14,9 +14,9 @@ import net.minecraft.client.Minecraft;
 public final class Endpoints {
     private static final String REMOTE =
             "https://raw.githubusercontent.com/garfystyle/xerocode/HEAD/endpoints.json";
-    private static final String SAFE = "https://2-27-249-33.sslip.io/xerocode/";
+    private static final String SAFE = "https://xerocode.mooo.com/xerocode/";
     private static final String PLAIN = "http://2.27.249.33:8791/xerocode/";
-    private static final String RELAY = "wss://2-27-249-33.sslip.io:8792/xerocode/collab";
+    private static final String RELAY = "wss://xerocode.mooo.com:8792/xerocode/collab";
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
     private static final int MAX_BYTES = 4096;
 

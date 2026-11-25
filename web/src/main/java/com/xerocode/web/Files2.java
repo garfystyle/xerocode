@@ -17,21 +17,23 @@ public final class Files2 {
             accept.append(ext);
         }
         Js.pickFile(accept.toString(), (name, base64) -> {
-            Path path = null;
-            if (name != null && !name.isEmpty()) {
-                try {
-                    String safe = name.replaceAll("[\\\\/:*?\"<>|]", "_");
-                    path = Path.of("/upload", safe);
-                    if (!Files.isDirectory(path.getParent())) Files.createDirectories(path.getParent());
-                    Files.write(path, Base64.getDecoder().decode(base64));
-                } catch (Exception e) {
-                    Console.log("warn", "файл не принят: " + e);
-                    path = null;
-                }
-            }
-            Path result = path;
+            Path result = stash(name, base64);
             Minecraft.getInstance().execute(() -> done.accept(result));
         });
+    }
+
+    public static Path stash(String name, String base64) {
+        if (name == null || name.isEmpty()) return null;
+        try {
+            String safe = name.replaceAll("[\\\\/:*?\"<>|]", "_");
+            Path path = Path.of("/upload", safe);
+            if (!Files.isDirectory(path.getParent())) Files.createDirectories(path.getParent());
+            Files.write(path, Base64.getDecoder().decode(base64));
+            return path;
+        } catch (Exception e) {
+            Console.log("warn", "файл не принят: " + e);
+            return null;
+        }
     }
 
     public static void save(String name, byte[] bytes, String mime) {

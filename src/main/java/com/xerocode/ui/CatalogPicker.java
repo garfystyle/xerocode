@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.world.item.ItemStack;
@@ -63,12 +64,26 @@ public final class CatalogPicker extends PickerPanel {
         }
 
         default String hint() { return null; }
+
+        default int sideH() { return 0; }
+
+        default void side(GuiGraphicsExtractor ctx, int x, int y, int w, int mouseX, int mouseY,
+                          boolean shown) {}
+
+        default boolean sideClicked(MouseButtonEvent click, boolean doubled) { return false; }
+
+        default boolean sideDragged(MouseButtonEvent click, double dx, double dy) { return false; }
+
+        default boolean sideScrolled(double mx, double my, double amount) { return false; }
+
+        default boolean charTyped(CharacterEvent in) { return false; }
     }
 
     private final int catH = Env.touch() ? 24 : 16;
     private final int rowH = Env.touch() ? 26 : 18;
     private final int lift = (rowH - 18) / 2;
-    private static final int LIST_MIN = 200;
+    private static final int LIST_MIN = 200, SIDE_GAP = 7;
+    private static final String EMPTY = "Выберите запись слева";
 
     private final Done done;
     private final String title;
@@ -269,17 +284,24 @@ public final class CatalogPicker extends PickerPanel {
 
     @Override
     protected void drawDetails(GuiGraphicsExtractor ctx) {
-        if (!detailsFrame(ctx)) return;
-        Item it = focused();
-        if (it == null) {
-            detailsEmpty(ctx, "Выберите запись слева");
+        if (!detailsFrame(ctx)) {
+            if (extra != null) extra.side(ctx, 0, 0, 0, lastMx, lastMy, false);
             return;
         }
+        Item it = focused();
         int inner = detailsInner(), tx = detailsX();
-        int at = detailsHead(ctx, it.picture(), it.name(), it.category(),
-                Draw.shade(accent, 0.1f));
+        int at = it == null ? bodyY() + 8 + 10 * Ui.wrap(tr, EMPTY, inner, 4).size()
+                : detailsHead(ctx, it.picture(), it.name(), it.category(),
+                        Draw.shade(accent, 0.1f));
+        if (it == null) detailsEmpty(ctx, EMPTY);
+        int sideH = extra == null ? 0 : extra.sideH();
+        int sideY = detailsBottom() - sideH;
+        boolean side = sideH > 0 && sideY - SIDE_GAP >= at;
+        if (extra != null) extra.side(ctx, tx, sideY, inner, lastMx, lastMy, side);
+        if (side) Ui.hairline(ctx, tx, sideY - SIDE_GAP, inner);
+        if (it == null) return;
 
-        int bottom = detailsBottom();
+        int bottom = side ? sideY - SIDE_GAP - 4 : detailsBottom();
         int room = Math.max(0, (bottom - at) / 10);
         int forNote = it.note().isEmpty() ? 0 : Math.min(3, room / 3);
         for (String line : Ui.wrap(tr, it.description(), inner, room - forNote)) {
@@ -367,8 +389,24 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     @Override
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+        if (extra != null && extra.sideClicked(click, doubled)) {
+            search.setFocused(false);
+            return true;
+        }
+        return super.mouseClicked(click, doubled);
+    }
+
+    @Override
+    public boolean charTyped(CharacterEvent in) {
+        if (extra != null && extra.charTyped(in)) return true;
+        return super.charTyped(in);
+    }
+
+    @Override
     public boolean mouseDragged(MouseButtonEvent click, double dx, double dy) {
         if (bar.dragged(click.y(), rowH, maxScroll(), v -> scroll = v)) return true;
+        if (extra != null && extra.sideDragged(click, dx, dy)) return true;
         if (extra != null && extra.mouseDragged((int) click.x(), stripX(), stripY(), stripW(),
                 stripBodyH())) return true;
         return super.mouseDragged(click, dx, dy);
@@ -382,6 +420,7 @@ public final class CatalogPicker extends PickerPanel {
     }
 
     public boolean mouseScrolled(double mx, double my, double amount) {
+        if (extra != null && extra.sideScrolled(mx, my, amount)) return true;
         if (extra != null && extra.mouseScrolled(mx, my, amount, stripX(), stripY(), stripW(),
                 stripBodyH())) return true;
         scroll = Math.max(0, Math.min(maxScroll(), scroll - Ui.rows(amount, 3, rowH)));

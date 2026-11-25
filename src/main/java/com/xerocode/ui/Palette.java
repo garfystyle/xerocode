@@ -1,6 +1,7 @@
 package com.xerocode.ui;
 
 import com.xerocode.Catalog;
+import com.xerocode.Env;
 import com.xerocode.Settings;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,7 +54,7 @@ public final class Palette {
     private double scroll, scrollTarget;
     private final Ui.Bar bar = new Ui.Bar();
     private int contentH;
-    private boolean dirty = true;
+    private boolean dirty = true, builtTouch;
 
     public Catalog.Category category() {
         return catIndex < 0 || catIndex >= Catalog.CATEGORIES.size()
@@ -61,7 +62,9 @@ public final class Palette {
     }
     public String query() { return query; }
     public boolean hasCrumb() { return catIndex >= 0 || !query.isBlank(); }
-    public int listTop() { return HEADER_H + (hasCrumb() ? CRUMB_H : 0); }
+    public int listTop() { return HEADER_H + (hasCrumb() ? crumbH() : 0); }
+
+    private static int crumbH() { return Env.touch() ? 28 : CRUMB_H; }
 
     public void setQuery(String q) {
         if (q.equals(query)) return;
@@ -85,14 +88,15 @@ public final class Palette {
 
     private void rebuild() {
         dirty = false;
+        builtTouch = Env.touch();
         entries.clear();
         if (!query.isBlank()) {
             Catalog.Category in = category();
             List<Catalog.Action> hits = in == null
                     ? Catalog.search(query, 250)
                     : Catalog.searchIn(in, query, 250);
-            if (hits.isEmpty()) add(new Entry(null, null, "ничего не найдено", Theme.ROW_HEAD_H));
-            else for (Catalog.Action a : hits) add(new Entry(null, a, null, Theme.ROW_ACTION_H));
+            if (hits.isEmpty()) add(new Entry(null, null, "ничего не найдено", Theme.rowHeadH()));
+            else for (Catalog.Action a : hits) add(new Entry(null, a, null, Theme.rowActionH()));
         } else if (catIndex < 0) {
             List<Catalog.Category> left = new ArrayList<>(Catalog.CATEGORIES);
             for (String[] group : GROUPS) {
@@ -115,7 +119,7 @@ public final class Palette {
                     List<Catalog.Action> acts = c.subActions.get(si);
                     if (sn != null && addSection(sn, acts.size())) continue;
                     for (Catalog.Action a : acts)
-                        add(new Entry(null, a, null, Theme.ROW_ACTION_H));
+                        add(new Entry(null, a, null, Theme.rowActionH()));
                 }
             }
         }
@@ -132,7 +136,7 @@ public final class Palette {
     }
 
     private boolean addSection(String caption, int inside) {
-        Entry e = new Entry(null, null, caption, Theme.ROW_HEAD_H);
+        Entry e = new Entry(null, null, caption, Theme.rowHeadH());
         Catalog.Category c = category();
         e.key = (c == null ? "@" : c.name) + "|" + caption;
         e.inside = inside;
@@ -153,8 +157,8 @@ public final class Palette {
         Catalog.Action only = c.count() == 1 && !c.subActions.isEmpty()
                 && !c.subActions.get(0).isEmpty() ? c.subActions.get(0).get(0) : null;
         return only == null
-                ? new Entry(c, null, null, Theme.ROW_CAT_H)
-                : new Entry(null, only, null, Theme.ROW_CAT_H);
+                ? new Entry(c, null, null, Theme.rowCatH())
+                : new Entry(null, only, null, Theme.rowCatH());
     }
 
     private void add(Entry e) { entries.add(e); }
@@ -185,7 +189,7 @@ public final class Palette {
     }
 
     public void render(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY, int screenH) {
-        if (dirty) rebuild();
+        if (dirty || builtTouch != Env.touch()) rebuild();
         animate(screenH);
 
         int w = Theme.PALETTE_W;
@@ -215,8 +219,9 @@ public final class Palette {
         ctx.disableScissor();
 
         double max = maxScroll(screenH);
+        bar.width(Env.touch() ? 7 : 3);
         if (max > 0)
-            bar.draw(ctx, w - 6, top + 4, screenH - top - 8, contentH,
+            bar.draw(ctx, w - 3 - bar.width(), top + 4, screenH - top - 8, contentH,
                     (int) (contentH - max), (int) Math.round(scroll), mouseX, mouseY);
     }
 
@@ -245,9 +250,10 @@ public final class Palette {
 
     private void drawCrumb(GuiGraphicsExtractor ctx, Font tr, int mouseX, int mouseY) {
         int w = Theme.PALETTE_W;
-        boolean hov = mouseY >= HEADER_H && mouseY < HEADER_H + CRUMB_H && mouseX < w - 1;
-        Draw.rect(ctx, 0, HEADER_H, w - 1, CRUMB_H, Draw.opaque(hov ? Theme.PANEL_RAISED : Theme.PANEL));
-        Draw.glyph(ctx, Draw.CHEVRON_LEFT, 9, HEADER_H + 8, hov ? Theme.TEXT : Theme.TEXT_DIM);
+        int ch = crumbH(), ty = HEADER_H + (ch - 7) / 2;
+        boolean hov = mouseY >= HEADER_H && mouseY < HEADER_H + ch && mouseX < w - 1;
+        Draw.rect(ctx, 0, HEADER_H, w - 1, ch, Draw.opaque(hov ? Theme.PANEL_RAISED : Theme.PANEL));
+        Draw.glyph(ctx, Draw.CHEVRON_LEFT, 9, ty + 1, hov ? Theme.TEXT : Theme.TEXT_DIM);
         Catalog.Category c = category();
         String label;
         int color = Theme.TEXT_DIM;
@@ -257,7 +263,7 @@ public final class Palette {
             label = c == null ? "все категории" : c.name;
             if (c != null) color = Draw.readable(c.color);
         }
-        Draw.textFit(ctx, tr, label, 20, HEADER_H + 7, w - 34, hov ? Theme.TEXT : color, false);
+        Draw.textFit(ctx, tr, label, 20, ty, w - 34, hov ? Theme.TEXT : color, false);
     }
 
     private void drawCaption(GuiGraphicsExtractor ctx, Font tr, Entry e, int y, boolean hover) {
@@ -265,12 +271,13 @@ public final class Palette {
         if (head) drawFoldMark(ctx, e, y, hover);
         int textX = head ? SECTION_X : CAPTION_X;
         if (e.labelFor != Theme.PALETTE_W) measureCaption(tr, e, textX);
-        Draw.text(ctx, tr, e.label, textX, y + 5, hover ? Theme.TEXT : Theme.TEXT_FAINT, false);
+        int ty = y + (e.h - 7) / 2;
+        Draw.text(ctx, tr, e.label, textX, ty, hover ? Theme.TEXT : Theme.TEXT_FAINT, false);
         int lineX = textX + e.labelW + 6;
         int lineR = Theme.PALETTE_W - 14 - (e.extra == null ? 0 : e.extraW + 6);
-        Draw.rect(ctx, lineX, y + 8, Math.max(0, lineR - lineX), 1, Draw.argb(0x60, Ui.BORDER));
+        Draw.rect(ctx, lineX, ty + 3, Math.max(0, lineR - lineX), 1, Draw.argb(0x60, Ui.BORDER));
         if (e.extra != null)
-            Draw.text(ctx, tr, e.extra, Theme.PALETTE_W - 14 - e.extraW, y + 5,
+            Draw.text(ctx, tr, e.extra, Theme.PALETTE_W - 14 - e.extraW, ty,
                     hover ? Theme.TEXT_DIM : Theme.TEXT_FAINT, false);
     }
 
@@ -280,7 +287,7 @@ public final class Palette {
                     Draw.opaque(Theme.SURFACE_HOVER));
         String[] caret = e.folded ? Draw.CARET_RIGHT : Draw.CARET_DOWN;
         Draw.glyph(ctx, caret, 10 + (CARET_BOX - Draw.glyphW(caret)) / 2,
-                y + 6 + (CARET_BOX - Draw.glyphH(caret)) / 2,
+                y + (e.h - 7) / 2 + 1 + (CARET_BOX - Draw.glyphH(caret)) / 2,
                 hover ? Theme.TEXT : Theme.TEXT_DIM);
     }
 
@@ -359,7 +366,7 @@ public final class Palette {
     }
 
     public Entry entryAt(double mx, double my, int screenH) {
-        if (dirty) rebuild();
+        if (dirty || builtTouch != Env.touch()) rebuild();
         int top = listTop();
         if (mx < 0 || mx >= Theme.PALETTE_W - 1 || my < top || my > screenH) return null;
         double ly = my - top + scroll;
@@ -371,6 +378,6 @@ public final class Palette {
     }
 
     public boolean hitCrumb(double mx, double my) {
-        return hasCrumb() && mx < Theme.PALETTE_W - 1 && my >= HEADER_H && my < HEADER_H + CRUMB_H;
+        return hasCrumb() && mx < Theme.PALETTE_W - 1 && my >= HEADER_H && my < HEADER_H + crumbH();
     }
 }

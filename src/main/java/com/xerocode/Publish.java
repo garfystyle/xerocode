@@ -17,9 +17,12 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 
@@ -29,6 +32,8 @@ public final class Publish {
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
     private static final String OFFICIAL = "https://m.justmc.ru/api/";
     private static final Pattern OFFICIAL_ID = Pattern.compile("[0-9A-Za-z_-]{4,64}");
+    private static final Pattern EXPORT_DAY = Pattern.compile("(\\d\\d)\\.(\\d\\d)\\.(\\d{4})(?:-(\\d+))?\\.json");
+    private static final int KEEP_EXPORTS = 10;
     private static final Duration OFFICIAL_WAIT = Duration.ofSeconds(60);
     private static final long RESCUE_WINDOW = 120_000;
     private static final long RESEND_GAP = 2_000;
@@ -353,11 +358,36 @@ public final class Publish {
             for (int i = 2; Files.exists(path) && i < 100; i++)
                 path = dir.resolve(stem + "-" + i + ".json");
             Json.write(path, code);
+            prune(dir, "export_" + worldId + "-");
             return path;
         } catch (IOException e) {
             XeroCode.LOG.error("[xerocode] не удалось записать экспорт файлом", e);
             return null;
         }
+    }
+
+    private static void prune(Path dir, String head) {
+        List<Path> own = new ArrayList<>();
+        try (Stream<Path> files = Files.list(dir)) {
+            files.forEach(p -> {
+                String name = p.getFileName().toString();
+                if (name.startsWith(head) && EXPORT_DAY.matcher(name.substring(head.length())).matches())
+                    own.add(p);
+            });
+            if (own.size() <= KEEP_EXPORTS) return;
+            own.sort(Comparator.comparingLong(p -> exportOrder(p.getFileName().toString().substring(head.length()))));
+            for (Path old : own.subList(0, own.size() - KEEP_EXPORTS)) Files.deleteIfExists(old);
+        } catch (Exception e) {
+            XeroCode.LOG.warn("[xerocode] старые копии отправленного не убраны", e);
+        }
+    }
+
+    private static long exportOrder(String tail) {
+        Matcher m = EXPORT_DAY.matcher(tail);
+        if (!m.matches()) return -1;
+        long day = Long.parseLong(m.group(3)) * 10000 + Long.parseLong(m.group(2)) * 100
+                + Long.parseLong(m.group(1));
+        return day * 1000 + (m.group(4) == null ? 1 : Long.parseLong(m.group(4)));
     }
 
     private static volatile Job current, lastSent;

@@ -72,6 +72,8 @@ public final class XeroCode implements ClientModInitializer {
     private Runnable coverDone;
     private net.minecraft.world.level.GameType coverMode;
     private String worldModeNow = "";
+    private String worldModeLast = "";
+    private int scaleSet;
 
     private static final String[] DENIED = {
             "нет прав",
@@ -79,6 +81,8 @@ public final class XeroCode implements ClientModInitializer {
             "Неизвестная или неполная команда"
     };
     private static final String ENTERED = "режим изменения кода";
+    private static final String STARTED_BUILD = "запущен в режиме строительства",
+            STARTED_PLAY = "запущен в режиме игры", NOT_STARTED = "не запущен в режиме";
     private static final String[] MODE_SAID = {
             "режиме строительства", "режиме игры", "нет прав", "Вы не в мире",
             "Неизвестная или неполная команда"
@@ -152,6 +156,7 @@ public final class XeroCode implements ClientModInitializer {
 
     private void switchWorld(Minecraft client, ClientLevel world) {
         String plot = plotId(world);
+        if (!plot.equals(scriptPlot)) worldModeLast = "";
         if (script == null) { scriptPlot = plot; return; }
         if (plot.equals(scriptPlot)) return;
         if (client.gui.screen() instanceof EditorScreen editor) {
@@ -273,8 +278,8 @@ public final class XeroCode implements ClientModInitializer {
             heardFault(message, text);
             Publish.noteChat(text);
             restartHeard(text);
-            if (text.contains("режиме строительства")) worldModeNow = "build";
-            else if (text.contains("режиме игры")) worldModeNow = "play";
+            String started = modeSaid(text);
+            if (started != null) worldModeNow = worldModeLast = started;
             else if (text.contains(ENTERED)) worldModeNow = "dev";
             if (cover != null) for (String said : MODE_SAID)
                 if (text.contains(said)) {
@@ -285,6 +290,7 @@ public final class XeroCode implements ClientModInitializer {
 
         ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
             if (retired) return;
+            if (keepScale(client, screen)) return;
             Veil.attach(screen);
             if (holdScreen <= 0 || holding == null || restoring || picking()) return;
             if (screen == holding || screen instanceof ImportScreen) return;
@@ -334,6 +340,7 @@ public final class XeroCode implements ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (retired) return;
+            keepScale(client, client.gui.screen());
             Release.check();
             announce(client);
             Backstage.guard(client);
@@ -541,6 +548,17 @@ public final class XeroCode implements ClientModInitializer {
         restartStage = 1;
         client.getConnection().sendCommand("build");
         cover("Перезапуск мира…", null);
+    }
+
+    private static String modeSaid(String text) {
+        if (text.contains(NOT_STARTED)) return null;
+        if (text.contains(STARTED_BUILD)) return "build";
+        if (text.contains(STARTED_PLAY)) return "play";
+        return null;
+    }
+
+    public static String toWorld() {
+        return INSTANCE != null && "build".equals(INSTANCE.worldModeLast) ? "build" : "play";
     }
 
     private static String modeOf(Minecraft client) {
@@ -838,6 +856,34 @@ public final class XeroCode implements ClientModInitializer {
         if (!Pickers.loaded()) Pickers.load();
         if (!Mapping.loaded()) Mapping.load();
         if (!Placeholders.loaded()) Placeholders.load();
+    }
+
+    public static void reopen(Minecraft client) { open(client); }
+
+    private boolean keepScale(Minecraft client, Screen screen) {
+        var window = client.getWindow();
+        if (window == null) return false;
+        int want = ours(screen) ? wantedScale(client) : 0;
+        if (want == 0) {
+            if (scaleSet == 0) return false;
+            scaleSet = 0;
+            client.resizeGui();
+            return true;
+        }
+        scaleSet = want;
+        if (window.getGuiScale() == want) return false;
+        window.setGuiScale(want);
+        if (screen != null) screen.resize(window.getGuiScaledWidth(), window.getGuiScaledHeight());
+        return true;
+    }
+
+    private static boolean ours(Screen screen) {
+        return screen != null && screen.getClass().getName().startsWith("com.xerocode.");
+    }
+
+    private static int wantedScale(Minecraft client) {
+        int chosen = Settings.get().uiScale;
+        return chosen <= 0 ? 0 : client.getWindow().calculateScale(chosen, client.isEnforceUnicode());
     }
 
     private static void open(Minecraft client) {

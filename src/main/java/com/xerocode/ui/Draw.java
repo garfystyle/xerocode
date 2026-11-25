@@ -708,6 +708,14 @@ public final class Draw {
             "#######",
             "       ",
             "#####  "};
+    public static final String[] TIDY = {
+            "## ## ##",
+            "## ## ##",
+            "## ## ##",
+            "## ## ##",
+            "##    ##",
+            "##    ##",
+            "##      "};
     public static final String[] IMAGE = {
             "+#######+",
             "#       #",
@@ -855,6 +863,14 @@ public final class Draw {
             "####  # #",
             "  +##   #",
             "   +#  + "};
+    public static final String[] SPEAKER_OFF = {
+            "   +#    ",
+            "  +##    ",
+            "####  # #",
+            "####   # ",
+            "####  # #",
+            "  +##    ",
+            "   +#    "};
 
     private Draw() {}
 }

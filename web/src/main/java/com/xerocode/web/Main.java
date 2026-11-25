@@ -92,7 +92,7 @@ public final class Main {
         double target = 900;
         if (Js.coarse()) target = Math.max(320, Math.min(900, w / Js.ratio() / 2));
         int s = Math.max(1, (int) (Js.coarse() ? Math.floor(w / target) : Math.round(w / target)));
-        int chosen = com.xerocode.Settings.get().webScale;
+        int chosen = com.xerocode.Settings.get().uiScale;
         if (chosen > 0) s = chosen;
         while (s > 1 && (w / s < 320 || h / s < 240)) s--;
         String forced = Js.param("scale");
@@ -259,6 +259,11 @@ public final class Main {
                         if (screen instanceof EditorScreen editor) editor.touchZoom(mouseX, mouseY, Js.num(q, i, 3));
                     }
                     case "v" -> Input.clipboardRead(Js.num(q, i, 1) == 1, Js.str(q, i, 2));
+                    case "f" -> {
+                        move(screen, Js.num(q, i, 1), Js.num(q, i, 2));
+                        java.nio.file.Path dropped = Files2.stash(Js.str(q, i, 3), Js.str(q, i, 4));
+                        if (dropped != null && screen != null) screen.onFilesDrop(java.util.List.of(dropped));
+                    }
                     case "b" -> {
                         Input.releaseAll();
                         heldButton = -1;

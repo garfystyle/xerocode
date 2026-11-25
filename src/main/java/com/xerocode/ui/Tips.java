@@ -98,7 +98,7 @@ final class Tips {
                     }
                 }
             }
-            lines.add(Component.literal(Env.touch() ? "§8тап — значение, 2 пальца — очистить" : "§8ЛКМ — значение, ПКМ — очистить"));
+            lines.add(Component.literal(valueHint(v)));
             if (!Carry.values(box, chip).isEmpty())
                 lines.add(Component.literal("§8" + copyHint()));
         } else {
@@ -251,6 +251,14 @@ final class Tips {
             out.addAll(describe(part, room));
         }
         return out.size() > 6 ? new ArrayList<>(out.subList(0, 6)) : out;
+    }
+
+    private static String valueHint(Value v) {
+        if (Env.touch()) return "§8тап — значение, 2 пальца — очистить";
+        if (v == null || !Value.VARIABLE.equals(v.type)) return "§8ЛКМ — значение, ПКМ — очистить";
+        Settings s = Settings.get();
+        return s.code(Settings.Hot.RENAME) == Settings.NONE ? "§8ПКМ — очистить"
+                : "§8ПКМ — очистить, " + s.label(Settings.Hot.RENAME) + " — переименовать";
     }
 
     private static String copyHint() {

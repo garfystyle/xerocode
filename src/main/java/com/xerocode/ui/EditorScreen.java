@@ -69,7 +69,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private double panX = 60, panY = 50, zoom = 1.0;
     private boolean viewRestored;
-    private boolean panning, draggingSearch, resizingPalette, paletteSwipe;
+    private boolean panning, draggingSearch, resizingPalette, paletteSwipe, edgeSwipe, paletteVisible;
+    private String palettePress;
+    private double paletteX0, paletteY0;
+    private static final int EDGE_W = 14;
     private double paletteDrag;
     private double mouseCanvasX, mouseCanvasY;
 
@@ -210,7 +213,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         saveScript();
         Tabs.shown(next);
         Tabs.saveAll();
-        if (minecraft != null) minecraft.gui.setScreen(new EditorScreen(next, true));
+        if (minecraft != null) minecraft.gui.setScreen(new EditorScreen(next));
     }
 
     private void newTab() {
@@ -220,7 +223,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         rememberView();
         saveScript();
         Script fresh = Tabs.add(null);
-        if (fresh != null && minecraft != null) minecraft.gui.setScreen(new EditorScreen(fresh, true));
+        if (fresh != null && minecraft != null) minecraft.gui.setScreen(new EditorScreen(fresh));
     }
 
     private void askCloseTab(int index) {
@@ -248,7 +251,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         }
         finishEditor();
         Tabs.close(index);
-        if (minecraft != null) minecraft.gui.setScreen(new EditorScreen(Tabs.activeScript(), true));
+        if (minecraft != null) minecraft.gui.setScreen(new EditorScreen(Tabs.activeScript()));
     }
 
     private void tabMenu(int index, int x, int y) {
@@ -295,14 +298,12 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 });
     }
 
-    public EditorScreen(Script script) { this(script, false); }
-
-    public EditorScreen(Script script, boolean keepHistory) {
+    public EditorScreen(Script script) {
         super(Component.literal("XeroCode"));
         this.script = script;
         History.use(script);
-        if (!keepHistory) History.clear();
         if (!script.scratch) Tabs.shown(script);
+        paletteVisible = paletteWanted();
     }
 
     @Override
@@ -332,7 +333,34 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     @Override
     public StatusBar.Said sync() { return foot == null || script.scratch ? null : foot.syncSaid(script); }
 
-    private int canvasLeft() { return Settings.chests() ? 0 : Theme.PALETTE_W; }
+    private int canvasLeft() { return paletteVisible ? Theme.PALETTE_W : 0; }
+
+    private boolean paletteWanted() {
+        if (Settings.chests() || Settings.get().paletteHidden) return false;
+        return !(Env.touch() && carryingAway());
+    }
+
+    private boolean carryingAway() {
+        return drag != null && (dragMoved || !dragFromPalette) || moving && moveShifted;
+    }
+
+    private void syncPalette() {
+        boolean want = paletteWanted();
+        if (want == paletteVisible) return;
+        panX += want ? -Theme.PALETTE_W : Theme.PALETTE_W;
+        paletteVisible = want;
+    }
+
+    private void setPaletteHidden(boolean hidden) {
+        Settings s = Settings.get();
+        if (s.paletteHidden == hidden) return;
+        s.paletteHidden = hidden;
+        s.save();
+        if (hidden) search.setFocused(false);
+    }
+
+    @Override
+    public boolean paletteOpen() { return paletteVisible; }
     private int canvasRight() { return finder == null ? width : Math.max(canvasLeft() + 40, finder.x()); }
     private int canvasBottom() { return height - (Settings.statusBar() ? Theme.STATUS_H : 0); }
     private double midX() { return (canvasLeft() + canvasRight()) / 2.0; }
@@ -950,7 +978,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     private boolean overSplitter(double mx) {
-        return !Settings.chests() && Math.abs(mx - Theme.PALETTE_W) <= 3;
+        return paletteVisible && Math.abs(mx - Theme.PALETTE_W) <= 3;
     }
 
     private void drawSplitter(GuiGraphicsExtractor ctx, int mouseX) {
@@ -1712,6 +1740,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     private void inputArrived() {
         changeHint = true;
         hintChecked = false;
+        syncPalette();
     }
 
     private boolean sweepDiffers() {
@@ -1751,6 +1780,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     @Override
     public void extractRenderState(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
         if (minecraft != null) Backstage.hide(minecraft);
+        syncPalette();
         inFrame = false;
         Draw.batch(null);
         SmoothText.clip(null);
@@ -1836,7 +1866,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
         drawMap(ctx, mouseX, mouseY);
         if (finder != null) finder.render(ctx, mouseX, mouseY, delta);
-        if (!Settings.chests()) {
+        if (paletteVisible) {
             palette.render(ctx, font, mouseX, mouseY, canvasBottom());
             search.extractRenderState(ctx, mouseX, mouseY, delta);
             Ui.placeholder(ctx, font, search);
@@ -2158,6 +2188,17 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         if (minecraft != null) minecraft.gui.setScreen(new LoadScreen(this, this::loadJson));
     }
 
+    @Override
+    public void onFilesDrop(List<Path> paths) {
+        inputArrived();
+        for (Path file : paths) {
+            if (!file.getFileName().toString().toLowerCase(java.util.Locale.ROOT).endsWith(".json")) continue;
+            loadJson(file);
+            return;
+        }
+        toast("сюда — только код JustMC, файл .json");
+    }
+
     private void loadJson(Path file) {
         JsonArray handlers = null;
         try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
@@ -2216,7 +2257,9 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             case TopBar.REDO -> redo();
             case TopBar.PLAY -> askExit("play");
             case TopBar.BUILD -> askExit("build");
+            case TopBar.PALETTE -> setPaletteHidden(paletteVisible);
             case TopBar.CLEAR -> clearCanvas();
+            case TopBar.TIDY -> tidy();
             case TopBar.ZOOM_OUT -> zoomTo(zoom / 1.15, (canvasLeft() + width) / 2.0,
                     midY());
             case TopBar.ZOOM_IN -> zoomTo(zoom * 1.15, (canvasLeft() + width) / 2.0,
@@ -2421,7 +2464,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         settings = null;
         if (chestsShown != Settings.chests()) {
             chestsShown = Settings.chests();
-            panX += chestsShown ? Theme.PALETTE_W : -Theme.PALETTE_W;
+            syncPalette();
             search.setFocused(false);
             if (finder != null) finder.resize(width, canvasBottom());
         }
@@ -2743,6 +2786,13 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             else if (id != TopBar.NONE) onTopButton(id);
             return true;
         }
+        if (Env.touch() && button == 0 && !Settings.chests() && !paletteVisible && carry == null
+                && mx < EDGE_W && my >= Theme.topH() && my < canvasBottom()) {
+            edgeSwipe = true;
+            paletteX0 = mx;
+            paletteY0 = my;
+            return true;
+        }
         if (mx < canvasLeft()) {
             if (carry != null) { cancelCarry(); return true; }
             return paletteClicked(click, doubled);
@@ -2849,19 +2899,11 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             return true;
         }
         if (palette.barPress(mx, my)) return true;
-        if (palette.hitCrumb(mx, my)) {
-            if (!search.getValue().isEmpty()) search.setValue("");
-            else palette.openCategory(-1);
-            return true;
-        }
+        paletteX0 = mx;
+        paletteY0 = my;
         Palette.Entry e = palette.entryAt(mx, my, canvasBottom());
-        if (e == null) return true;
-        if (e.isSection()) {
-            palette.toggle(e);
-            return true;
-        }
-        if (e.category != null) {
-            palette.openCategory(Catalog.CATEGORIES.indexOf(e.category));
+        if (palette.hitCrumb(mx, my) || e == null || e.isSection() || e.category != null) {
+            palettePress = paletteTarget(mx, my);
             return true;
         }
         if (e.action != null) {
@@ -2875,6 +2917,33 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             dragMoved = false;
         }
         return true;
+    }
+
+    private String paletteTarget(double mx, double my) {
+        if (palette.hitCrumb(mx, my)) return "crumb";
+        Palette.Entry e = palette.entryAt(mx, my, canvasBottom());
+        if (e == null) return "";
+        if (e.isSection()) return "section:" + e.key;
+        if (e.category != null) return "category:" + e.category.name;
+        return "";
+    }
+
+    private void paletteReleased(String pressed, double mx, double my) {
+        if (pressed.isEmpty() || mx >= canvasLeft() || !pressed.equals(paletteTarget(mx, my))) return;
+        if (pressed.equals("crumb")) {
+            if (!search.getValue().isEmpty()) search.setValue("");
+            else palette.openCategory(-1);
+            return;
+        }
+        Palette.Entry e = palette.entryAt(mx, my, canvasBottom());
+        if (e == null) return;
+        if (e.isSection()) palette.toggle(e);
+        else if (e.category != null) palette.openCategory(Catalog.CATEGORIES.indexOf(e.category));
+    }
+
+    private boolean swipedLeft(double x, double y) {
+        double ddx = x - paletteX0, ddy = y - paletteY0;
+        return ddx < 0 && Math.abs(ddx) > Math.abs(ddy);
     }
 
     private boolean canvasClicked(double mx, double my, int button, int mods, boolean doubled) {
@@ -4022,6 +4091,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private void toCanvas() {
         Script main = XeroCode.script();
+        History.pushFor(main, History.snapshot(main));
         double x = main.roots.isEmpty() ? 40 : main.lastRootX() + 320, y = 40;
         for (Script.Root r : copies(script.roots)) {
             double dx = x - script.roots.get(0).x, dy = y - script.roots.get(0).y;
@@ -4135,7 +4205,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
 
     private boolean carrying() { return drag != null || (moving && moveShifted); }
 
-    private boolean trashShown() { return carrying() && Settings.chests(); }
+    private boolean trashShown() { return carrying() && !paletteVisible; }
 
     private int trashX() { return canvasLeft() + POCKET_EDGE; }
 
@@ -4560,7 +4630,34 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             pressBox = null;
             return true;
         }
+        if (edgeSwipe) {
+            double ddx = click.x() - paletteX0, ddy = click.y() - paletteY0;
+            if (ddx > 0 && ddx > Math.abs(ddy)) {
+                edgeSwipe = false;
+                setPaletteHidden(false);
+            }
+            return true;
+        }
+        if (palettePress != null) {
+            if (!Env.touch()) return true;
+            if (swipedLeft(click.x(), click.y())) {
+                palettePress = null;
+                setPaletteHidden(true);
+            } else if (Math.abs(dy) > Math.abs(dx)) {
+                palettePress = null;
+                paletteSwipe = true;
+                palette.scrollBy(dy / 42.0, canvasBottom());
+            }
+            return true;
+        }
         if (paletteSwipe) { palette.scrollBy(dy / 42.0, canvasBottom()); return true; }
+        if (drag != null && dragFromPalette && !dragMoved && Env.touch() && click.x() < canvasLeft()
+                && swipedLeft(click.x(), click.y())) {
+            endDrag();
+            dragFromPalette = false;
+            setPaletteHidden(true);
+            return true;
+        }
         if (drag != null && dragFromPalette && !dragMoved && Env.touch() && click.x() < canvasLeft()
                 && Math.abs(dy) > Math.abs(dx)) {
             endDrag();
@@ -4585,6 +4682,13 @@ public final class EditorScreen extends Screen implements TopBar.Host {
         mouseCanvasX = toCanvasX(click.x());
         mouseCanvasY = toCanvasY(click.y());
         palette.barRelease();
+        edgeSwipe = false;
+        if (palettePress != null) {
+            String pressed = palettePress;
+            palettePress = null;
+            if (click.button() == 0) paletteReleased(pressed, click.x(), click.y());
+            return true;
+        }
         if (menu != null) menu.mouseReleased();
         if (blockMenu != null) blockMenu.mouseReleased();
         Overlay panel = panel();
@@ -4873,7 +4977,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 return true;
             }
             if (held != null) { cancelHeld(); return true; }
-            if (!Settings.chests() && palette.hasCrumb()) {
+            if (paletteVisible && palette.hasCrumb()) {
                 if (!search.getValue().isEmpty()) search.setValue("");
                 else palette.openCategory(-1);
                 return true;
@@ -4908,7 +5012,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     private boolean typingText() {
-        return (search.isFocused() && !Settings.chests()) || (finder != null && finder.focused());
+        return (search.isFocused() && paletteVisible) || (finder != null && finder.focused());
     }
 
     private boolean typing(Settings.Hot hot) {
@@ -4941,6 +5045,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
                 toast("сохранено");
             }
             case SAVE_TAB -> saveTabFile();
+            case LOAD -> openLoadDialog();
             case UPLOAD -> publish(null);
             case SEARCH -> {
                 if (Settings.chests()) { quickAddHere(false); break; }
@@ -5013,6 +5118,10 @@ public final class EditorScreen extends Screen implements TopBar.Host {
             return finder.charTyped(input);
         }
         if (Settings.chests()) return false;
+        if (!paletteVisible) {
+            if (!Settings.get().paletteHidden) return false;
+            setPaletteHidden(false);
+        }
         if (!search.isFocused()) {
             String s = input.codepointAsString();
             if (s != null && !s.isBlank()) {
@@ -5037,6 +5146,7 @@ public final class EditorScreen extends Screen implements TopBar.Host {
     }
 
     public void rememberView() {
+        syncPalette();
         script.viewX = panX;
         script.viewY = panY;
         script.viewZoom = zoom;

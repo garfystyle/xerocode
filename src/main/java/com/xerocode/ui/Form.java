@@ -79,7 +79,7 @@ final class Form {
                 Ui.width(f, cw - 12);
             }
         }
-        String single = has("input") ? "input" : has("material") ? "material" : null;
+        String single = has("input") ? "input" : has("material") ? "material" : has("variation") ? "variation" : null;
         if (single == null) return;
         EditBox f = null;
         for (int i = 0; i < fields.size() && f == null; i++)

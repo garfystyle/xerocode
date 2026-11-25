@@ -55,7 +55,10 @@ public final class SettingsPanel implements Overlay {
     private static final int GAP = 10;
     private static final int MEMBER_H = 14;
     private static final int CARD_H = 40, CARD_MIN_W = 72, CARD_GAP = 6, CARD_RAIL = 14;
-    private static final long CONFIRM_MS = 3000;
+    private static final long CONFIRM_MS = 3000, SCALE_MS = 5000;
+    private static final String SCALE_ASK = "Оставить этот масштаб?", SCALE_KEEP = "Оставить",
+            SCALE_BACK = "Вернуть";
+    private static final int ASK_PAD = 10, ASK_GAP = 6;
     private static final String WAITING = "жду клавишу или кнопку…";
     private static final String UNSET = "не задано";
     private static final String NOTHING = "ничего не нашлось";
@@ -85,7 +88,7 @@ public final class SettingsPanel implements Overlay {
     private static List<KeyGroup> keyGroups() {
         List<KeyGroup> groups = new ArrayList<>(List.of(
                 new KeyGroup("ОСНОВНОЕ", List.of(Hot.OPEN, Hot.SETTINGS, Hot.MODE, Hot.SAVE,
-                        Hot.SAVE_TAB, Hot.UPLOAD, Hot.UNDO, Hot.REDO)),
+                        Hot.SAVE_TAB, Hot.LOAD, Hot.UPLOAD, Hot.UNDO, Hot.REDO)),
                 new KeyGroup("ПРАВКА", List.of(Hot.QUICK_ADD, Hot.COPY, Hot.COPY_ONE, Hot.CUT, Hot.CUT_ONE,
                         Hot.PASTE, Hot.DUPLICATE, Hot.DUP_ONE, Hot.WRAP, Hot.DELETE, Hot.DEL_STACK,
                         Hot.SELECT, Hot.RENAME)),
@@ -201,6 +204,8 @@ public final class SettingsPanel implements Overlay {
     private boolean hexDrag;
     private boolean closed, changed;
     private int confirmTab = -1;
+    private int scaleWas = -1;
+    private long scaleAt;
     private long confirmAt;
     private long copied;
     private long mcpConfirmAt;
@@ -261,8 +266,7 @@ public final class SettingsPanel implements Overlay {
         rows.add(Row.toggle(look, "Тени", "", () -> s.shadows, v -> s.shadows = v));
         rows.add(new Row(look, "Затемнение за окнами", "",
                 Settings.DIM_NAMES, () -> s.dim, v -> s.dim = v));
-        if (Env.browser())
-            rows.add(new Row(look, "Масштаб", "", Settings.SCALE_NAMES, () -> s.webScale, v -> s.webScale = v));
+        rows.add(new Row(look, "Масштаб", "", Settings.scaleNames(), () -> s.uiScale, this::pickScale));
         rows.add(new Row(canvas, "Сетка", "",
                 Settings.GRID_NAMES, () -> s.grid, v -> s.grid = v));
         rows.add(new Row(canvas, "Шаг сетки", "",
@@ -657,7 +661,59 @@ public final class SettingsPanel implements Overlay {
         Ui.button(ctx, tr, mouseX, mouseY, x + W - PAD - doneW, footerY(), doneW, BTN_H,
                 "Готово", Ui.ACCENT);
         sizer.draw(ctx, mouseX, mouseY, x, y, W, h);
+        drawScaleAsk(ctx, mouseX, mouseY);
         framing = false;
+    }
+
+    private void pickScale(int v) {
+        if (scaleWas < 0) scaleWas = s.uiScale;
+        s.uiScale = v;
+        scaleAt = System.currentTimeMillis();
+        if (v == scaleWas) scaleWas = -1;
+    }
+
+    private void settleScale(boolean keep) {
+        if (scaleWas < 0) return;
+        if (!keep) s.uiScale = scaleWas;
+        scaleWas = -1;
+        s.apply();
+        s.save();
+        changed = true;
+    }
+
+    private int askW() {
+        int buttons = Ui.buttonW(tr, SCALE_BACK) + ASK_GAP + Ui.buttonW(tr, SCALE_KEEP);
+        return Math.min(W - 2 * PAD, Math.max(buttons, tr.width(SCALE_ASK)) + 2 * ASK_PAD);
+    }
+
+    private int askH() { return ASK_PAD * 2 + 2 * Ui.TEXT_H + 6 + ASK_GAP + BTN_H; }
+
+    private int askX() { return x + (W - askW()) / 2; }
+
+    private int askY() { return y + (h - askH()) / 2; }
+
+    private int askBtnY() { return askY() + askH() - ASK_PAD - BTN_H; }
+
+    private int keepX() { return askX() + askW() - ASK_PAD - Ui.buttonW(tr, SCALE_KEEP); }
+
+    private int backX() { return keepX() - ASK_GAP - Ui.buttonW(tr, SCALE_BACK); }
+
+    private void drawScaleAsk(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
+        if (scaleWas < 0) return;
+        long left = SCALE_MS - (System.currentTimeMillis() - scaleAt);
+        if (left <= 0) {
+            settleScale(false);
+            return;
+        }
+        ctx.nextStratum();
+        int ax = askX(), ay = askY(), aw = askW();
+        Ui.panel(ctx, ax, ay, aw, askH());
+        Draw.textFit(ctx, tr, SCALE_ASK, ax + ASK_PAD, ay + ASK_PAD, aw - 2 * ASK_PAD, Theme.TEXT, false);
+        Draw.textFit(ctx, tr, "вернётся через " + (left + 999) / 1000 + " с", ax + ASK_PAD,
+                ay + ASK_PAD + Ui.TEXT_H + 6, aw - 2 * ASK_PAD, Theme.TEXT_FAINT, false);
+        int by = askBtnY();
+        Ui.button(ctx, tr, mouseX, mouseY, backX(), by, Ui.buttonW(tr, SCALE_BACK), BTN_H, SCALE_BACK, Ui.GHOST);
+        Ui.button(ctx, tr, mouseX, mouseY, keepX(), by, Ui.buttonW(tr, SCALE_KEEP), BTN_H, SCALE_KEEP, Ui.ACCENT);
     }
 
     private int resetW() {
@@ -1423,6 +1479,12 @@ public final class SettingsPanel implements Overlay {
     public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         stale();
         double mx = click.x(), my = click.y();
+        if (scaleWas >= 0) {
+            int by = askBtnY();
+            if (Ui.hit(mx, my, keepX(), by, Ui.buttonW(tr, SCALE_KEEP), BTN_H)) settleScale(true);
+            else if (Ui.hit(mx, my, backX(), by, Ui.buttonW(tr, SCALE_BACK), BTN_H)) settleScale(false);
+            return true;
+        }
         int button = click.button();
         if (binding != null && bindMouse(button, click.modifiers())) return true;
         if (sizer.press(click, doubled, x, y, W, h)) {
@@ -1724,6 +1786,11 @@ public final class SettingsPanel implements Overlay {
     public boolean keyPressed(KeyEvent input) {
         stale();
         int key = input.key();
+        if (scaleWas >= 0) {
+            if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) settleScale(true);
+            else if (key == GLFW.GLFW_KEY_ESCAPE) settleScale(false);
+            return true;
+        }
         if (binding != null) {
             if (key == GLFW.GLFW_KEY_ESCAPE) { binding = null; soloKey = Settings.NONE; return true; }
             if (isModifier(key)) {
@@ -1809,6 +1876,10 @@ public final class SettingsPanel implements Overlay {
     }
 
     private void close() {
+        if (scaleWas >= 0) {
+            s.uiScale = scaleWas;
+            scaleWas = -1;
+        }
         hexField = null;
         binding = null;
         closed = true;

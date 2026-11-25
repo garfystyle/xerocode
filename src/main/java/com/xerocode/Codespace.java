@@ -224,6 +224,8 @@ public final class Codespace {
         public long millis;
 
         private Download fast;
+        private boolean downloaded;
+        private int skipped;
 
         private final boolean single;
 
@@ -253,6 +255,8 @@ public final class Codespace {
         public int index()  { return Math.min(index + 1, lines.size()); }
         public int total()  { return lines.size(); }
         public int failedLines() { return failed; }
+        public int unread() { return failed + skipped; }
+        public boolean downloaded() { return downloaded; }
         public Set<String> skipList() { return memo.skip; }
         public int blocks() { return handlers.size(); }
         public JsonArray handlers() { return handlers; }
@@ -330,7 +334,10 @@ public final class Codespace {
         }
 
         private int ahead(int at) {
-            while (at < lines.size() && memo.skip.contains(key(lines.get(at)))) at++;
+            while (at < lines.size() && memo.skip.contains(key(lines.get(at)))) {
+                at++;
+                skipped++;
+            }
             return at;
         }
 
@@ -401,6 +408,7 @@ public final class Codespace {
                 case FETCHING -> note = FETCHING;
                 case DONE -> {
                     handlers.addAll(fast.handlers);
+                    downloaded = true;
                     dropFast();
                     complete();
                 }

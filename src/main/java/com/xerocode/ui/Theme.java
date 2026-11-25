@@ -56,6 +56,12 @@ public final class Theme {
     public static final int ROW_HEAD_H   = 17;
     public static final int ROW_GAP      = 2;
 
+    public static int rowActionH() { return Env.touch() ? 28 : ROW_ACTION_H; }
+
+    public static int rowCatH() { return Env.touch() ? 32 : ROW_CAT_H; }
+
+    public static int rowHeadH() { return Env.touch() ? 24 : ROW_HEAD_H; }
+
     private static final int[] DARK_DIM = {0x70, 0xC0, 0xE8};
     private static final int[] LIGHT_DIM = {0x30, 0x66, 0xA0};
     private static final int[] DARK_SAMPLE = {0x0F1117, 0x171A21, 0x232833, 0xEEF1F6, 0x59A6FF, 0x272C37};

@@ -52,6 +52,7 @@ public final class Settings {
     public static final String[] BLOCK_NAMES = {"Градиент", "Плоские"};
     public static final String[] CATALOG_NAMES = {"Список слева", "Сундуки"};
     public static final String[] SCALE_NAMES = {"Авто", "1", "2", "3", "4"};
+    private static final String[] GAME_SCALE_NAMES = {"Как в игре", "1", "2", "3", "4"};
     public static final int UPLOAD_XEROCODE = 0, UPLOAD_JUSTMC = 1;
     public static final String[] UPLOAD_NAMES = {"XeroCode", "JustMC"};
 
@@ -63,6 +64,7 @@ public final class Settings {
         REDO     ("redo",      "Вернуть",              GLFW.GLFW_KEY_Y,      CTRL),
         SAVE     ("save",      "Сохранить",            GLFW.GLFW_KEY_S,      CTRL),
         SAVE_TAB ("saveTab",   "Вкладку в файл",       GLFW.GLFW_KEY_U,      CTRL | SHIFT),
+        LOAD     ("load",      "Загрузить json",       GLFW.GLFW_KEY_S,      CTRL | ALT),
         UPLOAD   ("upload",    "Сохранить на сервер",  GLFW.GLFW_KEY_S,      CTRL | SHIFT),
         SEARCH   ("search",    "Поиск блока",          GLFW.GLFW_KEY_F,      CTRL),
         FIND     ("find",      "Поиск по коду",        GLFW.GLFW_KEY_F,      CTRL | SHIFT),
@@ -118,6 +120,8 @@ public final class Settings {
 
     public static int mouse(int button) { return MOUSE + button; }
 
+    public static String[] scaleNames() { return Env.browser() ? SCALE_NAMES : GAME_SCALE_NAMES; }
+
     public static boolean isMouse(int code) { return code >= MOUSE && code < MOUSE + MOUSE_BUTTONS; }
 
     public static int button(int code) { return code - MOUSE; }
@@ -136,6 +140,8 @@ public final class Settings {
             case GLFW.GLFW_KEY_RIGHT_SHIFT -> GLFW.GLFW_KEY_LEFT_SHIFT;
             case GLFW.GLFW_KEY_RIGHT_ALT -> GLFW.GLFW_KEY_LEFT_ALT;
             case GLFW.GLFW_KEY_RIGHT_SUPER -> GLFW.GLFW_KEY_LEFT_SUPER;
+            case GLFW.GLFW_KEY_KP_SUBTRACT -> GLFW.GLFW_KEY_MINUS;
+            case GLFW.GLFW_KEY_KP_ADD -> GLFW.GLFW_KEY_EQUAL;
             default -> code;
         };
     }
@@ -146,6 +152,8 @@ public final class Settings {
             case GLFW.GLFW_KEY_LEFT_SHIFT -> GLFW.GLFW_KEY_RIGHT_SHIFT;
             case GLFW.GLFW_KEY_LEFT_ALT -> GLFW.GLFW_KEY_RIGHT_ALT;
             case GLFW.GLFW_KEY_LEFT_SUPER -> GLFW.GLFW_KEY_RIGHT_SUPER;
+            case GLFW.GLFW_KEY_MINUS -> GLFW.GLFW_KEY_KP_SUBTRACT;
+            case GLFW.GLFW_KEY_EQUAL -> GLFW.GLFW_KEY_KP_ADD;
             default -> NONE;
         };
     }
@@ -185,7 +193,8 @@ public final class Settings {
     public boolean lineNumbers = true;
     public boolean chests = Env.touch();
     public boolean statusBar = false;
-    public int webScale = 0;
+    public boolean paletteHidden;
+    public int uiScale = 0;
     public int upload = UPLOAD_XEROCODE;
     public static final int PREVIEW_VOLUME = 50;
     private static final double LOUDNESS_POWER = Math.log(10) / Math.log(4);
@@ -633,7 +642,8 @@ public final class Settings {
         look.addProperty("lineNumbers", lineNumbers);
         look.addProperty("chests", chests);
         look.addProperty("statusBar", statusBar);
-        look.addProperty("webScale", webScale);
+        look.addProperty("paletteHidden", paletteHidden);
+        look.addProperty("webScale", uiScale);
         look.addProperty("dim", dim);
         look.addProperty("gridSize", gridSize);
         look.addProperty("mapSize", mapSize);
@@ -651,7 +661,8 @@ public final class Settings {
         lineNumbers = flag(look, "lineNumbers", lineNumbers);
         chests = flag(look, "chests", chests);
         statusBar = flag(look, "statusBar", statusBar);
-        webScale = clamp(num(look, "webScale", webScale), 0, SCALE_NAMES.length - 1);
+        paletteHidden = flag(look, "paletteHidden", paletteHidden);
+        uiScale = clamp(num(look, "webScale", uiScale), 0, SCALE_NAMES.length - 1);
         dim = clamp(num(look, "dim", dim), 0, DIM_NAMES.length - 1);
         gridSize = clamp(num(look, "gridSize", gridSize), 0, GRID_STEP_NAMES.length - 1);
         mapSize = clamp(num(look, "mapSize", mapSize), 0, MAP_NAMES.length - 1);

@@ -56,7 +56,7 @@ public final class Link {
     private static volatile ServerSocket socket;
     private static volatile String token;
     private static volatile Codespace.Scan scan;
-    private static volatile CompletableFuture<JsonArray> reading;
+    private static volatile CompletableFuture<Codespace.Scan> reading;
 
     private record Line(int position, JsonObject fresh, JsonObject was) {}
 
@@ -150,13 +150,13 @@ public final class Link {
     public static void tick() {
         placeNext();
         Codespace.Scan running = scan;
-        CompletableFuture<JsonArray> asked = reading;
+        CompletableFuture<Codespace.Scan> asked = reading;
         if (running == null || asked == null) return;
         running.tick();
         if (running.state == Codespace.State.RUNNING) return;
         scan = null;
         reading = null;
-        if (running.state == Codespace.State.DONE) asked.complete(running.handlers());
+        if (running.state == Codespace.State.DONE) asked.complete(running);
         else asked.completeExceptionally(new Refused(409, running.error.isEmpty() ? "чтение мира прервано" : running.error));
     }
 
@@ -434,7 +434,7 @@ public final class Link {
     }
 
     private static JsonObject world() throws Exception {
-        CompletableFuture<JsonArray> asked = new CompletableFuture<>();
+        CompletableFuture<Codespace.Scan> asked = new CompletableFuture<>();
         onClient(() -> {
             if (reading != null) throw new Refused(409, "мир уже читается");
             ClientLevel level = dev();
@@ -443,9 +443,9 @@ public final class Link {
             reading = asked;
             return true;
         });
-        JsonArray handlers;
+        Codespace.Scan done;
         try {
-            handlers = asked.get(READ_WAIT, TimeUnit.MILLISECONDS);
+            done = asked.get(READ_WAIT, TimeUnit.MILLISECONDS);
         } catch (java.util.concurrent.ExecutionException e) {
             if (e.getCause() instanceof Refused refused) throw refused;
             throw e;
@@ -460,7 +460,9 @@ public final class Link {
         }
         JsonObject o = new JsonObject();
         o.addProperty("ok", true);
-        o.add("handlers", handlers);
+        o.add("handlers", done.handlers());
+        o.addProperty("unread", done.unread());
+        o.addProperty("downloaded", done.downloaded());
         return o;
     }
 

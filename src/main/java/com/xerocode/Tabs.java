@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import net.minecraft.client.gui.Font;
+import xero.compile.Sources;
 
 public final class Tabs {
     public static final int MAX = 10;
@@ -58,6 +59,10 @@ public final class Tabs {
         return data != null && data.isJsonPrimitive() && data.getAsString().startsWith(SPOT_MARK);
     }
 
+    static boolean sourceText(JsonElement data) {
+        return data != null && data.isJsonPrimitive() && Sources.mark(data.getAsString());
+    }
+
     public static Spot spot(JsonObject handler) {
         JsonElement data = handler.get(Importer.CUSTOM_DATA);
         if (!spotText(data)) return null;
@@ -73,7 +78,7 @@ public final class Tabs {
     static void stamp(JsonObject handler, Script script, Script.Root root) {
         int tab = indexOf(script);
         JsonElement data = handler.get(Importer.CUSTOM_DATA);
-        if (tab < 0 || data != null && !spotText(data)) return;
+        if (tab < 0 || data != null && !spotText(data) && !sourceText(data)) return;
         String name = tab == 0 ? "" : TABS.get(tab).name;
         handler.addProperty(Importer.CUSTOM_DATA, new Spot((int) Math.round(root.x), (int) Math.round(root.y), name).text());
     }

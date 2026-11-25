@@ -175,6 +175,8 @@ public abstract class Screen implements Renderable, GuiEventListener {
 
     public void tick() {}
 
+    public void onFilesDrop(java.util.List<java.nio.file.Path> paths) {}
+
     public void removed() {}
 
     public void added() {}

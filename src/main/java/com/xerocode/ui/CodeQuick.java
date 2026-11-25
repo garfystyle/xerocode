@@ -28,6 +28,7 @@ final class CodeQuick {
     private int selected, top;
     private int x, y, w, h;
     private boolean finished;
+    private int pickFrom, pickTo = -1;
 
     private static int rowH() { return Env.touch() ? 22 : 14; }
 
@@ -47,6 +48,7 @@ final class CodeQuick {
         field.setResponder(s -> filter());
         field.moveCursorToEnd(false);
         field.setHighlightPos(0);
+        pickTo = text.length();
         filter();
     }
 
@@ -60,6 +62,12 @@ final class CodeQuick {
 
     static CodeQuick ask(Font tr, String title, String hint, String text, Consumer<String> done) {
         return new CodeQuick(tr, title, hint, text, List.of(), null, done);
+    }
+
+    CodeQuick select(int from, int to) {
+        pickFrom = from;
+        pickTo = to;
+        return this;
     }
 
     boolean done() { return finished; }
@@ -92,6 +100,10 @@ final class CodeQuick {
         field.setX(x + 8);
         field.setY(fy);
         Ui.width(field, w - 16);
+        if (pickTo < 0) return;
+        field.moveCursorTo(pickTo, false);
+        field.setHighlightPos(pickFrom);
+        pickTo = -1;
     }
 
     void draw(GuiGraphicsExtractor ctx, int mx, int my, float delta, int screenW, int screenH) {

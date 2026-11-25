@@ -143,7 +143,7 @@ public final class Exporter {
     }
 
     private static JsonObject customData(Script.Node head, JsonObject handler) {
-        if (head.raw != null && head.raw.has(Importer.CUSTOM_DATA))
+        if (head.raw != null && head.raw.has(Importer.CUSTOM_DATA) && !Tabs.sourceText(head.raw.get(Importer.CUSTOM_DATA)))
             handler.add(Importer.CUSTOM_DATA, head.raw.get(Importer.CUSTOM_DATA));
         return handler;
     }

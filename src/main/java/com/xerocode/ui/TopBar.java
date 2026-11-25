@@ -18,9 +18,9 @@ final class TopBar {
             ZOOM_OUT = 6, ZOOM_IN = 7, FIT = 8,
             ORIGINAL = 9, CANVAS = 10, SETTINGS = 11, UPLOAD = 12, MORE = 13,
             ZOOM_LABEL = 14, LOAD = 15, BACKPACK = 16, FIND = 17, MARKET = 18,
-            SELECT = 19, COPY = 20, CUT = 21, PASTE = 22, CODE = 23;
+            SELECT = 19, COPY = 20, CUT = 21, PASTE = 22, CODE = 23, TIDY = 24, PALETTE = 25;
 
-    private static final int[] HIDE_ORDER = {CLEAR, LOAD, BUILD, PLAY, UPLOAD, MARKET, BACKPACK,
+    private static final int[] HIDE_ORDER = {TIDY, CLEAR, LOAD, BUILD, PLAY, UPLOAD, MARKET, BACKPACK,
             REDO, UNDO, FIT, ZOOM_LABEL, ZOOM_OUT, FIND, CUT, COPY, PASTE, ORIGINAL, CODE};
 
     interface Host {
@@ -33,6 +33,7 @@ final class TopBar {
         boolean selecting();
         int pickedCount();
         StatusBar.Said sync();
+        default boolean paletteOpen() { return false; }
     }
 
     private static final class Btn {
@@ -117,6 +118,11 @@ final class TopBar {
 
     private List<Btn> build(int drop, boolean modeLabels) {
         List<Btn> list = new ArrayList<>();
+        if (!Settings.chests()) {
+            Btn side = btn(0, PALETTE, Draw.SIDEBAR, host.paletteOpen() ? "Спрятать список блоков" : "Список блоков");
+            side.active = host.paletteOpen();
+            list.add(side);
+        }
         Btn undo = btn(1, UNDO, Draw.UNDO, "Отменить  " + hotkey(Settings.Hot.UNDO));
         undo.enabled = History.canUndo();
         Btn redo = btn(1, REDO, Draw.REDO, "Вернуть  " + hotkey(Settings.Hot.REDO));
@@ -127,6 +133,7 @@ final class TopBar {
             list.add(btn(2, PLAY, Draw.PLAY, "Игра  " + hotkey(Settings.Hot.PLAY)));
             list.add(btn(2, BUILD, Draw.BRICKS, "Строительство  " + hotkey(Settings.Hot.BUILD)));
         }
+        if (Env.touch()) list.add(btn(3, TIDY, Draw.TIDY, "Упорядочить строки"));
         Btn clear = btn(3, CLEAR, Draw.TRASH, "Очистить полотно");
         clear.enabled = !host.empty();
         list.add(clear);
@@ -135,7 +142,8 @@ final class TopBar {
                 ? "\nДаст команду для чата JustMC" : "\nЗаписать код блоками в мир"));
         upload.enabled = !host.nothingToSend();
         list.add(upload);
-        list.add(btn(3, LOAD, Draw.LOAD, "Загрузить json\nПолотно заменится кодом из файла"));
+        list.add(btn(3, LOAD, Draw.LOAD, "Загрузить json  " + hotkey(Settings.Hot.LOAD)
+                + "\nПолотно заменится кодом из файла"));
         int stashed = Backpack.count();
         list.add(btn(4, BACKPACK, Draw.PACK, stashed == 0 ? null : String.valueOf(stashed),
                 "Рюкзак кода  " + hotkey(Settings.Hot.BACKPACK) + (Env.touch() ? ""

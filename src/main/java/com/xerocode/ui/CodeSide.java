@@ -8,16 +8,19 @@ import java.util.Locale;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
 import xero.ide.Service;
 
 final class CodeSide {
     private static final int HEAD = 16, PAD = 6, ICON = 12;
+    private static final String SEND_ALL = "Все файлы в мир, заменив код";
 
     interface Host {
         CodeProject project();
         List<Service.Symbol> outline();
         void openFile(CodeFile file);
         void newFile(int x, int y);
+        void sendAll();
         void fileMenu(CodeFile file, int x, int y);
         void symbol(Service.Symbol symbol);
     }
@@ -64,13 +67,26 @@ final class CodeSide {
     }
 
     private void header(GuiGraphicsExtractor ctx, String title, int top, int mx, int my, boolean plus) {
-        Draw.textFit(ctx, tr, title, x + PAD, top + 4, w - PAD * 2 - ICON, Theme.TEXT_FAINT, false);
+        Draw.textFit(ctx, tr, title, x + PAD, top + 4, w - PAD * 2 - (plus ? 2 * ICON + 2 : ICON),
+                Theme.TEXT_FAINT, false);
         if (!plus) return;
-        int bx = x + w - ICON - 4, by = top + 2;
-        if (Ui.hit(mx, my, bx, by, ICON, ICON)) Draw.round(ctx, bx, by, ICON, ICON, 2, Draw.opaque(Theme.SURFACE_HOVER));
-        Draw.glyph(ctx, Draw.PLUS, bx + (ICON - Draw.glyphW(Draw.PLUS)) / 2, by + (ICON - Draw.glyphH(Draw.PLUS)) / 2,
-                Theme.TEXT_DIM);
+        int by = top + 2;
+        icon(ctx, Draw.PLUS, plusX(), by, mx, my);
+        if (icon(ctx, Draw.UPLOAD, sendX(), by, mx, my))
+            ctx.setComponentTooltipForNextFrame(tr, List.of(Component.literal(SEND_ALL)), mx, my);
     }
+
+    private boolean icon(GuiGraphicsExtractor ctx, String[] glyph, int bx, int by, int mx, int my) {
+        boolean over = Ui.hit(mx, my, bx, by, ICON, ICON);
+        if (over) Draw.round(ctx, bx, by, ICON, ICON, 2, Draw.opaque(Theme.SURFACE_HOVER));
+        Draw.glyph(ctx, glyph, bx + (ICON - Draw.glyphW(glyph)) / 2, by + (ICON - Draw.glyphH(glyph)) / 2,
+                over ? Theme.TEXT : Theme.TEXT_DIM);
+        return over;
+    }
+
+    private int plusX() { return x + w - ICON - 4; }
+
+    private int sendX() { return plusX() - ICON - 2; }
 
     private void drawFiles(GuiGraphicsExtractor ctx, int mx, int my, int bottom) {
         CodeProject p = host.project();
@@ -178,7 +194,8 @@ final class CodeSide {
             return true;
         }
         if (my < y + HEAD) {
-            if (mx >= x + w - ICON - 6) host.newFile((int) mx, (int) my);
+            if (mx >= plusX() - 2) host.newFile((int) mx, (int) my);
+            else if (mx >= sendX() - 1) host.sendAll();
             return true;
         }
         int rh = rowH();

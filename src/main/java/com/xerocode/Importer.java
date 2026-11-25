@@ -96,6 +96,7 @@ public final class Importer {
         Result result = new Result();
         boolean exact = script.roots.isEmpty();
         int x = exact ? besideSpots(script, handlers, startX) : startX, y = 40, columnW = 0;
+        Set<Tabs.Spot> taken = new LinkedHashSet<>();
 
         int line = -1;
         for (JsonObject handler : byPosition(handlers)) {
@@ -105,7 +106,7 @@ public final class Importer {
                 List<Script.Node> chain = chainOf(handler, result, line);
                 if (chain.isEmpty()) continue;
                 Tabs.Spot spot = exact ? Tabs.spot(handler) : null;
-                if (spot != null && Tabs.owns(script, spot)) {
+                if (spot != null && Tabs.owns(script, spot) && taken.add(spot)) {
                     Script.Root placed = new Script.Root(spot.x(), spot.y());
                     placed.chain.addAll(chain);
                     script.roots.add(placed);
@@ -187,7 +188,8 @@ public final class Importer {
     }
 
     private static void keepPlace(JsonObject handler, Script.Node head) {
-        if (handler.has(CUSTOM_DATA) && !Tabs.spotText(handler.get(CUSTOM_DATA))) raw(head).add(CUSTOM_DATA, handler.get(CUSTOM_DATA));
+        if (handler.has(CUSTOM_DATA) && !Tabs.spotText(handler.get(CUSTOM_DATA)) && !Tabs.sourceText(handler.get(CUSTOM_DATA)))
+            raw(head).add(CUSTOM_DATA, handler.get(CUSTOM_DATA));
         if (positionOf(handler) != Integer.MAX_VALUE) raw(head).addProperty(KEPT_LINE, positionOf(handler));
     }
 

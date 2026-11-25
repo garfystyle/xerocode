@@ -14,6 +14,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -21,6 +22,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 import net.minecraft.client.Minecraft;
 import xero.compile.Compiler;
+import xero.compile.Sources;
 import xero.dialect.Dialect;
 import xero.dialect.Dialects;
 import xero.json.Json;
@@ -39,6 +41,7 @@ public final class CodeProject {
         public int errors, warnings, lines;
         public final Set<String> imports = new HashSet<>();
         public final Map<Integer, List<Compiler.Origin>> origins = new HashMap<>();
+        public final List<Sources.File> sources = new ArrayList<>();
         public boolean ok() { return module != null && errors == 0; }
     }
 
@@ -348,6 +351,15 @@ public final class CodeProject {
             }
         }
         out.imports.addAll(imported);
+        Set<String> used = new LinkedHashSet<>();
+        for (CodeFile f : built.keySet()) used.add(f.path);
+        used.addAll(imported);
+        for (String path : used) {
+            CodeFile f = find(path);
+            if (f == null) continue;
+            load(f);
+            out.sources.add(new Sources.File(f.path, f.doc.text()));
+        }
         if (!failed) {
             Map<String, Object> merged = new LinkedHashMap<>();
             merged.put("handlers", handlers);

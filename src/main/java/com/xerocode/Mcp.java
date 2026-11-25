@@ -12,13 +12,18 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import net.minecraft.util.Util;
 
 public final class Mcp {
@@ -48,6 +53,7 @@ public final class Mcp {
     private static volatile long checkedAt;
     private static volatile String failure = "";
     private static volatile String trouble = "";
+    private static volatile List<String> searched = List.of();
     private static final ArrayDeque<String> tail = new ArrayDeque<>();
 
     private Mcp() {}
@@ -122,6 +128,7 @@ public final class Mcp {
     }
 
     private static void work(Job what) throws Exception {
+        searched = searchPath();
         if (what == Job.INSTALL) {
             if (run(installer(), INSTALL_WAIT, null) != 0) failure = reason("установка не прошла");
         } else if (what != Job.CHECK) {
@@ -223,7 +230,82 @@ public final class Mcp {
     private static String nodeCommand() {
         JsonObject marker = installed();
         String exe = marker == null ? "" : Json.str(marker, "node");
-        return !exe.isEmpty() && Files.isRegularFile(Path.of(exe)) ? exe : "node";
+        if (!exe.isEmpty() && Files.isRegularFile(Path.of(exe))) return exe;
+        for (String dir : searched) {
+            try {
+                Path found = Path.of(dir, WINDOWS ? "node.exe" : "node");
+                if (Files.isRegularFile(found)) return found.toString();
+            } catch (InvalidPathException ignored) {
+            }
+        }
+        return "node";
+    }
+
+    static List<String> searchPath() {
+        Set<String> dirs = new LinkedHashSet<>();
+        addAll(dirs, System.getenv("PATH"));
+        String home = System.getProperty("user.home", "");
+        if (WINDOWS) {
+            addAll(dirs, freshWindowsPath());
+            for (String root : new String[]{System.getenv("ProgramFiles"), System.getenv("ProgramW6432"), System.getenv("ProgramFiles(x86)")})
+                if (root != null) dirs.add(Path.of(root, "nodejs").toString());
+            String local = System.getenv("LOCALAPPDATA");
+            if (local != null) {
+                dirs.add(Path.of(local, "Programs", "nodejs").toString());
+                dirs.add(Path.of(local, "Volta", "bin").toString());
+            }
+            String symlink = System.getenv("NVM_SYMLINK");
+            if (symlink != null && !symlink.isBlank()) dirs.add(symlink);
+            dirs.add(Path.of(home, "scoop", "apps", "nodejs", "current").toString());
+            dirs.add(Path.of(home, "scoop", "shims").toString());
+        } else {
+            for (String dir : new String[]{"/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"}) dirs.add(dir);
+            dirs.add(home + "/.volta/bin");
+            dirs.add(home + "/.local/bin");
+            String nvm = newestNvm(Path.of(home, ".nvm", "versions", "node"));
+            if (nvm != null) dirs.add(nvm);
+        }
+        return List.copyOf(dirs);
+    }
+
+    private static void addAll(Set<String> dirs, String path) {
+        if (path == null) return;
+        for (String dir : path.split(WINDOWS ? ";" : ":")) {
+            String clean = dir.strip().replace("\"", "");
+            if (!clean.isEmpty()) dirs.add(clean);
+        }
+    }
+
+    private static String freshWindowsPath() {
+        StringBuilder out = new StringBuilder();
+        try {
+            run(List.of("powershell.exe", "-NoProfile", "-Command",
+                    "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')"),
+                    20, out, List.of());
+        } catch (Exception e) {
+            return "";
+        }
+        return out.toString().strip();
+    }
+
+    private static String newestNvm(Path versions) {
+        try (Stream<Path> list = Files.list(versions)) {
+            return list.filter(Files::isDirectory)
+                    .max(Comparator.comparing(Mcp::versionKey))
+                    .map(p -> p.resolve("bin").toString())
+                    .orElse(null);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static String versionKey(Path dir) {
+        StringBuilder key = new StringBuilder();
+        for (String part : dir.getFileName().toString().replaceFirst("^v", "").split("\\.")) {
+            String digits = part.replaceAll("\\D", "");
+            key.append(String.format(Locale.ROOT, "%08d", digits.isEmpty() ? 0 : Long.parseLong(digits.substring(0, Math.min(8, digits.length())))));
+        }
+        return key.toString();
     }
 
     private static List<String> installer() {
@@ -233,8 +315,12 @@ public final class Mcp {
     }
 
     private static int run(List<String> command, long seconds, StringBuilder into) throws Exception {
+        return run(command, seconds, into, searched);
+    }
+
+    private static int run(List<String> command, long seconds, StringBuilder into, List<String> path) throws Exception {
         ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
-        if (!WINDOWS) builder.environment().merge("PATH", "/opt/homebrew/bin:/usr/local/bin", (was, more) -> was + ":" + more);
+        if (!path.isEmpty()) builder.environment().put("PATH", String.join(WINDOWS ? ";" : ":", path));
         Process process;
         try {
             process = builder.start();

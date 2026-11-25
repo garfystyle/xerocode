@@ -35,6 +35,8 @@ public final class Env {
 
     public static void textFocus(Object owner, boolean on) {}
 
+    public static void textRect(int x, int y, int w, int h) {}
+
     public static void textDrawn(Object owner, double caretX, double caretY, String selected, String all) {}
 
     public static void later(Runnable job) {

@@ -18,6 +18,8 @@ public final class Env {
 
     public static void textFocus(Object owner, boolean on) { Input.textFocus(owner, on); }
 
+    public static void textRect(int x, int y, int w, int h) { Input.textRect(x, y, w, h); }
+
     public static void textDrawn(Object owner, double caretX, double caretY, String selected, String all) {
         Input.drawn(owner);
         Input.caretAt(caretX, caretY);

@@ -40,6 +40,9 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 import xero.compile.Compiler;
+import xero.compile.Sources;
+import xero.compile.Wrap;
+import xero.data.Data;
 import xero.dialect.Dialect;
 import xero.dialect.Dialects;
 import xero.dialect.Ink;
@@ -55,6 +58,7 @@ public final class CodeScreen extends Screen {
 
     private static List<CodeProject.Problem> problems = List.of();
     private static String sentFrom;
+    private static final String TO_WORLD = "Собрать и в мир";
     private static CodeProject.Problem faultProblem;
     private int faultVersion = Integer.MIN_VALUE;
 
@@ -141,6 +145,7 @@ public final class CodeScreen extends Screen {
             @Override public List<Service.Symbol> outline() { return outline; }
             @Override public void openFile(CodeFile file) { showFile(file); }
             @Override public void newFile(int x, int y) { newFileMenu(x, y); }
+            @Override public void sendAll() { upload(null, true); }
             @Override public void fileMenu(CodeFile file, int x, int y) { fileContextMenu(file, x, y); }
             @Override public void symbol(Service.Symbol s) { goOffset(s.nameStart()); }
         };
@@ -1043,6 +1048,7 @@ public final class CodeScreen extends Screen {
     private void fileContextMenu(CodeFile f, int x, int y) {
         List<Menu.Item> items = new ArrayList<>();
         items.add(new Menu.Item("Открыть"));
+        items.add(new Menu.Item(TO_WORLD, false, Draw.UPLOAD));
         items.add(new Menu.Item("Переименовать"));
         items.add(new Menu.Item("Скопировать путь"));
         items.add(new Menu.Item("Сохранить на диск"));
@@ -1051,6 +1057,7 @@ public final class CodeScreen extends Screen {
             String label = i >= 0 && i < items.size() ? items.get(i).label : "";
             switch (label) {
                 case "Открыть" -> showFile(f);
+                case TO_WORLD -> upload(f, true);
                 case "Переименовать" -> askRenameFile(f);
                 case "Скопировать путь" -> Minecraft.getInstance().keyboardHandler.setClipboard(f.path);
                 case "Сохранить на диск" -> {
@@ -1070,11 +1077,14 @@ public final class CodeScreen extends Screen {
     }
 
     private void askRenameFile(CodeFile f) {
-        openQuick(CodeQuick.ask(font, "Новое имя файла", "имя", f.path, wanted -> {
+        String path = f.path;
+        int start = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1;
+        int dot = path.lastIndexOf('.');
+        openQuick(CodeQuick.ask(font, "Новое имя файла", "имя", path, wanted -> {
             String was = f.path;
             if (!project.rename(f, wanted)) say("файл с таким именем нельзя");
             else Tabs.relink(was, f.path);
-        }));
+        }).select(start, dot > start ? dot : path.length()));
     }
 
     private void askDelete(CodeFile f) {
@@ -1167,21 +1177,29 @@ public final class CodeScreen extends Screen {
 
     private void importFile() {
         FileDialog.open("Открыть файл кода", project.root.toString(), masks(), "код", file -> {
-            if (file == null) return;
-            try {
-                String name = file.getFileName().toString();
-                String text = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
-                if (Dialects.forFile(name) == null) {
-                    say("такой файл не поддерживается: " + name);
-                    return;
-                }
-                int dot = name.lastIndexOf('.');
-                showFile(project.create(project.freeName(name.substring(0, dot), name.substring(dot + 1)), text));
-            } catch (IOException e) {
-                XeroCode.LOG.warn("[xerocode] файл кода не прочитан", e);
-                say("файл не читается");
-            }
+            if (file != null) importCode(file);
         });
+    }
+
+    @Override
+    public void onFilesDrop(List<Path> paths) {
+        for (Path file : paths) importCode(file);
+    }
+
+    private void importCode(Path file) {
+        try {
+            String name = file.getFileName().toString();
+            if (Dialects.forFile(name) == null) {
+                say("такой файл не поддерживается: " + name);
+                return;
+            }
+            String text = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+            int dot = name.lastIndexOf('.');
+            showFile(project.create(project.freeName(name.substring(0, dot), name.substring(dot + 1)), text));
+        } catch (IOException e) {
+            XeroCode.LOG.warn("[xerocode] файл кода не прочитан", e);
+            say("файл не читается");
+        }
     }
 
     private static String[] masks() {
@@ -1447,7 +1465,7 @@ public final class CodeScreen extends Screen {
         sentFrom = only == null ? "" : only.path;
         CodeProject.Outcome out = build(only);
         if (!out.ok()) return;
-        JsonObject json = JsonParser.parseString(Json.write(out.module)).getAsJsonObject();
+        JsonObject json = JsonParser.parseString(Json.write(withSources(out))).getAsJsonObject();
         project.saveAll();
         if (minecraft != null) minecraft.gui.setScreen(new ExportScreen(json, out.lines, replace, this));
     }
@@ -1478,9 +1496,48 @@ public final class CodeScreen extends Screen {
         return Dialects.all().get(0);
     }
 
+    private Map<String, Object> withSources(CodeProject.Outcome out) {
+        Data data = Data.load();
+        Map<String, Object> module = Wrap.fitted(out.module, data);
+        Sources.Stamped s = Sources.stamp(module, out.sources, data);
+        if (s.fits()) return s.module();
+        bottom.say("исходник в мир не положен: " + (s.chunks() == Integer.MAX_VALUE ? "он больше 16 МБ"
+                : "нужно строк " + s.chunks() + ", свободных " + s.room()) + " — из мира код прочитается декомпиляцией");
+        return module;
+    }
+
     private void takeHandlers(JsonArray handlers, String stem) {
         JsonObject root = new JsonObject();
         root.add("handlers", handlers);
+        Map<String, Object> whole = Json.object(Json.parse(root.toString()));
+        Sources.Reading reading = Sources.read(Json.array(whole.get("handlers")), Data.load());
+        CodeFile first = null;
+        int restored = 0;
+        for (Sources.Found found : reading.found()) {
+            if (!found.complete()) {
+                bottom.say("исходник в мире неполный: кусков " + found.have() + " из " + found.total() + " — его строки переведены заново");
+                continue;
+            }
+            for (Sources.File file : found.files()) {
+                CodeFile f = restored(file);
+                if (first == null) first = f;
+            }
+            restored++;
+            bottom.say("исходник из мира: " + Ui.plural(found.files().size(), "файл", "файла", "файлов") + ", строк узнано "
+                    + found.matched() + " из " + found.expected()
+                    + (found.exact() ? "" : " — остальные правили мимо исходника, они ниже переводом"));
+        }
+        if (restored > 0 && reading.rest().isEmpty()) {
+            showFile(first);
+            say("код мира — исходником, " + Ui.plural(handlers.size(), "строка", "строки", "строк"));
+            return;
+        }
+        if (restored > 0) {
+            JsonArray rest = new JsonArray();
+            for (Object h : reading.rest()) rest.add(JsonParser.parseString(Json.write(h)));
+            root = new JsonObject();
+            root.add("handlers", rest);
+        }
         Dialect d = target();
         Map<String, Object> module = Json.object(Json.parse(root.toString()));
         try {
@@ -1496,6 +1553,20 @@ public final class CodeScreen extends Screen {
             XeroCode.LOG.error("[xerocode] код не перевёлся", e);
             say("код не перевёлся на " + d.title() + ": " + e.getMessage());
         }
+    }
+
+    private CodeFile restored(Sources.File file) {
+        CodeFile had = project.find(CodeProject.clean(file.path()));
+        if (had != null) {
+            project.load(had);
+            if (had.doc.text().equals(file.text())) return had;
+        }
+        String path = CodeProject.clean(file.path());
+        if (had == null) return project.create(path, file.text());
+        int dot = path.lastIndexOf('.');
+        String base = dot > path.lastIndexOf('/') ? path.substring(0, dot) : path;
+        String extension = dot > path.lastIndexOf('/') ? path.substring(dot + 1) : "xero";
+        return project.create(project.freeName(base + "-из-мира", extension), file.text());
     }
 
     private void fromWorld() {

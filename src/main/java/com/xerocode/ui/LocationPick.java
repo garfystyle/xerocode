@@ -2,6 +2,7 @@ package com.xerocode.ui;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.xerocode.Codespace;
 import com.xerocode.Script;
 import com.xerocode.Value;
 import com.xerocode.XeroCode;
@@ -68,7 +69,7 @@ public final class LocationPick {
     private static Value loose;
     private static java.util.function.Consumer<Value> looseDone;
     private static int argIndex, index;
-    private static boolean active, placed, snapCam, eye, hudWas;
+    private static boolean active, placed, snapCam, eye, hudWas, stayed;
     private static Grid grid = Grid.BLOCK;
 
     private static double px, py, pz;
@@ -138,14 +139,17 @@ public final class LocationPick {
         }
 
         XeroCode.canvasClosed();
-        XeroCode.cover("Выбор местоположения…", LocationPick::open);
+        boolean leave = !client.isLocalServer() && client.getConnection() != null
+                && Codespace.inDev(client.level);
+        stayed = !leave;
+        if (leave) XeroCode.cover("Выбор местоположения…", LocationPick::open);
         hudWas = client.gui.hud.isHidden();
         if (!hudWas) client.gui.hud.toggle();
         client.gameRenderer.setRenderBlockOutline(false);
         attach(client);
 
-        if (!client.isLocalServer() && client.getConnection() != null)
-            client.getConnection().sendCommand("build");
+        if (leave) client.getConnection().sendCommand(XeroCode.toWorld());
+        else open();
     }
 
     private static void open() {
@@ -875,7 +879,8 @@ public final class LocationPick {
         if (client.gui.screen() instanceof LocationScreen) client.gui.setScreen(null);
         if (applied && target != null) EditorScreen.openPanelAfter(target, arg, i);
         if (applied && done != null) done.accept(value);
-        XeroCode.openCanvas(client);
+        if (stayed) XeroCode.reopen(client);
+        else XeroCode.openCanvas(client);
     }
 
     public static void abandon() {

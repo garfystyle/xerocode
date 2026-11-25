@@ -1,11 +1,18 @@
 package com.xerocode.ui;
 
+import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.xerocode.Audio;
+import com.xerocode.Env;
 import com.xerocode.Settings;
 import com.xerocode.Value;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 import org.lwjgl.glfw.GLFW;
 
 public final class SoundPlayer implements CatalogPicker.Extra {
@@ -14,6 +21,10 @@ public final class SoundPlayer implements CatalogPicker.Extra {
     private static final int PAD = 7;
     private static final String CLOCK = "00:00.0 / 00:00.0";
     private static final int VOL_W = 60, VOL_GAP = 3, SLIM_W = 360, WHEEL_STEP = 5;
+    private static final String[] TUNE_CAPS = {"ГРОМКОСТЬ", "ТОН", "СИД"};
+    private static final int SEED = 2;
+    private static final int CAP_H = 9, COL_GAP = 4, ROW_GAP = 5, STEP_PX = 6, STEP_PX_COARSE = 10;
+    private static final double[] STEPS = {0.01, 0.1, 1};
     private static int unmuted = Settings.PREVIEW_VOLUME;
     private static double wheel;
 
@@ -25,10 +36,185 @@ public final class SoundPlayer implements CatalogPicker.Extra {
     private String cue;
     private String hint;
 
+    private EditBox[] tune;
+    private final Ui.Grab grab = new Ui.Grab();
+    private int tuneX, tuneY, tuneW;
+    private boolean tuneShown;
+    private int scrubField = -1;
+    private double scrubFrom, scrubX0;
+    private boolean scrubbing;
+
     public SoundPlayer(Font tr, Value value, int accent) {
         this.tr = tr;
         this.value = value;
         this.accent = accent;
+    }
+
+    public SoundPlayer tuned() {
+        tune = new EditBox[]{
+                Ui.field(tr, Value.num(value.volume), "0", 32),
+                Ui.field(tr, Value.num(value.pitch2), "0", 32),
+                Ui.field(tr, value.variation, "случайный", 256)};
+        return this;
+    }
+
+    public String seed() { return tune == null ? value.variation : tune[SEED].getValue().trim(); }
+
+    public double volume() { return tune == null ? value.volume : number(0); }
+
+    public double pitch() { return tune == null ? value.pitch2 : number(1); }
+
+    private double number(int i) {
+        try {
+            return Double.parseDouble(tune[i].getValue().trim().replace(',', '.'));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static int fieldH() { return Env.touch() ? 26 : 20; }
+
+    private int colW() { return (tuneW - COL_GAP) / 2; }
+
+    private int colX(int i) { return i == SEED ? tuneX : tuneX + i * (colW() + COL_GAP); }
+
+    private int colWidth(int i) { return i == SEED ? tuneW : colW(); }
+
+    private int rowY(int i) { return i == SEED ? tuneY + CAP_H + fieldH() + ROW_GAP : tuneY; }
+
+    @Override
+    public int sideH() { return tune == null ? 0 : 2 * (CAP_H + fieldH()) + ROW_GAP; }
+
+    @Override
+    public void side(GuiGraphicsExtractor ctx, int x, int y, int w, int mouseX, int mouseY,
+                     boolean shown) {
+        tuneShown = shown && tune != null;
+        if (!tuneShown) {
+            if (tune != null) for (EditBox f : tune) f.setFocused(false);
+            return;
+        }
+        tuneX = x;
+        tuneY = y;
+        tuneW = w;
+        int fh = fieldH();
+        for (int i = 0; i < tune.length; i++) {
+            int cx = colX(i), cw = colWidth(i), ry = rowY(i);
+            EditBox f = tune[i];
+            f.setX(cx + 6);
+            f.setY(ry + CAP_H + (fh - 12) / 2 + 2);
+            Ui.width(f, cw - 12);
+            if (i != SEED && Ui.hit(mouseX, mouseY, cx, ry, cw, CAP_H))
+                ctx.requestCursor(CursorTypes.RESIZE_EW);
+            else if (Ui.hit(mouseX, mouseY, cx, ry + CAP_H, cw, fh)) ctx.requestCursor(CursorTypes.IBEAM);
+            Draw.textFit(ctx, tr, TUNE_CAPS[i], cx + 2, ry, cw - 4, Theme.TEXT_FAINT, false);
+            Ui.input(ctx, cx, ry + CAP_H, cw, fh, f.isFocused());
+            f.extractRenderState(ctx, mouseX, mouseY, 0);
+            Ui.placeholder(ctx, tr, f);
+        }
+    }
+
+    private int tuneAt(double mx, double my, boolean caption) {
+        if (!tuneShown) return -1;
+        int h = caption ? CAP_H : fieldH();
+        for (int i = 0; i < tune.length; i++) {
+            int top = rowY(i) + (caption ? 0 : CAP_H);
+            if (Ui.hit(mx, my, colX(i), top, colWidth(i), h)) return i;
+        }
+        return -1;
+    }
+
+    private int focusedTune() {
+        if (!tuneShown) return -1;
+        for (int i = 0; i < tune.length; i++) if (tune[i].isFocused()) return i;
+        return -1;
+    }
+
+    private void focusTune(int i) {
+        for (int k = 0; k < tune.length; k++) tune[k].setFocused(k == i);
+    }
+
+    @Override
+    public boolean sideClicked(MouseButtonEvent click, boolean doubled) {
+        if (tune == null) return false;
+        int mx = (int) click.x(), my = (int) click.y();
+        int cap = tuneAt(mx, my, true);
+        if (cap == SEED) {
+            focusTune(SEED);
+            tune[SEED].moveCursorToEnd(false);
+            return true;
+        }
+        if (cap >= 0) {
+            focusTune(cap);
+            scrubField = cap;
+            scrubFrom = number(cap);
+            scrubX0 = click.x();
+            scrubbing = false;
+            return true;
+        }
+        int at = tuneAt(mx, my, false);
+        if (at < 0) {
+            focusTune(-1);
+            return false;
+        }
+        focusTune(at);
+        EditBox f = tune[at];
+        if (!f.mouseClicked(click, doubled)) f.onClick(click, doubled);
+        grab.take(f);
+        return true;
+    }
+
+    @Override
+    public boolean sideDragged(MouseButtonEvent click, double dx, double dy) {
+        if (scrubField >= 0) {
+            double moved = click.x() - scrubX0;
+            if (!scrubbing && Math.abs(moved) < 3) return true;
+            scrubbing = true;
+            int n = (int) (moved / (held(GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_RIGHT_CONTROL)
+                    ? STEP_PX_COARSE : STEP_PX));
+            setTune(scrubField, snap(scrubFrom, n, step()));
+            return true;
+        }
+        return grab.drag(click, dx, dy);
+    }
+
+    @Override
+    public boolean sideScrolled(double mx, double my, double amount) {
+        if (tune == null || amount == 0 || Env.touch()) return false;
+        int i = tuneAt(mx, my, true);
+        if (i < 0) i = tuneAt(mx, my, false);
+        if (i < 0 || i == SEED) return false;
+        setTune(i, snap(number(i), amount > 0 ? 1 : -1, step()));
+        return true;
+    }
+
+    @Override
+    public boolean charTyped(CharacterEvent in) {
+        int i = focusedTune();
+        if (i < 0) return false;
+        tune[i].charTyped(in);
+        return true;
+    }
+
+    private void setTune(int i, double to) {
+        tune[i].setValue(Value.num(Math.max(0, to)));
+        tune[i].moveCursorToEnd(false);
+    }
+
+    private static double step() {
+        if (held(GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_RIGHT_SHIFT)) return STEPS[0];
+        return held(GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_RIGHT_CONTROL) ? STEPS[2] : STEPS[1];
+    }
+
+    private static double snap(double from, int n, double step) {
+        if (n == 0) return from;
+        double base = n > 0 ? Math.floor(from / step + 1e-9) : Math.ceil(from / step - 1e-9);
+        return Math.round((base + n) * step * 1e6) / 1e6;
+    }
+
+    private static boolean held(int left, int right) {
+        var window = Minecraft.getInstance().getWindow();
+        return window != null && (InputConstants.isKeyDown(window, left)
+                || InputConstants.isKeyDown(window, right));
     }
 
     @Override
@@ -48,9 +234,23 @@ public final class SoundPlayer implements CatalogPicker.Extra {
 
     @Override
     public boolean keyPressed(KeyEvent in) {
-        if (in.key() != GLFW.GLFW_KEY_SPACE
-                || (in.modifiers() & GLFW.GLFW_MOD_CONTROL) == 0) return false;
-        Audio.toggle();
+        int key = in.key();
+        if (key == GLFW.GLFW_KEY_SPACE && (in.modifiers() & GLFW.GLFW_MOD_CONTROL) != 0) {
+            Audio.toggle();
+            return true;
+        }
+        int i = focusedTune();
+        if (i < 0 || key == GLFW.GLFW_KEY_ESCAPE || key == GLFW.GLFW_KEY_ENTER
+                || key == GLFW.GLFW_KEY_KP_ENTER) return false;
+        if (key == GLFW.GLFW_KEY_TAB) {
+            boolean back = (in.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
+            int next = Math.floorMod(i + (back ? -1 : 1), tune.length);
+            focusTune(next);
+            tune[next].moveCursorToEnd(false);
+            tune[next].setHighlightPos(0);
+            return true;
+        }
+        tune[i].keyPressed(in);
         return true;
     }
 
@@ -80,7 +280,7 @@ public final class SoundPlayer implements CatalogPicker.Extra {
                        boolean flush) {
         hint = null;
         Audio.want(bound);
-        if (value != null) Audio.mix(value.volume, value.pitch2, value.source);
+        if (value != null) Audio.mix(volume(), pitch(), value.source);
         Audio.tick();
         if (cue != null) {
             Audio.State st = Audio.state();
@@ -135,7 +335,7 @@ public final class SoundPlayer implements CatalogPicker.Extra {
         boolean onIcon = !volDragging && onIcon(mouseX, mouseY, b);
         boolean onSlider = volDragging || onSlider(mouseX, mouseY, b);
         int iconY = b.row() + (BTN - Draw.glyphH(Draw.SPEAKER)) / 2;
-        Draw.glyph(ctx, Draw.SPEAKER, b.volX(), iconY,
+        Draw.glyph(ctx, pct == 0 ? Draw.SPEAKER_OFF : Draw.SPEAKER, b.volX(), iconY,
                 onIcon ? Theme.TEXT : pct == 0 ? Theme.TEXT_FAINT : Theme.TEXT_DIM);
         if (b.sliderW() > 0) {
             int sw = b.sliderW();
@@ -229,6 +429,9 @@ public final class SoundPlayer implements CatalogPicker.Extra {
     @Override
     public void mouseReleased() {
         dragging = false;
+        scrubField = -1;
+        scrubbing = false;
+        grab.release();
         if (!volDragging) return;
         volDragging = false;
         Settings.get().save();

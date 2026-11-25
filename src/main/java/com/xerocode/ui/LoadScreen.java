@@ -208,7 +208,7 @@ final class LoadScreen extends DialogScreen {
     }
 
     private void pickFile() {
-        if (choosing) return;
+        if (choosing && !Env.browser()) return;
         choosing = true;
         String start = "";
         if (!Env.browser()) {

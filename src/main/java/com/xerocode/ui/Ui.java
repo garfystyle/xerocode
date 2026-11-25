@@ -608,9 +608,13 @@ public final class Ui {
     private static final int BAR_GRAB = 4, BAR_W = 3, THUMB_MIN = 14;
 
     public static final class Bar {
-        private int x, y, trackH, thumbH, thumbY, span;
+        private int x, y, trackH, thumbH, thumbY, span, barW = BAR_W;
         private boolean dragging;
         private int grab;
+
+        public void width(int w) { barW = w; }
+
+        public int width() { return barW; }
 
         public void draw(GuiGraphicsExtractor ctx, int x, int y, int trackH,
                          int contentH, int viewH, int scroll, double mx, double my) {
@@ -621,15 +625,15 @@ public final class Ui {
             if (contentH <= viewH || trackH <= 0) { thumbH = 0; return; }
             thumbH = Math.min(trackH, Math.max(THUMB_MIN, trackH * viewH / contentH));
             thumbY = y + (trackH - thumbH) * Math.max(0, Math.min(span, scroll)) / Math.max(1, span);
-            dragZone(x - BAR_GRAB, y, BAR_W + BAR_GRAB * 2, trackH);
+            dragZone(x - BAR_GRAB, y, barW + BAR_GRAB * 2, trackH);
             boolean hot = dragging || over(mx, my);
-            Draw.rect(ctx, x, y, BAR_W, trackH, Draw.argb(0x30, 0x000000));
-            Draw.round(ctx, x, thumbY, BAR_W, thumbH, 1,
+            Draw.rect(ctx, x, y, barW, trackH, Draw.argb(0x30, 0x000000));
+            Draw.round(ctx, x, thumbY, barW, thumbH, Math.min(2, barW / 2),
                     Draw.argb(hot ? 0xFF : 0xB4, hot ? Theme.THUMB_HOT : Theme.THUMB));
         }
 
         private boolean over(double mx, double my) {
-            return thumbH > 0 && mx >= x - BAR_GRAB && mx < x + BAR_W + BAR_GRAB
+            return thumbH > 0 && mx >= x - BAR_GRAB && mx < x + barW + BAR_GRAB
                     && my >= y && my < y + trackH;
         }
 

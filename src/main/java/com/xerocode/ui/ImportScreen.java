@@ -2,6 +2,7 @@ package com.xerocode.ui;
 
 import com.google.gson.JsonArray;
 import com.xerocode.Codespace;
+import com.xerocode.History;
 import com.xerocode.Importer;
 import com.xerocode.Sync;
 import com.xerocode.Tabs;
@@ -313,6 +314,7 @@ public final class ImportScreen extends DialogScreen {
         phase = Phase.DONE;
         if (scan == null) return;
         if (broke()) return;
+        History.State before = History.snapshot(script);
         try {
             int startX = START_X;
             boolean wasEmpty = script.roots.isEmpty();
@@ -336,6 +338,7 @@ public final class ImportScreen extends DialogScreen {
             failure = e.getClass().getSimpleName();
             XeroCode.LOG.error("[xerocode] импорт не удался", e);
         }
+        if (!before.equals(History.snapshot(script))) History.pushFor(script, before);
     }
 
     @Override

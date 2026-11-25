@@ -284,6 +284,7 @@ final class WrapField {
             ctx.enableScissor(x, y, x, y);
             box.extractRenderState(ctx, -1, -1, delta);
             ctx.disableScissor();
+            Env.textRect(x, y, w, h);
         }
     }
 

@@ -584,6 +584,10 @@ public final class ValueEditor implements Overlay {
                 inputs("nums", new String[]{"ГРОМКОСТЬ", "ТОН"},
                         Value.num(v.volume), Value.num(v.pitch2));
                 gap();
+                cap("ВАРИАЦИЯ ИЛИ СИД");
+                fields.add(field(v.variation, "случайная"));
+                part("variation", fieldH);
+                gap();
                 cap("КАНАЛ");
                 List<String> sources = new ArrayList<>();
                 for (String sid : Pickers.SOURCES) sources.add(Pickers.sourceName(sid));
@@ -599,7 +603,7 @@ public final class ValueEditor implements Overlay {
                 gap();
                 part("choose", btnH);
                 gap();
-                inputs("nums", new String[]{"СКОЛЬКО", "РАЗБРОС", "РАЗБРОС ПО Y"},
+                inputs("nums", new String[]{"СКОЛЬКО", "РАЗБРОС ПО XZ", "РАЗБРОС ПО Y"},
                         String.valueOf(v.count), Value.num(v.spread1), Value.num(v.spread2));
                 Pickers.Entry pe = Pickers.particle(v.particle);
                 if (pe != null && pe.has(Pickers.MOTION)) {
@@ -1669,6 +1673,12 @@ public final class ValueEditor implements Overlay {
                 }
                 drawChoose(ctx, mouseX, mouseY, e != null, "Выбрать звук", "Другой звук");
                 drawFieldRow(ctx, mouseX, mouseY, delta, rowOf("nums"));
+                if (has("variation")) {
+                    EditBox seed = fields.get(fields.size() - 1);
+                    Ui.input(ctx, x + PAD, py("variation"), full, fieldH, seed.isFocused());
+                    seed.extractRenderState(ctx, mouseX, mouseY, delta);
+                    Ui.placeholder(ctx, tr, seed);
+                }
                 if (sourceChips != null)
                     sourceChips.render(ctx, tr, mouseX, mouseY, x + PAD, py("source"),
                             Math.max(0, Pickers.SOURCES.indexOf(v.source)),
@@ -1827,7 +1837,7 @@ public final class ValueEditor implements Overlay {
                     mouseX, mouseY);
         if (canAddCell(v))
             Ui.glyphButton(ctx, tr, mouseX, mouseY, x + PAD, top + rows * (rowH + 2), full, addH,
-                    Draw.PLUS, paired() ? "добавить строку" : map ? "добавить пару" : "добавить значение",
+                    Draw.PLUS, paired() || map ? "добавить пару" : "добавить значение",
                     Ui.GHOST, true);
         if (!carrying) return;
         ctx.nextStratum();
@@ -2434,12 +2444,15 @@ public final class ValueEditor implements Overlay {
                         });
             }
             case Value.SOUND -> {
-                if (player == null) player = new SoundPlayer(tr, v, Values.color(Value.SOUND));
-                player.select(v.sound);
+                SoundPlayer browse = new SoundPlayer(tr, v, Values.color(Value.SOUND)).tuned();
+                browse.select(v.sound);
                 picker = new CatalogPicker(tr, screenW, screenH, "Звук",
                         Values.color(Value.SOUND), items(Pickers.SOUNDS), Pickers.SOUND_CATEGORIES,
-                        v.sound, player, id -> {
+                        v.sound, browse, id -> {
                             v.sound = id;
+                            v.volume = browse.volume();
+                            v.pitch2 = browse.pitch();
+                            v.variation = browse.seed();
                             rebuild = true;
                         });
             }
@@ -2799,6 +2812,7 @@ public final class ValueEditor implements Overlay {
                         return true;
                 }
                 if (rowFieldClicked(click, doubled, mx, my)) return true;
+                if (has("variation") && clickField(click, doubled, mx, my, fields.size() - 1)) return true;
                 int si2 = chip(sourceChips, mx, my, "source");
                 if (si2 >= 0) { v.source = Pickers.SOURCES.get(si2); return true; }
             }
@@ -2909,7 +2923,7 @@ public final class ValueEditor implements Overlay {
 
     private boolean clickField(MouseButtonEvent click, boolean doubled, int mx, int my, int i) {
         if (i >= fields.size()) return false;
-        String id = has("input") ? "input" : has("material") ? "material" : null;
+        String id = has("input") ? "input" : has("material") ? "material" : has("variation") ? "variation" : null;
         if (id == null) return false;
         int fx = x + PAD, fw = inner();
         if (Value.NUMBER.equals(current().type)) {
@@ -3328,6 +3342,7 @@ public final class ValueEditor implements Overlay {
             case Value.SOUND -> {
                 v.volume = parse(fields.get(0).getValue());
                 v.pitch2 = parse(fields.get(1).getValue());
+                if (has("variation")) v.variation = fields.get(fields.size() - 1).getValue().trim();
             }
             case Value.PARTICLE -> {
                 v.count = Math.max(0, (int) parse(fields.get(0).getValue()));

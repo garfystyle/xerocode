@@ -232,6 +232,24 @@
     e.preventDefault();
   }, { passive: false });
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  window.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  });
+  window.addEventListener('drop', function (e) {
+    e.preventDefault();
+    var files = e.dataTransfer ? e.dataTransfer.files : null;
+    if (!files) return;
+    var p = pos(e);
+    for (var i = 0; i < files.length; i++) (function (file) {
+      var r = new FileReader();
+      r.onload = function () {
+        var s = r.result;
+        queue.push(['f', p[0], p[1], file.name, s.substring(s.indexOf(',') + 1)]);
+      };
+      r.readAsDataURL(file);
+    })(files[i]);
+  });
   window.addEventListener('blur', function () { queue.push(['b']); });
 
   var coarse = !!(window.matchMedia && matchMedia('(hover: none) and (pointer: coarse)').matches);
@@ -786,6 +804,7 @@
         r.onload = function () { var s = r.result; cb(file.name, s.substring(s.indexOf(',') + 1)); };
         r.readAsDataURL(file);
       };
+      inp.oncancel = function () { cb('', ''); };
       inp.click();
     },
     saveFile: function (name, b64, mime) {
